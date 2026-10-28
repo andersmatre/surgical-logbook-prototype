@@ -51,10 +51,10 @@ export function hideToast() { toastEl.classList.remove('show'); }
 
 export function toast(msg, opts = {}) {
   clearTimeout(toastTimer);
-  toastEl.replaceChildren(
-    h('div', { class: 't-main' }, h('strong', {}, msg), opts.sub ? h('span', {}, opts.sub) : null),
-    opts.action ? h('button', { class: 't-act', onclick: () => { hideToast(); opts.action.fn(); } }, opts.action.label) : null,
-  );
+  // Never pass null to replaceChildren: it would be written out as the text "null".
+  const kids = [h('div', { class: 't-main' }, h('strong', {}, msg), opts.sub ? h('span', {}, opts.sub) : null)];
+  if (opts.action) kids.push(h('button', { class: 't-act', onclick: () => { hideToast(); opts.action.fn(); } }, opts.action.label));
+  toastEl.replaceChildren(...kids);
   toastEl.classList.add('show');
   if (!opts.sticky) toastTimer = setTimeout(hideToast, opts.ms || 6000);
 }

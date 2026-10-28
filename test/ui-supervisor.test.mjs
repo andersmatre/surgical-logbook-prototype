@@ -90,6 +90,8 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   assert.deepEqual($$('.addrow strong').map((e) => e.textContent), ['CC1002']);
   await click(byText('.btn', 'Add', $('.addrow')));
   assert.match($('#toast').textContent, /CC1002 is now one of your students/);
+  assert.doesNotMatch($('#toast').textContent, /null/);
+  assert.doesNotMatch($('.main').textContent, /null|undefined/);
   type($('.search'), '');
   assert.deepEqual($$('.addrow strong').map((e) => e.textContent), ['CC1001'], 'an added student leaves the list');
   type($('.search'), 'zzz');

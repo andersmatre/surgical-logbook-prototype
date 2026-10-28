@@ -97,6 +97,7 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   await click(byText('.role', 'Observing'), 400);
   assert.equal(serverEvents(), 2);
   assert.equal($('.chip').textContent, 'Up to date');
+  assert.doesNotMatch(document.body.textContent, /null|undefined/, 'no stray "null" on screen');
 
   // ---- offline: entries wait, then go out when the connection returns
   window.dispatchEvent(new window.Event('offline'));

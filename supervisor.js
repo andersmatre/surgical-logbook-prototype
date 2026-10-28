@@ -287,7 +287,7 @@ function addView() {
           h('strong', {}, c.candidate),
           h('button', { class: 'btn small', type: 'button', onclick: () => addStudent(c, drawList) }, 'Add')))
         : [h('p', { class: 'muted' }, q ? 'No match. Check the candidate number, or ask CapaCare to create the account.' : 'Every student is already added.')]),
-      all.length > shown.length ? h('p', { class: 'muted small' }, `Showing ${shown.length} of ${all.length}. Type to narrow down.`) : null,
+      ...(all.length > shown.length ? [h('p', { class: 'muted small' }, `Showing ${shown.length} of ${all.length}. Type to narrow down.`)] : []),
     );
   };
   input.addEventListener('input', drawList);
