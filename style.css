@@ -21,7 +21,7 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 .small { font-size: 15px; }
 .error { color: var(--danger); min-height: 1.4em; margin: 8px 0; font-weight: 500; }
 
-#app { max-width: 960px; margin: 0 auto; padding-bottom: 96px; }
+#app { max-width: 960px; margin: 0 auto; padding-bottom: 80px; }
 .top {
   position: sticky; top: 0; z-index: 10; background: var(--teal); color: #fff;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -65,7 +65,13 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 
 .nav {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; background: var(--card); border-top: 1px solid var(--line);
-  display: flex; padding-bottom: env(safe-area-inset-bottom);
+  display: flex;
+}
+/* On an iPhone the browser reports a bottom safe area once its own toolbar has scrolled away. Padding the bar with it
+   leaves an empty white strip under the buttons, so it is only used when the app is installed on the home screen. */
+@media (display-mode: standalone) {
+  .nav { padding-bottom: env(safe-area-inset-bottom); }
+  #app { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
 }
 .tab { flex: 1; min-height: 64px; border: 0; background: none; font-weight: 600; color: var(--muted); position: relative; }
 .tab.on { color: var(--teal-dark); box-shadow: inset 0 3px 0 var(--teal); background: var(--teal-light); }
