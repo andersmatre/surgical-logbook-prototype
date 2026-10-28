@@ -201,7 +201,7 @@ function header() {
   const st = syncStatus();
   return h('header', { class: 'top' },
     h('div', { class: 'brand' },
-      h('strong', {}, 'Surgical logbook'),
+      h('strong', {}, 'CapaCare logbook'),
       h('span', { class: 'who' }, [state.profile.student, state.session.name, state.profile.hospital].filter(Boolean).join(' · '))),
     h('button', { class: `chip ${st.cls}`, onclick: () => doSync(true), 'aria-label': `Sync status: ${st.text}. Tap to sync.` }, st.text));
 }
@@ -266,7 +266,7 @@ function loginScreen() {
   });
 
   return h('div', { class: 'setup' },
-    h('h1', {}, 'Surgical logbook'),
+    h('h1', {}, 'CapaCare logbook'),
     h('p', { class: 'muted' }, 'Log in with the candidate number (students) or staff ID (supervisors and administrators) and the password you got from CapaCare. You need internet the first time you log in on a tablet. After that the student logbook also works without internet.'),
     note, serverNote(), form,
     h('p', { class: 'muted small' }, `Prototype v${APP_VERSION}. Never type patient names or numbers anywhere.`));
