@@ -1,108 +1,65 @@
-# Surgical logbook — prototype v0.2 (login and sync)
+# Surgical logbook — prototype v0.3 (login, sync, supervisor sign-off)
 
-An installable web app (PWA) for logging surgical procedures on a tablet, plus a small server
-for accounts and sync. Students log in with the **candidate number** they get from CapaCare and a
-password, on any tablet. The logbook works without internet; entries are sent to the server
-automatically when there is a connection.
+An installable web app (PWA) for logging surgical procedures on a tablet, plus a small server for accounts, sync and supervisor sign-off.
+Built for CapaCare's Surgical Training Programme in Sierra Leone, to find out whether it can be better than the existing e-logbook.
 
-This is a prototype for finding out whether the approach works with real students.
-It is not production software (see "Known limits").
+- **Students** log in with the candidate number from CapaCare and a password, on any tablet. They log procedures in two taps, also without internet; entries are sent to the server automatically.
+- **Supervisors** log in with a staff ID, add the students they supervise, see their entries and sign them. The server checks every signature.
+- **Administrators** create accounts from the command line.
 
-## How it works
+This is a prototype. It has not been used on a real tablet or deployed yet. Read "Known limits" in `PROJECT.md` before real use.
 
-- **Accounts.** The app never creates accounts. CapaCare provides candidate numbers; an administrator
-  creates the accounts on the server (`admin.js`) and gets one initial password per candidate to hand out.
-  At the first login the student must choose their own password.
-- **Login needs internet** the first time on a tablet. After that the session stays on the tablet
-  (120 days of inactivity), so the logbook opens and works offline for weeks.
-- **Entries are an append-only event log** (entry, void, sign). Nothing is edited or overwritten, so syncing
-  is just "send what the server has not confirmed, fetch what this tablet has not seen". Sending twice is harmless.
-- **Any tablet.** Log in on a new tablet and the whole history is fetched from the server.
-- **Separate data per student** on a tablet. Logging out removes that student's data from the tablet
-  (after warning if something has not been sent yet). Changing the password logs out all other tablets.
-- **Accounts hold only a candidate number**, no names, no e-mail. Entries contain no patient identifiers and no free text.
+**New to the project? Read [`PROJECT.md`](PROJECT.md).** It explains how things are structured, the rules the design depends on, how to make changes, and what a new maintainer needs.
+To put the server online, read [`DEPLOY.md`](DEPLOY.md). Instructions for people trying the app: [`TESTER-GUIDE.md`](TESTER-GUIDE.md).
 
-## Run it locally (needs Node 22.13 or newer, nothing to install)
+## Run it locally (Node 22.13 or newer; nothing to install to run)
 
-    npm run admin -- add CC1234        # prints the initial password once
-    npm start                          # app and API on http://localhost:8080
+    npm run admin -- add-supervisor SUP-ANNA --name "Dr Anna Kamara"   # prints an initial password once
+    npm run admin -- add CC1234                                        # a student; prints an initial password once
+    npm start                                                          # app and API on http://localhost:8080
 
-Open http://localhost:8080, log in as `CC1234` with the printed password.
+Open http://localhost:8080. Log in as `CC1234`, choose your own password, log a procedure. In another browser profile log in as `SUP-ANNA`, add `CC1234` under "Add students" and sign the entry.
 The database is `./data/logbook.db`.
 
 ## Accounts (administrator)
 
-    npm run admin -- add CC1234 [--password x]   one account
-    npm run admin -- import candidates.csv       many (first column = candidate number)
-    npm run admin -- reset CC1234                new initial password, logs the student out everywhere
+    npm run admin -- add CC1234 [--password x]          student
+    npm run admin -- import candidates.csv              many students (first column = candidate number)
+    npm run admin -- add-supervisor SUP-ANNA --name "Dr Anna K"
+    npm run admin -- assign SUP-ANNA CC1234 CC1235      (supervisors can also add students themselves)
+    npm run admin -- unassign SUP-ANNA CC1234
+    npm run admin -- reset CC1234                       new initial password, logs the account out everywhere
     npm run admin -- disable CC1234 | enable CC1234
-    npm run admin -- revoke CC1234               log out everywhere (lost or stolen tablet)
+    npm run admin -- revoke CC1234                      log out everywhere (lost or stolen tablet)
     npm run admin -- list
+    npm run admin -- backup /data/backups/logbook-2026-11-01.db
 
-Initial passwords are printed once on screen as CSV. Hand them to students through CapaCare, one at a time,
-not in a group chat. They only work for the first login.
+Initial passwords are printed once. Hand them out through CapaCare, one at a time, not in a group chat. They work only for the first login.
 
-## Deploy
+## Put it online
 
-The server is one Node process plus one SQLite file, so any host that runs a container with a
-**persistent volume** and gives you **HTTPS** works. Choose a region in the EU/EEA. Examples to look at:
-Fly.io, Render, Railway, or a small VPS behind Caddy. (The Dockerfile has not been run on a host yet.)
+The server is one Node process plus one SQLite file. It needs a persistent disk, HTTPS and a single running copy, in an EU/EEA region. [`DEPLOY.md`](DEPLOY.md) has step-by-step guides (Fly.io, or your own server with Docker and Caddy), a checklist for after the first deploy, and backup and restore. The Dockerfile has not been run on a real host yet.
 
-    docker build -t logbook .
-    docker run -p 8080:8080 -v logbook-data:/data logbook
-    docker exec <container> node server/admin.js add CC1234
-
-The container serves the app too, so the whole thing lives at one address. Install on the tablets from that address.
-
-**If the app stays on GitHub Pages** instead: set `API_BASE` in `config.js` to the server address and start the
-server with `ALLOWED_ORIGIN=https://<user>.github.io` (use `SERVE_STATIC=0` if you do not want it to serve the app too).
-Keep v0.1 on `main` until the server is live: v0.2 without a server cannot log in.
-
-Environment variables: `PORT` (8080), `HOST`, `LOGBOOK_DB` (`./data/logbook.db`), `ALLOWED_ORIGIN`, `SERVE_STATIC` (`0` to turn off).
-
-**Backups.** Everything is in the database file. Take regular copies while the server runs with
-`sqlite3 logbook.db ".backup backup.db"`, or use volume snapshots from the host. Test a restore once.
+Environment variables: `PORT` (8080), `HOST`, `LOGBOOK_DB` (`./data/logbook.db`), `ALLOWED_ORIGIN`, `SERVE_STATIC` (`0` to turn off serving the app).
 
 ## Install on a Samsung tablet
 
-Open the address in Chrome, menu (three dots), "Add to Home screen" / "Install app". Log in once while online.
-
-## Known limits (read before real use)
-
-- **Supervisor sign-off is still a demo.** PINs are checked on the device, and the server accepts the signature
-  without verifying it, so a signature proves nothing yet. Real sign-off needs supervisor accounts.
-- **No password reset by the student.** A forgotten password means asking the administrator for `reset`.
-  There is no e-mail flow, on purpose: e-mail is little used.
-- **Login throttling** is in server memory (5 wrong attempts lock a candidate number for 10 minutes) and resets when the server restarts.
-  There is no per-IP limit and no two-factor login.
-- **Passwords travel as plain text inside HTTPS.** Never run the server without HTTPS outside your own computer.
-- **No admin screen.** Accounts are managed from the command line.
-- **A tablet is trusted once logged in.** Anyone with an unlocked tablet can read and add entries. A screen lock is the student's job.
-- **Data protection is not settled.** The server now holds performance data about named-by-number students. Decide who the data controller is,
-  where it is hosted, and get the ethics and data-protection review before real data is collected.
-- Targets and the "more procedures" list are placeholders in `config.js`.
+Open the server's address in Chrome, menu (three dots), "Add to Home screen" / "Install app". Log in once while online.
 
 ## Tests
 
     npm install
-    npm test
+    npm test            # 34 tests, about 35 seconds
 
-`core.test.mjs` (data layer), `server.test.mjs` (login, lock-out, password rules, sync, isolation, validation, paging),
-`ui.test.mjs` (the whole student flow in jsdom against a real server, including logging in on a "new tablet").
-They do not replace trying the app on a real tablet.
+`core` (data layer), `server` (API, login, sync, supervisor rules, upgrade of an old database, backup), `ui` (the whole student flow in a simulated browser against a real server), `ui-supervisor` (the whole supervisor flow), `files` (file lists stay in step). They do not replace trying the app on a real tablet.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `config.js` | Procedures, targets, hospitals, demo supervisors, `API_BASE`. Edit here. |
-| `core.js` | Local event log in IndexedDB (one database per student), summaries, metrics. |
-| `api.js` | Calls to the server. |
-| `app.js`, `style.css` | The interface. |
+| `config.js` | Procedures, targets, hospitals, version, `API_BASE`. Edit content here. |
+| `core.js`, `api.js` | Local event log in IndexedDB; calls to the server. |
+| `app.js`, `ui.js`, `supervisor.js`, `style.css` | The interface: student app, shared pieces, supervisor screens. |
 | `sw.js`, `manifest.webmanifest` | Offline cache and installability. |
-| `server/` | `app.js` (HTTP API), `lib.js` (database, passwords, validation), `admin.js`, `index.js`. |
-
-## Next
-
-Supervisor accounts and server-verified signatures, a supervisor overview, an admin screen,
-audit sample against the operating register, research export with approval.
+| `server/` | `app.js` (HTTP API), `lib.js` (database, passwords, rules), `admin.js`, `index.js`. |
+| `PROJECT.md`, `DEPLOY.md`, `CLAUDE.md` | Project guide and handover, hosting guide, instructions for AI assistants. |

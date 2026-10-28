@@ -37,6 +37,16 @@ const submit = async (form, ms = 300) => {
 };
 const serverEvents = () => server.db.prepare("SELECT COUNT(*) AS n FROM events WHERE owner = 'CC1234'").get().n;
 
+// What a supervisor's own app does, called directly: the student UI test only needs the signatures to exist.
+const post = async (path, token, body = {}) => (await fetch(`http://127.0.0.1:${port}${path}`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+  body: JSON.stringify(body),
+})).json();
+async function supervisorToken() { // a fresh login each time: other tests clear all sessions
+  return (await post('/api/login', null, { candidate: 'SUP-ANNA', password: 'sup-own-secret-1' })).token;
+}
+
 test.after(async () => { await server.close(); });
 
 test('login, first password, logging, sync, logout, login on a new tablet', async () => {
@@ -100,16 +110,36 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   assert.equal(serverEvents(), 3);
   assert.equal($('.chip').textContent, 'Up to date');
 
-  // ---- supervisor sign-off is synced too
+  // ---- no supervisor yet: the History tab says so, and there is no sign-off button
   await click(byText('.tab', 'History'));
-  await click(byText('.btn', 'Supervisor sign-off'));
-  $('.pin').value = '1111';
-  await click(byText('.btn', 'Next'));
-  await click(byText('.btn', 'Sign selected'), 400);
+  assert.match($('.note-info').textContent, /No supervisor has added you yet/);
+  assert.equal(byText('.btn', 'Supervisor sign-off'), undefined);
+  assert.equal($$('.tag.ok').length, 0);
+
+  // ---- a supervisor adds the student and signs on the server
+  await addUser(server.db, 'sup-anna', 'sup-initial-1', { role: 'supervisor', name: 'Dr Anna Kamara' });
+  const first = (await post('/api/login', null, { candidate: 'SUP-ANNA', password: 'sup-initial-1' })).token;
+  await post('/api/password', first, { old_password: 'sup-initial-1', new_password: 'sup-own-secret-1' });
+  const sup = await supervisorToken();
+  await post('/api/sup/assign', sup, { candidate: 'CC1234' });
+  const ids = (await post('/api/sup/entries', sup, { candidate: 'CC1234', cursor: 0 })).events.filter((e) => e.type === 'entry').map((e) => e.id);
+  assert.equal(ids.length, 3);
+  assert.equal((await post('/api/sup/sign', sup, { candidate: 'CC1234', ids })).signed, 3);
   assert.equal(serverEvents(), 6); // 3 entries + 3 signatures
 
-  // ---- change password from the More tab
+  // ---- the student sees the signatures after the next sync (tap the sync button)
+  await click($('.chip'), 500);
+  assert.equal($$('.tag.ok').length, 3);
+  assert.match($('.entry').textContent, /Signed · Dr Anna Kamara/);
+  assert.match($('.note-info').textContent, /All your entries are signed/);
+  assert.equal($$('.entry .link.danger').length, 0, 'signed entries cannot be deleted');
+
+  // ---- the More tab lists who can see the entries
   await click(byText('.tab', 'More'));
+  assert.match(document.body.textContent, /Your supervisors/);
+  assert.match(document.body.textContent, /Dr Anna Kamara/);
+
+  // ---- change password from the More tab
   await click(byText('.btn', 'Change password'));
   $('#oldpw').value = 'my-own-secret-1';
   $('#newpw').value = 'even-better-secret-2';
@@ -143,6 +173,7 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   await click(byText('.tab', 'History'));
   assert.equal($$('.entry').length, 3);
   assert.equal($$('.tag.ok').length, 3, 'signatures came back too');
+  assert.match($('.entry').textContent, /Signed · Dr Anna Kamara/);
 });
 
 test('logging out with unsent entries warns and offers to lose them', async () => {
@@ -178,4 +209,26 @@ test('a session ended by the server returns to login and keeps the local entries
   assert.match(byText('.proc', 'Umbilical hernia repair').textContent, /1 logged/, 'the entry made while logged out is still there');
   await wait(400);
   assert.equal(serverEvents(), before + 1, 'and it reached the server after logging in again');
+});
+
+test('deleting an entry that a supervisor signed in the meantime keeps it, and shows the signature', async () => {
+  window.dispatchEvent(new window.Event('online'));
+  await click(byText('.tab', 'Log'));
+  await click(byText('.proc', 'Strangulated hernia repair'));
+  await click(byText('.role', 'Surgeon, supervised'), 400); // saved and sent
+  const id = server.db.prepare("SELECT id FROM events WHERE owner = 'CC1234' AND type = 'entry' AND payload LIKE '%strang_hernia%'").get().id;
+
+  // the supervisor signs it; this tablet has not synced since, so it still shows "Not signed"
+  const sup = await supervisorToken();
+  assert.equal((await post('/api/sup/sign', sup, { candidate: 'CC1234', ids: [id] })).signed, 1);
+  await click(byText('.tab', 'History'));
+  const row = () => $$('.entry').find((e) => e.textContent.includes('Strangulated hernia repair'));
+  assert.match(row().textContent, /Not signed/);
+
+  // the student deletes it: the server refuses (it is signed) and the tablet forgets the delete
+  await click(byText('.link', 'Delete', row()));
+  await click(byText('.btn.danger', 'Delete'), 700);
+  assert.ok(row(), 'the entry is still there');
+  assert.match(row().textContent, /Signed · Dr Anna Kamara/);
+  assert.equal($('.chip').textContent, 'Up to date');
 });

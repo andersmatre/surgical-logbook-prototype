@@ -1,0 +1,189 @@
+# Putting the server online
+
+This explains how to get the logbook server running on the internet so students can log in from their tablets.
+It was written from the documentation and published prices of the hosts below. **The `Dockerfile` and these steps have not been run on a real host** (the build environment had no Docker), so expect to fix small things on the first deployment. The server itself is tested and was started and used over HTTP locally.
+
+## What you are deploying
+
+One container with one Node process. It serves the app files *and* the API at one address, so there is no cross-origin set-up. It keeps all data in one SQLite file.
+
+The host must give you three things:
+
+| Need | Why |
+|---|---|
+| A **persistent disk** (volume) mounted at `/data` | The database lives there. Without it every restart deletes all accounts and entries. |
+| **HTTPS** | Passwords are sent to the server, and service workers (offline mode) only run on HTTPS. |
+| **Exactly one copy** of the server | SQLite in one file cannot be shared by two servers. Do not scale to two machines. |
+
+Also choose a region in the **EU/EEA** (data protection), and pick it with latency in mind: a tablet in Sierra Leone reaches Europe in a few hundred milliseconds, which is fine for these small requests.
+
+## Decide first
+
+1. **Whose account hosts it?** Preferably a CapaCare or project account that more than one person can recover, not only your private card. See the handover checklist in `PROJECT.md`.
+2. **What address?** A host gives you one for free (for example `https://something.fly.dev`). A nicer address (`logbook.example.org`) needs a domain; whoever manages CapaCare's domain can add one record. Students install the app *from this address*, so changing it later means reinstalling on every tablet. Decide before you hand it to anyone.
+3. **Who is the data controller?** Settle this before real data is stored (`PROJECT.md` section 9 and 14).
+
+## Option A: Fly.io (least work; suggested for the trial)
+
+Fly runs your container on a small virtual machine, gives it HTTPS automatically and attaches a volume. There is no operating system for you to look after.
+
+Cost, from Fly's pricing page when this was written (check it again, prices change): a small shared machine is about **$2.19 per month with 256 MB or $4.39 with 512 MB**; a volume is **$0.15 per GB per month**; volume snapshots are $0.08 per GB per month with the first 10 GB free. A 1 GB volume is far more than this project needs for a long time. Use the 512 MB machine (password hashing uses about 16 MB per login). Expect roughly **$5 a month**. Fly may require a payment card at sign-up; that was not stated on the page.
+
+Regions: Fly has Europe regions including Amsterdam (`ams`), Stockholm (`arn`), Frankfurt (`fra`) and Paris (`cdg`). This list is from memory; Fly's regions page could not be opened from the build environment, so check it.
+
+### Steps
+
+Install the Fly command-line tool (`flyctl`) and sign in (`fly auth login`). In the project folder:
+
+1. Create `fly.toml` (adjust `app` to a unique name):
+
+   ```toml
+   app = "capacare-logbook"
+   primary_region = "arn"
+
+   [build]
+
+   [env]
+     PORT = "8080"
+     LOGBOOK_DB = "/data/logbook.db"
+
+   [mounts]
+     source = "logbook_data"
+     destination = "/data"
+
+   [http_service]
+     internal_port = 8080
+     force_https = true
+     auto_stop_machines = "off"
+     auto_start_machines = true
+     min_machines_running = 1
+
+     [[http_service.checks]]
+       method = "GET"
+       path = "/api/health"
+       interval = "30s"
+       timeout = "5s"
+       grace_period = "10s"
+   ```
+
+2. Create the app and the volume, then deploy:
+
+   ```
+   fly apps create capacare-logbook
+   fly volumes create logbook_data --region arn --size 1
+   fly scale memory 512
+   fly deploy
+   ```
+
+   Keep it to **one machine** (`fly scale count 1`). If Fly offers to create a second machine for availability, decline: the volume belongs to one machine.
+
+3. Create the first accounts on the server:
+
+   ```
+   fly ssh console -C "node --no-warnings=ExperimentalWarning server/admin.js add-supervisor SUP-ANNA --name 'Dr Anna Kamara'"
+   fly ssh console -C "node --no-warnings=ExperimentalWarning server/admin.js add CC1234"
+   ```
+
+   Each prints an initial password **once**. Write it down and pass it on through CapaCare.
+
+4. Open the address (`fly status` shows it) and run the checklist below.
+
+Updating later: change the code, bump the version (`PROJECT.md` 10.2), `npm test`, `fly deploy`.
+Logs: `fly logs`. If something is wrong with a deploy, `fly releases` and `fly deploy --image <previous image>` go back.
+
+## Option B: your own small server (VPS) with Docker and Caddy
+
+More control and often cheaper, but you maintain a Linux machine (updates, firewall, backups). Hetzner is one example: a press release about its Cloud plans listed a 2 vCPU, 4 GB RAM, 40 GB plan at **about €4.5 per month including 19 % VAT** in Germany and Finland. That may be outdated and plan names change, so check the current price list. The same recipe works at any provider that offers Ubuntu servers in the EU.
+
+Needs a **domain name** pointing at the server (Caddy uses it to get the HTTPS certificate automatically).
+
+1. Create an Ubuntu server, add your SSH key, point the domain's `A` record at its address.
+2. Log in and install the basics:
+
+   ```
+   apt update && apt -y upgrade
+   apt -y install docker.io git ufw unattended-upgrades
+   apt -y install caddy
+   ufw allow OpenSSH && ufw allow 80 && ufw allow 443 && ufw --force enable
+   ```
+3. Get the code and start the container (it restarts by itself after a reboot):
+
+   ```
+   git clone https://github.com/andersmatre/surgical-logbook-prototype.git /opt/logbook
+   cd /opt/logbook && git checkout login-v0.2     # or the branch you deploy from
+   docker build -t logbook .
+   docker run -d --name logbook --restart unless-stopped \
+     -p 127.0.0.1:8080:8080 -v logbook-data:/data logbook
+   ```
+4. Tell Caddy to put HTTPS in front of it. `/etc/caddy/Caddyfile`:
+
+   ```
+   logbook.example.org {
+     reverse_proxy 127.0.0.1:8080
+   }
+   ```
+   then `systemctl reload caddy`.
+5. Create accounts:
+
+   ```
+   docker exec logbook node --no-warnings=ExperimentalWarning server/admin.js add-supervisor SUP-ANNA --name "Dr Anna Kamara"
+   docker exec logbook node --no-warnings=ExperimentalWarning server/admin.js add CC1234
+   ```
+
+Updating: `cd /opt/logbook && git pull && docker build -t logbook . && docker rm -f logbook && docker run ...` (same `run` line as above; the data volume stays).
+Logs: `docker logs logbook`.
+
+## Option C: Render, Railway or similar
+
+Any host works if it runs a container (or Node), gives you a persistent disk mounted at `/data`, and HTTPS. Set `LOGBOOK_DB=/data/logbook.db`. Check that the plan you pick really includes a persistent disk (free plans often do not, or put the service to sleep) and that you can choose an EU region. I did not verify prices or features for these hosts.
+
+## After the first deploy: checklist
+
+Do all of these before you give the address to anyone:
+
+- [ ] `https://<address>/api/health` shows `{"ok":true}`.
+- [ ] Opening `https://<address>` shows the login screen.
+- [ ] On a real tablet in Chrome: log in with a test student, choose a password, log a procedure, see "Up to date".
+- [ ] "Add to Home screen" works and the app opens from the icon.
+- [ ] Switch on airplane mode: the app still opens and logs; switch it off: "Up to date" returns.
+- [ ] Log in as a test supervisor on another device, add the student, sign the entry; the student sees the signature after tapping the sync button.
+- [ ] Log out and log in on a second device: the entries come back.
+- [ ] **Take a backup and restore it** (below). Do not skip this.
+- [ ] Delete the test accounts' data, or start with a fresh database, before real students start.
+
+## Backups
+
+All data is in the database file. Use the built-in command, which makes a consistent copy while the server runs:
+
+```
+# Fly
+fly ssh console -C "node --no-warnings=ExperimentalWarning server/admin.js backup /data/backups/logbook-$(date +%F).db"
+# Docker on a VPS
+docker exec logbook node --no-warnings=ExperimentalWarning server/admin.js backup /data/backups/logbook-$(date +%F).db
+```
+
+A copy that stays on the same disk does not protect you from losing the disk. **Copy it elsewhere**: on Fly `fly ssh sftp get /data/backups/<file> .` (see `fly ssh sftp --help`), on a VPS with `scp`, or use your host's volume snapshots in addition (Fly takes volume snapshots; check the retention on its dashboard). Keep copies in the EU, with restricted access: they contain everything.
+
+How often: at least weekly while testing; daily when real data is being collected (a `cron` job on a VPS; on Fly, a scheduled task on your own computer or a small scheduled machine). Remove old backup files so the disk does not fill.
+
+### Restore
+
+1. Stop the server (`fly machine stop`, or `docker stop logbook`).
+2. Put the backup file in place of `/data/logbook.db`, and delete `/data/logbook.db-wal` and `/data/logbook.db-shm` if they exist.
+3. Start the server and check the list: `admin.js list`.
+
+Practice this once on a test deployment so you know it works before you need it.
+
+## Moving off GitHub Pages
+
+Version 0.1 (no login) is on GitHub Pages from the `main` branch. Version 0.3 needs the server and is served *by* the server, so students install it from the server's address, not from Pages. Leave `main` alone until the server is live and tested, then either switch Pages off or leave it as an offline demo of v0.1.
+
+If you ever want the app on Pages and only the API on the server: set `API_BASE` in `config.js` to the server address and start the server with `ALLOWED_ORIGIN=https://<user>.github.io SERVE_STATIC=0`. It is not recommended: two addresses mean two things to keep in step.
+
+## Data protection reminders
+
+(Not legal advice; settle these with CapaCare.)
+
+- Pick a host and a region you can name in the data protection documents, and check the host offers a data processing agreement.
+- Restrict who can open a shell on the server or read the backups to the people who need it.
+- Decide how long data is kept and who can ask for removal; deleting a person's data is a manual operation on the database today.

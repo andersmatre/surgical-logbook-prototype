@@ -127,12 +127,17 @@ export async function voidEntry(targetId) {
   return addEvent({ id: newId(), type: 'void', ts: new Date().toISOString(), target: targetId });
 }
 
-export async function signEntries(ids, supervisorId) {
-  const out = [];
-  for (const target of ids) {
-    out.push(await addEvent({ id: newId(), type: 'sign', ts: new Date().toISOString(), target, supervisor: supervisorId }));
-  }
-  return out;
+// Signatures are not written here: a supervisor signs on the server, and the signature
+// arrives with the next sync as a 'sign' event.
+
+// Remove one event from this tablet. Only used when the server refuses an event for good,
+// for example a delete of an entry that a supervisor has signed in the meantime.
+export async function dropEvent(id) {
+  const db = await openDb();
+  const tx = db.transaction(['events', 'sent'], 'readwrite');
+  tx.objectStore('events').delete(id);
+  tx.objectStore('sent').delete(id);
+  await txDone(tx);
 }
 
 // ---- derived state --------------------------------------------------------

@@ -35,3 +35,11 @@ export const login = (candidate, password) => call('/api/login', { body: { candi
 export const logout = (token) => call('/api/logout', { token });
 export const changePassword = (token, old_password, new_password) => call('/api/password', { token, body: { old_password, new_password } });
 export const sync = (token, events, cursor) => call('/api/sync', { token, body: { events, cursor } });
+
+// Supervisor calls. The server checks the role and that the student is assigned to the caller.
+export const supStudents = (token) => call('/api/sup/students', { token });
+export const supCandidates = (token) => call('/api/sup/candidates', { token });
+export const supAssign = (token, candidate) => call('/api/sup/assign', { token, body: { candidate } });
+export const supUnassign = (token, candidate) => call('/api/sup/unassign', { token, body: { candidate } });
+export const supEntries = (token, candidate, cursor) => call('/api/sup/entries', { token, body: { candidate, cursor } });
+export const supSign = (token, candidate, ids) => call('/api/sup/sign', { token, body: { candidate, ids } });

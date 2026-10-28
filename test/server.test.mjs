@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from '../server/app.js';
-import { addUser, setDisabled, revokeSessions, resetPassword, generatePassword } from '../server/lib.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import {
+  addUser, setDisabled, revokeSessions, resetPassword, generatePassword, initSchema, openDb, backupTo,
+} from '../server/lib.js';
 
 async function start(opts = {}) {
   const s = await createServer({ dbPath: ':memory:', ...opts });
@@ -128,11 +134,9 @@ test('sync is idempotent, restores data on a second tablet, and stamps the real 
     const tabletA = await ready(t, 'S001', 'initial-pw-1', 'second-pw-22');
     const e1 = entry();
     const e2 = entry({ procedure: 'appendectomy', role: 'supervised' });
-    const sign = { id: '11111111-0000-4000-8000-000000000001', type: 'sign', ts: new Date().toISOString(), target: e1.id, supervisor: 'sup_a' };
-
-    const r1 = await t.call('/api/sync', { token: tabletA, body: { events: [e1, e2, sign], cursor: 0 } });
-    assert.deepEqual(r1.body.accepted.sort(), [e1.id, e2.id, sign.id].sort());
-    assert.equal(r1.body.events.length, 3);
+    const r1 = await t.call('/api/sync', { token: tabletA, body: { events: [e1, e2], cursor: 0 } });
+    assert.deepEqual(r1.body.accepted.sort(), [e1.id, e2.id].sort());
+    assert.equal(r1.body.events.length, 2);
     assert.ok(r1.body.cursor > 0);
     const stored = r1.body.events.find((e) => e.id === e1.id);
     assert.equal(stored.student, 'S001'); // client claimed SOMEONE-ELSE
@@ -145,7 +149,7 @@ test('sync is idempotent, restores data on a second tablet, and stamps the real 
     // a different tablet logs in and pulls everything from cursor 0
     const tabletB = (await t.call('/api/login', { body: { candidate: 'S001', password: 'second-pw-22' } })).body.token;
     const r3 = await t.call('/api/sync', { token: tabletB, body: { events: [], cursor: 0 } });
-    assert.equal(r3.body.events.length, 3);
+    assert.equal(r3.body.events.length, 2);
 
     // new event on B shows up on A with the cursor
     const e3 = entry({ procedure: 'laparotomy', role: 'observing' });
@@ -250,4 +254,198 @@ test('CORS only for the allowed origin; static serving only exposes the app file
       assert.equal((await fetch(`${t.base}${p}`)).status, 404, p);
     }
   } finally { await t.s.close(); }
+});
+
+// ---- supervisors ------------------------------------------------------------------
+
+// A supervisor account that has chosen its own password; returns its token.
+async function supervisorReady(t, id = 'SUP-ANNA', name = 'Dr Anna Kamara') {
+  await addUser(t.s.db, id, 'initial-sup-1', { role: 'supervisor', name });
+  const login = await t.call('/api/login', { body: { candidate: id, password: 'initial-sup-1' } });
+  assert.equal(login.body.role, 'supervisor');
+  assert.equal(login.body.name, name);
+  const ch = await t.call('/api/password', { token: login.body.token, body: { old_password: 'initial-sup-1', new_password: 'sup-own-secret-1' } });
+  assert.equal(ch.status, 200);
+  return login.body.token;
+}
+const sup = (t, token, path, body = {}) => t.call(`/api/sup/${path}`, { token, body });
+
+test('students cannot create signatures; a supervisor cannot use the logbook sync', async () => {
+  const t = await start();
+  try {
+    const student = await ready(t, 'S001', 'initial-pw-1', 'second-pw-22');
+    const e1 = entry();
+    const forged = { id: '22222222-0000-4000-8000-000000000001', type: 'sign', ts: new Date().toISOString(), target: e1.id, supervisor: 'SUP-ANNA' };
+    const r = await t.call('/api/sync', { token: student, body: { events: [e1, forged], cursor: 0 } });
+    assert.deepEqual(r.body.accepted, [e1.id]);
+    assert.deepEqual(r.body.rejected, [{ id: forged.id, reason: 'sign_not_allowed' }]);
+    assert.equal(r.body.events.length, 1);
+
+    const supToken = await supervisorReady(t);
+    const s = await t.call('/api/sync', { token: supToken, body: { events: [], cursor: 0 } });
+    assert.equal(s.status, 403);
+    assert.equal(s.body.error, 'wrong_role');
+    // and students cannot use the supervisor routes
+    for (const p of ['students', 'candidates', 'assign', 'entries', 'sign']) {
+      assert.equal((await sup(t, student, p, { candidate: 'S001', ids: [e1.id] })).status, 403, p);
+    }
+  } finally { await t.s.close(); }
+});
+
+test('supervisor: add a student, see the entries, sign them; the student receives the signature', async () => {
+  const t = await start();
+  try {
+    const student = await ready(t, 'S001', 'initial-pw-1', 'second-pw-22');
+    await addUser(t.s.db, 'S002', 'initial-pw-2'); // never logged in, still listed
+    const supToken = await supervisorReady(t);
+
+    const e1 = entry();
+    const e2 = entry({ procedure: 'appendectomy', role: 'supervised' });
+    const e3 = entry({ procedure: 'laparotomy', role: 'observing' });
+    const voidE3 = { id: '33333333-0000-4000-8000-000000000001', type: 'void', ts: new Date().toISOString(), target: e3.id };
+    await t.call('/api/sync', { token: student, body: { events: [e1, e2, e3, voidE3], cursor: 0 } });
+
+    // nothing is visible before the student is added
+    assert.deepEqual((await sup(t, supToken, 'students')).body.students, []);
+    assert.equal((await sup(t, supToken, 'entries', { candidate: 'S001' })).status, 403);
+
+    const list = (await sup(t, supToken, 'candidates')).body.candidates;
+    assert.deepEqual(list, [{ candidate: 'S001', mine: false }, { candidate: 'S002', mine: false }]);
+    assert.equal((await sup(t, supToken, 'assign', { candidate: ' s001 ' })).status, 200);
+    assert.equal((await sup(t, supToken, 'assign', { candidate: 'S001' })).status, 200); // adding twice is harmless
+    assert.equal((await sup(t, supToken, 'assign', { candidate: 'NOBODY' })).status, 404);
+    assert.equal((await sup(t, supToken, 'assign', { candidate: 'SUP-ANNA' })).status, 404); // only students can be added
+
+    const students = (await sup(t, supToken, 'students')).body.students;
+    assert.equal(students.length, 1);
+    assert.equal(students[0].candidate, 'S001');
+    assert.equal(students[0].entries, 2, 'the deleted entry is not counted');
+    assert.equal(students[0].unsigned, 2);
+
+    // the supervisor sees what is needed to judge an entry, not usage measurements
+    const view = (await sup(t, supToken, 'entries', { candidate: 'S001', cursor: 0 })).body;
+    assert.equal(view.events.length, 4);
+    const seen = view.events.find((e) => e.id === e1.id);
+    assert.equal(seen.procedure, 'cs');
+    assert.equal(seen.ms_to_log, undefined);
+    assert.equal(seen.online, undefined);
+
+    // sign: e1 and e2 work; e3 was deleted; an unknown id is skipped; signing twice is skipped
+    const r = await sup(t, supToken, 'sign', { candidate: 'S001', ids: [e1.id, e2.id, e3.id, 'does-not-exist-1', e1.id] });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.signed, 2);
+    assert.deepEqual(r.body.skipped.map((x) => x.reason).sort(), ['deleted by the student', 'not found']);
+    const again = await sup(t, supToken, 'sign', { candidate: 'S001', ids: [e1.id] });
+    assert.equal(again.body.signed, 0);
+    assert.equal(again.body.skipped[0].reason, 'already signed');
+    assert.equal((await sup(t, supToken, 'students')).body.students[0].unsigned, 0);
+
+    // the student gets the signatures with the normal sync, including who signed
+    const pulled = await t.call('/api/sync', { token: student, body: { events: [], cursor: 0 } });
+    const signs = pulled.body.events.filter((e) => e.type === 'sign');
+    assert.equal(signs.length, 2);
+    assert.deepEqual(signs.map((s) => s.target).sort(), [e1.id, e2.id].sort());
+    assert.equal(signs[0].supervisor, 'SUP-ANNA');
+    assert.equal(signs[0].supervisor_name, 'Dr Anna Kamara');
+    assert.equal(pulled.body.supervisors.length, 1);
+    assert.equal(pulled.body.supervisors[0].name, 'Dr Anna Kamara');
+  } finally { await t.s.close(); }
+});
+
+test('a signed entry can no longer be deleted by the student', async () => {
+  const t = await start();
+  try {
+    const student = await ready(t, 'S001', 'initial-pw-1', 'second-pw-22');
+    const supToken = await supervisorReady(t);
+    const e1 = entry();
+    await t.call('/api/sync', { token: student, body: { events: [e1], cursor: 0 } });
+    await sup(t, supToken, 'assign', { candidate: 'S001' });
+    await sup(t, supToken, 'sign', { candidate: 'S001', ids: [e1.id] });
+
+    const voidIt = { id: '44444444-0000-4000-8000-000000000001', type: 'void', ts: new Date().toISOString(), target: e1.id };
+    const r = await t.call('/api/sync', { token: student, body: { events: [voidIt], cursor: 0 } });
+    assert.deepEqual(r.body.rejected, [{ id: voidIt.id, reason: 'signed_locked' }]);
+    assert.equal(r.body.events.filter((e) => e.type === 'void').length, 0);
+  } finally { await t.s.close(); }
+});
+
+test('supervisors only reach their own students; removing a student ends the access', async () => {
+  const t = await start();
+  try {
+    const s1 = await ready(t, 'S001', 'initial-pw-1', 'second-pw-22');
+    const s2 = await ready(t, 'S002', 'initial-pw-2', 'second-pw-33');
+    const anna = await supervisorReady(t, 'SUP-ANNA', 'Dr Anna');
+    const ben = await supervisorReady(t, 'SUP-BEN', 'Dr Ben');
+    const a1 = entry();
+    const a2 = entry();
+    await t.call('/api/sync', { token: s1, body: { events: [a1], cursor: 0 } });
+    await t.call('/api/sync', { token: s2, body: { events: [a2], cursor: 0 } });
+    await sup(t, anna, 'assign', { candidate: 'S001' });
+    await sup(t, ben, 'assign', { candidate: 'S002' });
+
+    // Anna cannot read or sign Ben's student, even with a valid entry id
+    assert.equal((await sup(t, anna, 'entries', { candidate: 'S002' })).status, 403);
+    assert.equal((await sup(t, anna, 'sign', { candidate: 'S002', ids: [a2.id] })).status, 403);
+    assert.equal((await sup(t, anna, 'sign', { candidate: 'S001', ids: [a2.id] })).body.signed, 0, 'an id that belongs to another student is not found');
+
+    // two supervisors can share one student; the student sees both
+    await sup(t, anna, 'assign', { candidate: 'S002' });
+    assert.equal((await t.call('/api/sync', { token: s2, body: { events: [], cursor: 0 } })).body.supervisors.length, 2);
+
+    // removing the assignment ends access straight away
+    await sup(t, anna, 'unassign', { candidate: 'S001' });
+    assert.equal((await sup(t, anna, 'entries', { candidate: 'S001' })).status, 403);
+    assert.equal((await t.call('/api/sync', { token: s1, body: { events: [], cursor: 0 } })).body.supervisors.length, 0);
+
+    // a disabled supervisor is logged out and no longer listed for the student
+    setDisabled(t.s.db, 'SUP-BEN', true);
+    assert.equal((await sup(t, ben, 'students')).status, 401);
+    assert.equal((await t.call('/api/sync', { token: s2, body: { events: [], cursor: 0 } })).body.supervisors.length, 1);
+  } finally { await t.s.close(); }
+});
+
+test('a supervisor must choose their own password before using the supervisor routes', async () => {
+  const t = await start();
+  try {
+    await addUser(t.s.db, 'SUP-ANNA', 'initial-sup-1', { role: 'supervisor', name: 'Dr Anna' });
+    const { body: { token } } = await t.call('/api/login', { body: { candidate: 'SUP-ANNA', password: 'initial-sup-1' } });
+    const r = await sup(t, token, 'students');
+    assert.equal(r.status, 403);
+    assert.equal(r.body.error, 'password_change_required');
+  } finally { await t.s.close(); }
+});
+
+test('a database made by v0.2 is upgraded in place and keeps its data', async () => {
+  const old = new DatabaseSync(':memory:');
+  old.exec(`
+    CREATE TABLE users (candidate TEXT PRIMARY KEY, pw_hash TEXT NOT NULL, must_change INTEGER NOT NULL DEFAULT 1,
+      disabled INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, last_login_at TEXT);
+    CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, candidate TEXT NOT NULL REFERENCES users(candidate), created_at TEXT NOT NULL, last_seen TEXT NOT NULL);
+    CREATE TABLE events (seq INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL REFERENCES users(candidate), id TEXT NOT NULL,
+      payload TEXT NOT NULL, received_at TEXT NOT NULL, UNIQUE (owner, id));
+    INSERT INTO users VALUES ('S001', 'x', 0, 0, '2026-09-01T00:00:00Z', NULL);
+    INSERT INTO events (owner, id, payload, received_at) VALUES ('S001', 'aaaaaaaa-0000', '{"id":"aaaaaaaa-0000","type":"entry"}', '2026-09-01T00:00:00Z');
+    INSERT INTO events (owner, id, payload, received_at) VALUES ('S001', 'bbbbbbbb-0000', '{"id":"bbbbbbbb-0000","type":"void","target":"aaaaaaaa-0000"}', '2026-09-01T00:00:00Z');
+  `);
+  initSchema(old);
+  initSchema(old); // running it again changes nothing
+  assert.equal(old.prepare("SELECT role FROM users WHERE candidate = 'S001'").get().role, 'student');
+  assert.deepEqual(old.prepare('SELECT type, target FROM events ORDER BY seq').all().map((r) => ({ ...r })),
+    [{ type: 'entry', target: null }, { type: 'void', target: 'aaaaaaaa-0000' }]);
+  assert.ok(old.prepare("SELECT name FROM sqlite_master WHERE name = 'assignments'").get());
+});
+
+test('admin backup writes a complete, readable copy and refuses to overwrite', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'logbook-backup-'));
+  const t = await start();
+  try {
+    const student = await ready(t, 'S001', 'initial-pw-1', 'second-pw-22');
+    await t.call('/api/sync', { token: student, body: { events: [entry(), entry()], cursor: 0 } });
+    const file = path.join(dir, 'copy.db');
+    backupTo(t.s.db, file);
+    const copy = openDb(file);
+    assert.equal(copy.prepare('SELECT COUNT(*) AS n FROM events').get().n, 2);
+    copy.close();
+    assert.throws(() => backupTo(t.s.db, file), /already exists/);
+  } finally { await t.s.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });

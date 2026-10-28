@@ -12,13 +12,14 @@ test('logging, voiding and signing derive the right state', async () => {
   const b = await core.logEntry({ ...base, procedure: 'cs', role: 'observing', ms_to_log: 6000 });
   const c = await core.logEntry({ ...base, procedure: 'appendectomy', role: 'supervised', ms_to_log: 5000, online: false });
   await core.voidEntry(b.id);
-  await core.signEntries([a.id], 'sup_a');
+  // signatures are made by a supervisor on the server and arrive with the sync
+  await core.addPulled([{ id: 'aaaaaaaa-5151-4000-8000-000000000001', type: 'sign', ts: new Date().toISOString(), target: a.id, supervisor: 'SUP-ANNA', supervisor_name: 'Dr Anna' }]);
 
   const events = await core.allEvents();
   assert.equal(events.length, 5); // 3 entries + 1 void + 1 sign: nothing was edited or removed
   const entries = core.derive(events);
   assert.equal(entries.length, 2);
-  assert.ok(entries.find((e) => e.id === a.id).sign);
+  assert.equal(entries.find((e) => e.id === a.id).sign.supervisor_name, 'Dr Anna');
   assert.equal(entries.find((e) => e.id === c.id).sign, null);
 
   const p = core.progress(entries);
@@ -105,4 +106,15 @@ test('export contains events and metrics, and wipeAll removes everything', async
   await core.wipeAll();
   assert.equal((await core.allEvents()).length, 0);
   assert.equal(await core.getMeta('profile'), null);
+});
+
+test('dropEvent removes one event from the log and from the sent list', async () => {
+  const a = await core.logEntry({ ...base, procedure: 'cs', role: 'observing', ms_to_log: 1 });
+  const v = await core.voidEntry(a.id);
+  await core.markSent([v.id]);
+  await core.dropEvent(v.id);
+  const events = await core.allEvents();
+  assert.deepEqual(events.map((e) => e.id), [a.id]);
+  assert.equal((await core.sentIds()).has(v.id), false);
+  assert.equal(core.derive(events).length, 1); // the entry is back
 });

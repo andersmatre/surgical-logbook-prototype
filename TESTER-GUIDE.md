@@ -24,7 +24,7 @@ Please try these in order. Do not ask anyone for help. If you get stuck, note wh
 3. Make a mistake on purpose and undo it.
 4. Switch on airplane mode. Log two procedures. Switch airplane mode off. Watch the button at the top right: after a short time it should say "Up to date".
 5. Open "Progress" and look at your numbers. Send the weekly summary to yourself on WhatsApp.
-6. Ask a supervisor to sign your entries. (History tab, "Supervisor sign-off". Demo PINs: Supervisor A = 1111, Supervisor B = 2222.)
+6. Ask your supervisor to add your candidate number in their app and sign your entries. Your entries must be synced first (the button at the top right says "Up to date"). Then tap that button once: the signatures appear in the History tab, and your supervisor's name appears under More, "Your supervisors".
 
 ## Use it for real for one to two weeks
 
@@ -45,6 +45,24 @@ If you forget your password, tell us. We cannot read it, but we can give you a n
    - Was logging in easy? Would you manage it without help?
    - Compared with the logbook you used before: easier, the same, or harder? Why?
    - What would make you use a logbook every day?
-   - Would your supervisor use the sign-off? What would stop them?
+   - Did the signing work for you and your supervisor? What would stop your supervisor from using it?
 
 Tip for us: if you can, record your screen while doing the tasks (swipe down from the top, "Screen recorder") and send us the video. It helps a lot.
+
+## For supervisors
+
+You need internet for all of this (the supervisor screens do not work offline). Please do not type patient names or numbers anywhere.
+
+1. Open the link in Chrome, add it to the Home screen, and open it from there.
+2. Log in with your **staff ID** and the password you were given. Choose your own password and keep it to yourself.
+3. Tap **Add students**, find the candidate numbers of the students you supervise and tap **Add**. The student can see your name, so nobody is added in secret.
+4. Tap **My students**. A student with entries waiting shows "to sign". Tap the student.
+5. Look at the list. **Untick anything that is not correct**, then tap **Sign**. Only sign procedures you supervised. A signature cannot be undone.
+6. Tell us:
+   - What was confusing or slow?
+   - Would you do this after each operation, once a day or once a week? Where would you be when you do it?
+   - Did you have internet when you wanted to sign? If not, how often does that happen?
+   - Is it right that you can add students yourself, or should someone else decide?
+   - What is missing?
+
+Tip: if you can, record your screen while doing this (swipe down from the top, "Screen recorder") and send us the video.

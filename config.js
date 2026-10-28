@@ -1,6 +1,7 @@
-// config.js — content, not logic. Edit lists, targets and demo supervisors here.
+// config.js — content, not logic. Edit procedure lists, targets and hospitals here.
+// (Supervisors are accounts on the server now, created with `admin.js add-supervisor`.)
 
-export const APP_VERSION = '0.2.0';
+export const APP_VERSION = '0.3.0';
 
 // Where the logbook server lives. '' = the same address the app was loaded from
 // (when the server also serves the app). If the app is hosted elsewhere, for example
@@ -85,13 +86,5 @@ export const HOSPITALS = [
   'Other / testing',
 ];
 
-// DEMO supervisors with PINs checked on the device. Prototype only: a real
-// system verifies the PIN on the server and signs entries cryptographically.
-export const SUPERVISORS = [
-  { id: 'sup_a', name: 'Supervisor A (demo)', pin: '1111' },
-  { id: 'sup_b', name: 'Supervisor B (demo)', pin: '2222' },
-];
-
 export const procName = (id) => (ALL_PROCEDURES.find((p) => p.id === id) || { name: id }).name;
 export const roleLabel = (id) => (ROLES.find((r) => r.id === id) || { label: id }).label;
-export const supName = (id) => (SUPERVISORS.find((s) => s.id === id) || { name: id }).name;

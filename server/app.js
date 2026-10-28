@@ -1,10 +1,20 @@
 // server/app.js — the HTTP API. Plain node:http, no framework.
 //
-//   POST /api/login      { candidate, password } -> { token, candidate, must_change_password }
+//   GET  /api/health
+//   POST /api/login      { candidate, password } -> { token, candidate, role, name, must_change_password }
 //   POST /api/logout     (auth)
 //   POST /api/password   (auth) { old_password, new_password }
-//   POST /api/sync       (auth) { events: [...], cursor } -> { accepted, rejected, events, cursor, has_more }
-//   GET  /api/health
+//
+// Students:
+//   POST /api/sync       (auth) { events, cursor } -> { accepted, rejected, events, cursor, has_more, supervisors }
+//
+// Supervisors (every call checks that the student is assigned to the caller):
+//   POST /api/sup/students    -> { students: [{ candidate, entries, unsigned, since, last_received }] }
+//   POST /api/sup/candidates  -> { candidates: [{ candidate, mine }] }       (to find students to add)
+//   POST /api/sup/assign      { candidate }
+//   POST /api/sup/unassign    { candidate }
+//   POST /api/sup/entries     { candidate, cursor } -> { events, cursor, has_more }
+//   POST /api/sup/sign        { candidate, ids } -> { signed, skipped }
 
 import http from 'node:http';
 import crypto from 'node:crypto';
@@ -13,6 +23,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   openDb, hashPassword, verifyPassword, sha256, normCandidate, validCandidate, validatePassword, validateEvent,
+  insertEvent, isSigned, signEntries, assign, unassign, isAssigned, LookupError,
 } from './lib.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -24,7 +35,8 @@ const PAGE = 500;
 // Only these files are ever served; the database and server code are not reachable.
 const STATIC = {
   '/': 'index.html', '/index.html': 'index.html', '/app.js': 'app.js', '/core.js': 'core.js',
-  '/config.js': 'config.js', '/api.js': 'api.js', '/style.css': 'style.css', '/sw.js': 'sw.js',
+  '/config.js': 'config.js', '/api.js': 'api.js', '/ui.js': 'ui.js', '/supervisor.js': 'supervisor.js',
+  '/style.css': 'style.css', '/sw.js': 'sw.js',
   '/manifest.webmanifest': 'manifest.webmanifest', '/icon-192.png': 'icon-192.png', '/icon-512.png': 'icon-512.png',
 };
 const TYPES = {
@@ -87,7 +99,7 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
     if (!m) throw new HttpError(401, 'unauthenticated', 'Please log in.');
     const tokenHash = sha256(m[1]);
     const row = db.prepare(
-      'SELECT s.last_seen, u.candidate, u.must_change, u.disabled FROM sessions s JOIN users u ON u.candidate = s.candidate WHERE s.token_hash = ?',
+      'SELECT s.last_seen, u.candidate, u.must_change, u.disabled, u.role, u.display_name FROM sessions s JOIN users u ON u.candidate = s.candidate WHERE s.token_hash = ?',
     ).get(tokenHash);
     const age = row ? now() - Date.parse(row.last_seen) : Infinity;
     if (!row || row.disabled || age > SESSION_MS) {
@@ -95,8 +107,39 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
       throw new HttpError(401, 'session_expired', 'Your session has ended. Please log in again.');
     }
     if (age > 3600 * 1000) db.prepare('UPDATE sessions SET last_seen = ? WHERE token_hash = ?').run(new Date(now()).toISOString(), tokenHash);
-    return { candidate: row.candidate, mustChange: !!row.must_change, tokenHash };
+    return { candidate: row.candidate, mustChange: !!row.must_change, role: row.role, name: row.display_name, tokenHash };
   }
+
+  function requireSupervisor(req) {
+    const a = authenticate(req);
+    if (a.role !== 'supervisor') throw new HttpError(403, 'wrong_role', 'This is only for supervisors.');
+    if (a.mustChange) throw new HttpError(403, 'password_change_required', 'Change your password first.');
+    return a;
+  }
+
+  // Resolves { candidate } in a request body to a student this supervisor may work with.
+  function assignedStudent(a, body) {
+    const c = normCandidate(body.candidate);
+    if (!validCandidate(c) || !isAssigned(db, a.candidate, c)) {
+      throw new HttpError(403, 'not_assigned', 'This candidate is not one of your students.');
+    }
+    return c;
+  }
+
+  // Supervisors get what they need to judge and sign an entry, not the app-usage measurements.
+  const supervisorView = (e) => (e.type === 'entry'
+    ? { id: e.id, type: e.type, ts: e.ts, hospital: e.hospital, procedure: e.procedure, role: e.role, performed_on: e.performed_on, entered_on: e.entered_on }
+    : e);
+
+  // The events of one student after `cursor`, one page at a time.
+  function eventsPage(owner, cursor, project = (e) => e) {
+    const rows = db.prepare('SELECT seq, payload FROM events WHERE owner = ? AND seq > ? ORDER BY seq LIMIT ?').all(owner, cursor, PAGE + 1);
+    const hasMore = rows.length > PAGE;
+    const page = hasMore ? rows.slice(0, PAGE) : rows;
+    return { events: page.map((r) => project(JSON.parse(r.payload))), cursor: page.length ? page[page.length - 1].seq : cursor, has_more: hasMore };
+  }
+
+  const cursorOf = (body) => (Number.isInteger(body.cursor) && body.cursor >= 0 ? body.cursor : 0);
 
   async function api(req, res, url) {
     const route = `${req.method} ${url.pathname}`;
@@ -119,7 +162,7 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
       const iso = new Date(now()).toISOString();
       db.prepare('INSERT INTO sessions (token_hash, candidate, created_at, last_seen) VALUES (?, ?, ?, ?)').run(sha256(token), c, iso, iso);
       db.prepare('UPDATE users SET last_login_at = ? WHERE candidate = ?').run(iso, c);
-      return send(res, 200, { token, candidate: c, must_change_password: !!row.must_change });
+      return send(res, 200, { token, candidate: c, role: row.role, name: row.display_name, must_change_password: !!row.must_change });
     }
 
     if (route === 'POST /api/logout') {
@@ -147,35 +190,97 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
 
     if (route === 'POST /api/sync') {
       const a = authenticate(req);
+      if (a.role !== 'student') throw new HttpError(403, 'wrong_role', 'Supervisor accounts do not have a logbook.');
       if (a.mustChange) throw new HttpError(403, 'password_change_required', 'Change your password first.');
       const body = await readJson(req);
       const incoming = Array.isArray(body.events) ? body.events : [];
       if (incoming.length > MAX_EVENTS_PER_SYNC) throw new HttpError(413, 'too_many_events', `At most ${MAX_EVENTS_PER_SYNC} events per request.`);
-      const cursor = Number.isInteger(body.cursor) && body.cursor >= 0 ? body.cursor : 0;
 
       const accepted = [];
       const rejected = [];
-      const insert = db.prepare('INSERT OR IGNORE INTO events (owner, id, payload, received_at) VALUES (?, ?, ?, ?)');
       const received = new Date(now()).toISOString();
       db.exec('BEGIN');
       try {
         for (const ev of incoming) {
           const v = validateEvent(ev, a.candidate);
-          if (v.clean) { insert.run(a.candidate, v.clean.id, JSON.stringify(v.clean), received); accepted.push(v.clean.id); }
-          else rejected.push({ id: ev && typeof ev.id === 'string' ? ev.id.slice(0, 64) : null, reason: v.reason });
+          const id = ev && typeof ev.id === 'string' ? ev.id.slice(0, 64) : null;
+          if (!v.clean) rejected.push({ id, reason: v.reason });
+          else if (v.clean.type === 'void' && isSigned(db, a.candidate, v.clean.target)) rejected.push({ id, reason: 'signed_locked' });
+          else { insertEvent(db, a.candidate, v.clean, received); accepted.push(v.clean.id); }
         }
         db.exec('COMMIT');
       } catch (e) { db.exec('ROLLBACK'); throw e; }
 
-      const rows = db.prepare('SELECT seq, payload FROM events WHERE owner = ? AND seq > ? ORDER BY seq LIMIT ?').all(a.candidate, cursor, PAGE + 1);
-      const hasMore = rows.length > PAGE;
-      const page = hasMore ? rows.slice(0, PAGE) : rows;
-      return send(res, 200, {
-        accepted, rejected,
-        events: page.map((r) => JSON.parse(r.payload)),
-        cursor: page.length ? page[page.length - 1].seq : cursor,
-        has_more: hasMore,
-      });
+      // Who can see (and sign) this student's entries. The app shows this list to the student.
+      const supervisors = db.prepare(
+        `SELECT u.candidate AS id, COALESCE(u.display_name, u.candidate) AS name, a.created_at AS since
+         FROM assignments a JOIN users u ON u.candidate = a.supervisor
+         WHERE a.student = ? AND u.disabled = 0 ORDER BY a.created_at`,
+      ).all(a.candidate);
+      return send(res, 200, { accepted, rejected, supervisors, ...eventsPage(a.candidate, cursorOf(body)) });
+    }
+
+    // ---- supervisors --------------------------------------------------------
+
+    if (route === 'POST /api/sup/students') {
+      const a = requireSupervisor(req);
+      const live = `e.owner = s.student AND e.type = 'entry'
+        AND NOT EXISTS (SELECT 1 FROM events v WHERE v.owner = e.owner AND v.type = 'void' AND v.target = e.id)`;
+      const students = db.prepare(
+        `SELECT s.student AS candidate, s.created_at AS since,
+           (SELECT COUNT(*) FROM events e WHERE ${live}) AS entries,
+           (SELECT COUNT(*) FROM events e WHERE ${live}
+              AND NOT EXISTS (SELECT 1 FROM events g WHERE g.owner = e.owner AND g.type = 'sign' AND g.target = e.id)) AS unsigned,
+           (SELECT MAX(received_at) FROM events e WHERE e.owner = s.student) AS last_received
+         FROM assignments s JOIN users u ON u.candidate = s.student
+         WHERE s.supervisor = ? AND u.disabled = 0
+         ORDER BY unsigned DESC, s.student`,
+      ).all(a.candidate);
+      return send(res, 200, { students });
+    }
+
+    if (route === 'POST /api/sup/candidates') {
+      const a = requireSupervisor(req);
+      const candidates = db.prepare(
+        `SELECT u.candidate, EXISTS (SELECT 1 FROM assignments x WHERE x.supervisor = ? AND x.student = u.candidate) AS mine
+         FROM users u WHERE u.role = 'student' AND u.disabled = 0 ORDER BY u.candidate`,
+      ).all(a.candidate).map((r) => ({ candidate: r.candidate, mine: !!r.mine }));
+      return send(res, 200, { candidates });
+    }
+
+    if (route === 'POST /api/sup/assign') {
+      const a = requireSupervisor(req);
+      const body = await readJson(req);
+      try { assign(db, a.candidate, normCandidate(body.candidate), new Date(now())); }
+      catch (e) {
+        if (e instanceof LookupError) throw new HttpError(404, 'no_such_candidate', 'There is no active student with that candidate number.');
+        throw e;
+      }
+      return send(res, 200, { ok: true });
+    }
+
+    if (route === 'POST /api/sup/unassign') {
+      const a = requireSupervisor(req);
+      const body = await readJson(req);
+      unassign(db, a.candidate, normCandidate(body.candidate));
+      return send(res, 200, { ok: true });
+    }
+
+    if (route === 'POST /api/sup/entries') {
+      const a = requireSupervisor(req);
+      const body = await readJson(req);
+      const student = assignedStudent(a, body);
+      return send(res, 200, eventsPage(student, cursorOf(body), supervisorView));
+    }
+
+    if (route === 'POST /api/sup/sign') {
+      const a = requireSupervisor(req);
+      const body = await readJson(req);
+      const student = assignedStudent(a, body);
+      if (!Array.isArray(body.ids) || !body.ids.length) throw new HttpError(400, 'no_ids', 'Choose at least one entry to sign.');
+      if (body.ids.length > MAX_EVENTS_PER_SYNC) throw new HttpError(413, 'too_many_events', `At most ${MAX_EVENTS_PER_SYNC} entries per request.`);
+      const r = signEntries(db, { id: a.candidate, name: a.name }, student, body.ids, new Date(now()).toISOString());
+      return send(res, 200, { signed: r.signed.length, signed_ids: r.signed, skipped: r.skipped });
     }
 
     throw new HttpError(404, 'not_found', 'No such endpoint.');

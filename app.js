@@ -1,13 +1,18 @@
-// app.js — user interface. Plain JavaScript, no build step.
+// app.js — the student app, and the entry point that decides what to show.
 // Screens: login, choose-password, hospital, then Log / Progress / History / More.
-// Sheets (modals) live in #overlay.
+// A supervisor account gets the supervisor screens in supervisor.js instead.
+// Plain JavaScript, no build step. Shared interface pieces live in ui.js.
 
 import {
   PROCEDURES_TOP, PROCEDURES_OTHER, ROLES, TARGETS, TARGETS_ARE_PLACEHOLDER,
-  HOSPITALS, SUPERVISORS, APP_VERSION, procName, roleLabel, supName,
+  HOSPITALS, APP_VERSION, procName, roleLabel,
 } from './config.js';
 import * as core from './core.js';
 import * as api from './api.js';
+import {
+  h, timeAgo, stat, kv, initUi, toast, hideToast, openSheet, closeSheet, passwordForm,
+} from './ui.js';
+import { mountSupervisor } from './supervisor.js';
 
 const SESSION_KEY = 'logbook.session';
 
@@ -15,36 +20,7 @@ const state = {
   tab: 'log', session: null, profile: null, events: [], entries: [], sent: new Set(), meta: {},
   online: true, swReady: false, syncing: false, sessionNote: '',
 };
-let root, overlay, toastEl, toastTimer, syncTimer;
-
-// ---- tiny DOM helper -------------------------------------------------------
-
-function h(tag, attrs, ...kids) {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs || {})) {
-    if (v == null || v === false) continue;
-    if (k === 'class') el.className = v;
-    else if (k.startsWith('on')) el.addEventListener(k.slice(2).toLowerCase(), v);
-    else if (['value', 'checked', 'disabled', 'selected'].includes(k)) el[k] = v;
-    else el.setAttribute(k, v === true ? '' : v);
-  }
-  const add = (kid) => {
-    if (kid == null || kid === false) return;
-    if (Array.isArray(kid)) kid.forEach(add);
-    else el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
-  };
-  kids.forEach(add);
-  return el;
-}
-
-const timeAgo = (iso) => {
-  if (!iso) return 'never';
-  const s = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (s < 60) return 'just now';
-  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
-  return `${Math.floor(s / 86400)} d ago`;
-};
+let root, syncTimer;
 
 // ---- session (who is logged in on this tablet) ------------------------------
 
@@ -70,7 +46,7 @@ function handleAuthError(e) {
 // ---- state loading ---------------------------------------------------------
 
 async function loadState() {
-  if (!state.session) {
+  if (!state.session || state.session.role === 'supervisor') {
     Object.assign(state, { events: [], entries: [], sent: new Set(), meta: {}, profile: null });
     return;
   }
@@ -78,7 +54,7 @@ async function loadState() {
   state.entries = core.derive(state.events);
   state.sent = await core.sentIds();
   const meta = {};
-  for (const k of ['hospital', 'last_sync_at', 'cursor', 'sync_warning', 'undo_count', 'open_count', 'first_open_at', 'persisted']) {
+  for (const k of ['hospital', 'last_sync_at', 'cursor', 'sync_warning', 'undo_count', 'open_count', 'first_open_at', 'persisted', 'supervisors']) {
     meta[k] = await core.getMeta(k);
   }
   state.meta = meta;
@@ -90,33 +66,6 @@ async function refresh() {
   await loadState();
   render();
   if (y) window.scrollTo(0, y);
-}
-
-// ---- toast and sheets ------------------------------------------------------
-
-function hideToast() { toastEl.classList.remove('show'); }
-
-function toast(msg, opts = {}) {
-  clearTimeout(toastTimer);
-  toastEl.replaceChildren(
-    h('div', { class: 't-main' }, h('strong', {}, msg), opts.sub ? h('span', {}, opts.sub) : null),
-    opts.action ? h('button', { class: 't-act', onclick: () => { hideToast(); opts.action.fn(); } }, opts.action.label) : null,
-  );
-  toastEl.classList.add('show');
-  if (!opts.sticky) toastTimer = setTimeout(hideToast, opts.ms || 6000);
-}
-
-function openSheet(content) {
-  overlay.replaceChildren(
-    h('div', { class: 'scrim', onclick: closeSheet }),
-    h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true' }, content),
-  );
-  overlay.classList.add('open');
-}
-
-function closeSheet() {
-  overlay.classList.remove('open');
-  overlay.replaceChildren();
 }
 
 // ---- syncing with the server -------------------------------------------------
@@ -157,7 +106,17 @@ async function syncCore() {
     sent += ok.size;
     pulled += await core.addPulled(res.events || []);
     await core.setMeta('cursor', res.cursor);
-    if (res.rejected && res.rejected.length) warning = `${res.rejected.length} entr${res.rejected.length > 1 ? 'ies were' : 'y was'} refused by the server.`;
+    if (Array.isArray(res.supervisors)) await core.setMeta('supervisors', res.supervisors);
+    let refused = 0;
+    for (const r of res.rejected || []) {
+      if (!r.id) continue;
+      // A delete of an entry that a supervisor signed meanwhile: forget the delete. The signature arrives in this same sync.
+      if (r.reason === 'signed_locked') { await core.dropEvent(r.id); continue; }
+      // Refused for good (the same event would be refused again): stop retrying, but tell the student.
+      await core.markSent([r.id]);
+      refused += 1;
+    }
+    if (refused) warning = `${refused} entr${refused > 1 ? 'ies were' : 'y was'} refused by the server.`;
     if (!res.has_more && !(unsent.length === 200 && ok.size > 0)) break;
   }
   await core.setMeta('sync_warning', warning);
@@ -166,7 +125,7 @@ async function syncCore() {
 }
 
 async function doSync(manual = false) {
-  if (!state.session || state.session.must_change || state.syncing) return;
+  if (!state.session || state.session.role === 'supervisor' || state.session.must_change || state.syncing) return;
   if (!state.online) {
     if (manual) toast('No internet right now', { sub: 'Your entries are safe on this tablet and will be sent later.' });
     return;
@@ -209,6 +168,13 @@ function render() {
   root.replaceChildren();
   if (!state.session) { root.append(loginScreen()); return; }
   if (state.session.must_change) { root.append(forcedPasswordScreen()); return; }
+  if (state.session.role === 'supervisor') {
+    mountSupervisor({
+      root, session: state.session, version: APP_VERSION,
+      onAuthError: handleAuthError, onLogout: doLogout, openChangePassword,
+    });
+    return;
+  }
   if (!state.profile || !state.profile.hospital) { root.append(hospitalScreen()); return; }
   root.append(
     header(),
@@ -257,7 +223,7 @@ function loginScreen() {
   const reset = () => { btn.disabled = false; btn.textContent = 'Log in'; };
 
   const form = h('form', { class: 'setup-form' },
-    h('label', { for: 'cand' }, 'Candidate number'), cand,
+    h('label', { for: 'cand' }, 'Candidate number or staff ID'), cand,
     h('label', { for: 'pw' }, 'Password'), pw,
     h('label', { class: 'checkrow', for: 'showpw' }, show, h('span', {}, 'Show password')),
     err, btn);
@@ -275,12 +241,16 @@ function loginScreen() {
     try {
       const res = await api.login(candidate, pw.value);
       state.sessionNote = '';
-      core.useUser(res.candidate);
-      writeSession({ candidate: res.candidate, token: res.token, must_change: !!res.must_change_password });
-      if (!(await core.getMeta('first_open_at'))) await core.setMeta('first_open_at', new Date().toISOString());
-      if (!res.must_change_password) {
-        btn.textContent = 'Loading your logbook…';
-        await pullAll();
+      const role = res.role === 'supervisor' ? 'supervisor' : 'student';
+      writeSession({ candidate: res.candidate, token: res.token, must_change: !!res.must_change_password, role, name: res.name || null });
+      if (role === 'student') {
+        // Supervisors keep no logbook on the tablet, so only students get a local database.
+        core.useUser(res.candidate);
+        if (!(await core.getMeta('first_open_at'))) await core.setMeta('first_open_at', new Date().toISOString());
+        if (!res.must_change_password) {
+          btn.textContent = 'Loading your logbook…';
+          await pullAll();
+        }
       }
       await refresh();
     } catch (e) {
@@ -291,62 +261,26 @@ function loginScreen() {
 
   return h('div', { class: 'setup' },
     h('h1', {}, 'Surgical logbook'),
-    h('p', { class: 'muted' }, 'Log in with the candidate number and password you got from CapaCare. You need internet the first time you log in on a tablet. After that the logbook also works without internet.'),
+    h('p', { class: 'muted' }, 'Log in with the candidate number (students) or staff ID (supervisors) and the password you got from CapaCare. You need internet the first time you log in on a tablet. After that the student logbook also works without internet.'),
     note, form,
     h('p', { class: 'muted small' }, `Prototype v${APP_VERSION}. Never type patient names or numbers anywhere.`));
-}
-
-function passwordForm({ forced, onDone }) {
-  const label = forced ? 'Save and continue' : 'Change password';
-  const old = h('input', { id: 'oldpw', type: 'password', autocomplete: 'current-password' });
-  const nw = h('input', { id: 'newpw', type: 'password', autocomplete: 'new-password' });
-  const rep = h('input', { id: 'reppw', type: 'password', autocomplete: 'new-password' });
-  const show = h('input', { type: 'checkbox', id: 'showpw2' });
-  show.addEventListener('change', () => { [old, nw, rep].forEach((i) => { i.type = show.checked ? 'text' : 'password'; }); });
-  const err = h('p', { class: 'error', role: 'alert' }, '');
-  const btn = h('button', { class: 'btn wide', type: 'submit' }, label);
-  const form = h('form', { class: 'setup-form' },
-    h('label', { for: 'oldpw' }, forced ? 'The password you were given' : 'Current password'), old,
-    h('label', { for: 'newpw' }, 'New password (at least 8 characters)'), nw,
-    h('label', { for: 'reppw' }, 'Type the new password again'), rep,
-    h('label', { class: 'checkrow', for: 'showpw2' }, show, h('span', {}, 'Show passwords')),
-    err, btn);
-  [old, nw, rep].forEach((i) => i.addEventListener('input', () => { err.textContent = ''; }));
-
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    err.textContent = '';
-    if (!old.value) { err.textContent = 'Type the current password.'; old.focus(); return; }
-    if (nw.value.length < 8) { err.textContent = 'The new password must be at least 8 characters.'; nw.focus(); return; }
-    if (nw.value.toUpperCase() === state.session.candidate) { err.textContent = 'The password must not be your candidate number.'; nw.focus(); return; }
-    if (nw.value !== rep.value) { err.textContent = 'The two new passwords are not the same.'; rep.focus(); return; }
-    btn.disabled = true;
-    btn.textContent = 'Saving…';
-    try {
-      await api.changePassword(state.session.token, old.value, nw.value);
-      await onDone();
-    } catch (e) {
-      if (handleAuthError(e)) return;
-      err.textContent = e.message;
-      btn.disabled = false;
-      btn.textContent = label;
-    }
-  });
-  return form;
 }
 
 function forcedPasswordScreen() {
   const form = passwordForm({
     forced: true,
+    candidate: state.session.candidate,
+    token: state.session.token,
+    onAuthError: handleAuthError,
     onDone: async () => {
       writeSession({ ...state.session, must_change: false });
-      await pullAll();
+      if (state.session.role !== 'supervisor') await pullAll();
       await refresh();
     },
   });
   return h('div', { class: 'setup' },
     h('h1', {}, 'Choose your own password'),
-    h('p', { class: 'muted' }, `Welcome, ${state.session.candidate}. The password you were given is only for the first login. Choose a password that only you know, and do not share it, not even with your supervisor.`),
+    h('p', { class: 'muted' }, `Welcome, ${state.session.candidate}. The password you were given is only for the first login. Choose a password that only you know, and do not share it with anyone.`),
     form);
 }
 
@@ -487,8 +421,6 @@ function progressTab() {
         h('button', { class: 'btn ghost', onclick: () => copyText(text) }, 'Copy'))));
 }
 
-const stat = (n, label) => h('div', { class: 'stat' }, h('strong', {}, n), h('span', {}, label));
-
 function shareWhatsApp(text) {
   window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
 }
@@ -501,11 +433,16 @@ async function copyText(text) {
 // ---- History tab -----------------------------------------------------------
 
 function historyTab() {
-  const unsigned = state.entries.filter((e) => !e.sign);
+  const unsigned = state.entries.filter((e) => !e.sign).length;
+  const sups = state.meta.supervisors || [];
+  let info;
+  if (!state.entries.length) info = null;
+  else if (!sups.length) info = 'No supervisor has added you yet. Ask your supervisor to add your candidate number in the supervisor app; then they can sign your entries.';
+  else if (unsigned) info = `${unsigned} waiting for a signature. Your supervisor signs in their own app once your entries are synced.`;
+  else info = 'All your entries are signed.';
   return h('section', {},
     h('h2', {}, 'History'),
-    h('button', { class: 'btn wide', disabled: unsigned.length === 0, onclick: openSignoff },
-      unsigned.length ? `Supervisor sign-off (${unsigned.length})` : 'Nothing to sign'),
+    info ? h('p', { class: 'note-info' }, info) : null,
     state.entries.length
       ? h('ul', { class: 'list' }, state.entries.map(entryRow))
       : h('p', { class: 'muted' }, 'No entries yet. Log your first procedure on the Log tab.'));
@@ -518,7 +455,7 @@ function entryRow(e) {
     h('div', { class: 'e-meta' },
       h('span', {}, core.fmtDate(e.performed_on)),
       late ? h('span', { class: 'tag' }, 'late entry') : null,
-      e.sign ? h('span', { class: 'tag ok' }, `Signed · ${supName(e.sign.supervisor)}`) : h('span', { class: 'tag warn' }, 'Not signed')),
+      e.sign ? h('span', { class: 'tag ok' }, `Signed · ${e.sign.supervisor_name || e.sign.supervisor}`) : h('span', { class: 'tag warn' }, 'Not signed')),
     e.sign ? null : h('button', { class: 'link danger', onclick: () => confirmDelete(e) }, 'Delete'));
 }
 
@@ -532,58 +469,6 @@ function confirmDelete(e) {
   ]);
 }
 
-function openSignoff() {
-  let sup = SUPERVISORS[0].id;
-  const err = h('p', { class: 'error', role: 'alert' }, '');
-  const pin = h('input', { type: 'password', inputmode: 'numeric', pattern: '[0-9]*', maxlength: '4', placeholder: 'PIN', class: 'pin', autocomplete: 'off' });
-  pin.addEventListener('input', () => { err.textContent = ''; });
-  const radios = SUPERVISORS.map((s) => h('label', { class: 'radio' },
-    h('input', { type: 'radio', name: 'sup', value: s.id, checked: s.id === sup, onchange: () => { sup = s.id; } }),
-    h('span', {}, s.name)));
-  const next = () => {
-    const s = SUPERVISORS.find((x) => x.id === sup);
-    if (pin.value !== s.pin) { err.textContent = 'Wrong PIN. Try again.'; pin.value = ''; pin.focus(); return; }
-    signStep2(s);
-  };
-  openSheet([
-    h('h3', {}, 'Supervisor sign-off'),
-    h('p', { class: 'muted' }, 'The supervisor chooses their name and types their PIN.'),
-    radios,
-    pin,
-    err,
-    h('div', { class: 'row' },
-      h('button', { class: 'btn', type: 'button', onclick: next }, 'Next'),
-      h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Cancel')),
-  ]);
-}
-
-function signStep2(s) {
-  const unsigned = state.entries.filter((e) => !e.sign);
-  const err = h('p', { class: 'error', role: 'alert' }, '');
-  const checks = unsigned.map((e) => ({ e, box: h('input', { type: 'checkbox', checked: true }) }));
-  openSheet([
-    h('h3', {}, 'Entries to sign'),
-    h('p', { class: 'muted' }, `Signing as ${s.name}. Untick anything that is not correct.`),
-    h('div', { class: 'signlist' }, checks.map(({ e, box }) => h('label', { class: 'check' }, box,
-      h('span', {}, h('strong', {}, procName(e.procedure)), ` · ${roleLabel(e.role)} · ${core.fmtDate(e.performed_on)}`)))),
-    err,
-    h('div', { class: 'row' },
-      h('button', {
-        class: 'btn', type: 'button',
-        onclick: async () => {
-          const ids = checks.filter((c) => c.box.checked).map((c) => c.e.id);
-          if (!ids.length) { err.textContent = 'Select at least one entry.'; return; }
-          closeSheet();
-          await core.signEntries(ids, s.id);
-          await refresh();
-          scheduleSync();
-          toast(`Signed ${ids.length} entr${ids.length > 1 ? 'ies' : 'y'}`, { sub: s.name });
-        },
-      }, 'Sign selected'),
-      h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Cancel')),
-  ]);
-}
-
 // ---- More tab --------------------------------------------------------------
 
 function moreTab() {
@@ -593,7 +478,6 @@ function moreTab() {
     'aria-label': 'Hospital',
     onchange: async (ev) => { await core.setMeta('hospital', ev.target.value); await refresh(); },
   }, HOSPITALS.map((x) => h('option', { value: x, selected: x === state.profile.hospital }, x)));
-  const kv = (k, v) => h('div', { class: 'kv' }, h('span', {}, k), h('strong', {}, v));
 
   return h('section', {},
     h('h2', {}, 'More'),
@@ -613,16 +497,29 @@ function moreTab() {
         h('button', { class: 'btn', onclick: () => doSync(true) }, 'Sync now'),
         h('button', { class: 'btn ghost', onclick: exportData }, 'Export test data')),
       h('p', { class: 'muted small' }, 'Entries are sent to the server automatically when there is internet. "Export test data" saves a file you can send on WhatsApp.')),
-    h('div', { class: 'card' }, h('h3', {}, 'Demo supervisors'),
-      SUPERVISORS.map((s) => kv(s.name, `PIN ${s.pin}`)),
-      h('p', { class: 'muted small' }, 'Prototype only. Real supervisor sign-off needs supervisor accounts.')),
+    supervisorsCard(),
     h('div', { class: 'card' }, h('h3', {}, 'About'), kv('Version', APP_VERSION)));
+}
+
+function supervisorsCard() {
+  const sups = state.meta.supervisors || [];
+  return h('div', { class: 'card' }, h('h3', {}, 'Your supervisors'),
+    sups.length
+      ? sups.map((s) => kv(s.name, `since ${core.fmtDate(String(s.since).slice(0, 10))}`))
+      : h('p', { class: 'muted' }, 'No supervisor has added you yet.'),
+    h('p', { class: 'muted small' }, 'These supervisors can see your entries and sign them. Nobody else can. If someone is on this list who should not be, tell CapaCare.'));
 }
 
 function openChangePassword() {
   openSheet([
     h('h3', {}, 'Change password'),
-    passwordForm({ forced: false, onDone: async () => { closeSheet(); toast('Password changed', { sub: 'Other tablets were logged out.' }); } }),
+    passwordForm({
+      forced: false,
+      candidate: state.session.candidate,
+      token: state.session.token,
+      onAuthError: handleAuthError,
+      onDone: async () => { closeSheet(); toast('Password changed', { sub: 'Other tablets were logged out.' }); },
+    }),
     h('button', { class: 'btn ghost wide', type: 'button', onclick: closeSheet }, 'Cancel'),
   ]);
 }
@@ -655,7 +552,7 @@ async function doLogout() {
     await Promise.race([api.logout(token).catch(() => {}), new Promise((r) => setTimeout(r, 3000))]);
   }
   clearTimeout(syncTimer);
-  await core.wipeAll();
+  if (!state.session || state.session.role !== 'supervisor') await core.wipeAll();
   writeSession(null);
   state.sessionNote = '';
   state.tab = 'log';
@@ -704,8 +601,7 @@ async function requestPersist() {
 
 export async function init() {
   root = document.getElementById('app');
-  overlay = document.getElementById('overlay');
-  toastEl = document.getElementById('toast');
+  initUi({ overlayEl: document.getElementById('overlay'), toastElement: document.getElementById('toast') });
   state.online = navigator.onLine !== false;
 
   // Only the sync chip changes when the connection changes, so nothing a student is typing is lost.
@@ -713,7 +609,7 @@ export async function init() {
   window.addEventListener('offline', () => { state.online = false; updateChip(); });
 
   state.session = readSession();
-  if (state.session) {
+  if (state.session && state.session.role !== 'supervisor') {
     core.useUser(state.session.candidate);
     await core.setMeta('open_count', ((await core.getMeta('open_count', 0)) || 0) + 1);
   }
@@ -721,11 +617,11 @@ export async function init() {
   render();
   registerSW();
   requestPersist();
-  if (state.session && !state.session.must_change) scheduleSync();
+  if (state.session && state.session.role !== 'supervisor' && !state.session.must_change) scheduleSync();
 
   // Retry now and then while the app stays open on a flaky connection.
   const timer = setInterval(() => {
-    if (state.session && !state.session.must_change && state.online
+    if (state.session && state.session.role !== 'supervisor' && !state.session.must_change && state.online
       && (core.unsyncedCount(state.events, state.sent) > 0 || state.meta.cursor == null)) doSync(false);
   }, 180000);
   if (timer && timer.unref) timer.unref();
