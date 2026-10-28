@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { procName, roleLabel } from '../config.js';
 
 const scrypt = promisify(crypto.scrypt);
 const SCRYPT_N = 16384;
@@ -156,7 +157,7 @@ export async function addUser(db, candidate, password, { role = 'student', name 
   if (!ROLES.includes(role)) throw new Error(`Unknown role: ${role}`);
   const hash = await hashPassword(password);
   db.prepare('INSERT INTO users (candidate, pw_hash, must_change, disabled, created_at, role, display_name) VALUES (?, ?, 1, 0, ?, ?, ?)')
-    .run(c, hash, new Date().toISOString(), role, role === 'student' ? null : cleanName(name));
+    .run(c, hash, new Date().toISOString(), role, cleanName(name));
   logAudit(db, actor, 'create', c, role);
   return c;
 }
@@ -199,8 +200,8 @@ export function revokeSessions(db, candidate, actor = 'cli') {
 
 export function renameUser(db, candidate, name, actor = 'cli') {
   const c = normCandidate(candidate);
-  const res = db.prepare("UPDATE users SET display_name = ? WHERE candidate = ? AND role != 'student'").run(cleanName(name), c);
-  if (!res.changes) throw new Error(`No such supervisor or administrator: ${c}`);
+  const res = db.prepare('UPDATE users SET display_name = ? WHERE candidate = ?').run(cleanName(name), c);
+  if (!res.changes) throw new Error(`No such account: ${c}`);
   logAudit(db, actor, 'rename', c);
   return c;
 }
@@ -267,20 +268,28 @@ export function listUsers(db) {
 export function adminStats(db) {
   const entries = db.prepare(
     `SELECT e.owner AS student, json_extract(e.payload, '$.procedure') AS procedure, json_extract(e.payload, '$.role') AS role,
-            json_extract(e.payload, '$.performed_on') AS performed_on,
+            json_extract(e.payload, '$.performed_on') AS performed_on, json_extract(e.payload, '$.hospital') AS hospital,
             EXISTS (SELECT 1 FROM events g WHERE g.owner = e.owner AND g.type = 'sign' AND g.target = e.id) AS signed
      FROM events e WHERE e.type = 'entry' AND ${NOT_VOIDED}`,
   ).all();
-  const students = db.prepare("SELECT candidate, disabled FROM users WHERE role = 'student' ORDER BY candidate").all();
+  const students = db.prepare("SELECT candidate, display_name, disabled FROM users WHERE role = 'student' ORDER BY candidate").all();
   const activeSupervisors = db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'supervisor' AND disabled = 0").get().n;
 
   const performedRole = (r) => r === 'supervised' || r === 'independent';
   const byProcedure = new Map();
   const byStudent = new Map(students.map((u) => [u.candidate, {
-    candidate: u.candidate, disabled: !!u.disabled, entries: 0, performed: 0, signed: 0, last_performed_on: null, by_procedure: {},
+    candidate: u.candidate, name: u.display_name, disabled: !!u.disabled, entries: 0, performed: 0, signed: 0, last_performed_on: null, by_procedure: {},
   }]));
+  const byHospital = new Map();
   let signed = 0;
   for (const e of entries) {
+    const hn = e.hospital || '(not recorded)';
+    const hs = byHospital.get(hn) || { hospital: hn, entries: 0, performed: 0, students: new Set() };
+    hs.entries += 1;
+    if (performedRole(e.role)) hs.performed += 1;
+    hs.students.add(e.student);
+    byHospital.set(hn, hs);
+
     const p = byProcedure.get(e.procedure) || { procedure: e.procedure, observing: 0, assisting: 0, supervised: 0, independent: 0, total: 0, performed: 0, students: new Set() };
     p[e.role] += 1;
     p.total += 1;
@@ -302,8 +311,69 @@ export function adminStats(db) {
   return {
     totals: { students: active, supervisors: activeSupervisors, entries: entries.length, signed, unsigned: entries.length - signed },
     procedures: [...byProcedure.values()].map((p) => ({ ...p, students: p.students.size })).sort((a, b) => b.total - a.total),
+    last_backup: db.prepare("SELECT MAX(at) AS at FROM audit WHERE action = 'backup'").get().at,
+    hospitals: [...byHospital.values()].map((x) => ({ ...x, students: x.students.size })).sort((a, b) => b.entries - a.entries),
     students: [...byStudent.values()],
   };
+}
+
+// ---- CSV export for research and reporting ---------------------------------------
+// Rows are one live (not deleted) entry each. Cells that start with = + - @ are prefixed with an
+// apostrophe so a spreadsheet never treats a name as a formula.
+function csvCell(v, delimiter) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'number') return String(v);
+  let s = String(v);
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return /["\r\n]/.test(s) || s.includes(delimiter) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+export function toCsv(header, rows, delimiter = ',') {
+  const d = delimiter === ';' ? ';' : ',';
+  return `\uFEFF${[header, ...rows].map((r) => r.map((c) => csvCell(c, d)).join(d)).join('\r\n')}\r\n`;
+}
+
+export const EXPORT_KINDS = ['procedures', 'hospitals', 'entries'];
+
+export function exportCsv(db, kind, delimiter = ',') {
+  const rows = db.prepare(
+    `SELECT e.owner AS candidate, u.display_name AS name, e.id AS entry_id,
+            json_extract(e.payload, '$.performed_on') AS performed_on, json_extract(e.payload, '$.entered_on') AS entered_on,
+            json_extract(e.payload, '$.hospital') AS hospital, json_extract(e.payload, '$.procedure') AS procedure,
+            json_extract(e.payload, '$.role') AS role,
+            (SELECT json_extract(g.payload, '$.supervisor') FROM events g WHERE g.owner = e.owner AND g.type = 'sign' AND g.target = e.id LIMIT 1) AS signed_by,
+            (SELECT json_extract(g.payload, '$.ts') FROM events g WHERE g.owner = e.owner AND g.type = 'sign' AND g.target = e.id LIMIT 1) AS signed_at
+     FROM events e JOIN users u ON u.candidate = e.owner
+     WHERE e.type = 'entry' AND ${NOT_VOIDED}
+     ORDER BY performed_on, e.owner, e.id`,
+  ).all();
+  const performed = (r) => r === 'supervised' || r === 'independent';
+
+  if (kind === 'entries') {
+    return toCsv(
+      ['candidate', 'name', 'entry_id', 'performed_on', 'entered_on', 'hospital', 'procedure_id', 'procedure', 'role', 'performed', 'signed', 'signed_by', 'signed_at'],
+      rows.map((r) => [r.candidate, r.name, r.entry_id, r.performed_on, r.entered_on, r.hospital, r.procedure, procName(r.procedure), roleLabel(r.role),
+        performed(r.role) ? 'yes' : 'no', r.signed_by ? 'yes' : 'no', r.signed_by, r.signed_at]),
+      delimiter,
+    );
+  }
+  // Counts per (group, procedure): by student, or by hospital.
+  const byHospital = kind === 'hospitals';
+  const groups = new Map();
+  for (const r of rows) {
+    const g = byHospital ? (r.hospital || '(not recorded)') : r.candidate;
+    const key = `${g}\u0000${r.procedure}`;
+    const x = groups.get(key) || { g, name: r.name, procedure: r.procedure, observing: 0, assisting: 0, supervised: 0, independent: 0, signed: 0, people: new Set() };
+    x[r.role] += 1;
+    if (r.signed_by) x.signed += 1;
+    x.people.add(r.candidate);
+    groups.set(key, x);
+  }
+  const list = [...groups.values()].sort((a, b) => String(a.g).localeCompare(String(b.g)) || String(a.procedure).localeCompare(String(b.procedure)));
+  const counts = (x) => [x.observing, x.assisting, x.supervised, x.independent, x.supervised + x.independent, x.observing + x.assisting + x.supervised + x.independent, x.signed];
+  const countHead = ['observing', 'assisting', 'surgeon_supervised', 'surgeon_independent', 'performed', 'total', 'signed'];
+  return byHospital
+    ? toCsv(['hospital', 'procedure_id', 'procedure', ...countHead, 'students'], list.map((x) => [x.g, x.procedure, procName(x.procedure), ...counts(x), x.people.size]), delimiter)
+    : toCsv(['candidate', 'name', 'procedure_id', 'procedure', ...countHead], list.map((x) => [x.g, x.name, x.procedure, procName(x.procedure), ...counts(x)]), delimiter);
 }
 
 // ---- events -------------------------------------------------------------------

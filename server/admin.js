@@ -1,12 +1,12 @@
 // Account administration. Run on the machine where the database lives.
 //
-//   node server/admin.js add S1234 [--password secret]            create a student account
+//   node server/admin.js add S1234 [--name "Mohamed K"] [--password secret]   create a student account
 //   node server/admin.js import candidates.csv                    create many students (first column = candidate number)
 //   node server/admin.js add-supervisor SUP-ANNA --name "Dr Anna K" [--password secret]
 //   node server/admin.js add-admin ADMIN-ANDERS --name "Anders" [--password secret]
 //   node server/admin.js assign SUP-ANNA S1234 [S1235 ...]        let a supervisor see and sign these students
 //   node server/admin.js unassign SUP-ANNA S1234
-//   node server/admin.js rename SUP-ANNA "Dr Anna Kamara"         change a supervisor's display name
+//   node server/admin.js rename SUP-ANNA "Dr Anna Kamara"         change the display name of any account
 //   node server/admin.js reset S1234                              new initial password, logs the account out everywhere
 //   node server/admin.js disable S1234 | enable S1234
 //   node server/admin.js revoke S1234                             log out everywhere (e.g. lost tablet)
@@ -19,7 +19,7 @@
 import fs from 'node:fs';
 import {
   openDb, addUser, resetPassword, setDisabled, revokeSessions, generatePassword, normCandidate, validCandidate,
-  assign, unassign, renameUser, backupTo,
+  assign, unassign, renameUser, backupTo, logAudit,
 } from './lib.js';
 
 const [cmd, ...rest] = process.argv.slice(2);
@@ -41,7 +41,7 @@ const positional = () => {
 function usage() {
   console.error([
     'Usage:',
-    '  admin.js add <candidate> [--password pw]',
+    '  admin.js add <candidate> [--name "Name"] [--password pw]',
     '  admin.js import <file.csv>',
     '  admin.js add-supervisor <id> [--name "Dr X"] [--password pw]',
     '  admin.js add-admin <id> [--name "Name"] [--password pw]',
@@ -59,7 +59,7 @@ try {
   const args = positional();
   if (cmd === 'add' && args[0]) {
     const pw = flag('password') || generatePassword();
-    const c = await addUser(db, args[0], pw);
+    const c = await addUser(db, args[0], pw, { name: flag('name') });
     console.log('account,initial_password');
     console.log(`${c},${pw}`);
   } else if (cmd === 'add-supervisor' && args[0]) {
@@ -102,7 +102,9 @@ try {
   } else if (cmd === 'revoke' && args[0]) {
     console.log(`${revokeSessions(db, args[0])} session(s) removed`);
   } else if (cmd === 'backup' && args[0]) {
-    console.log(`Backup written to ${backupTo(db, args[0])}`);
+    const written = backupTo(db, args[0]);
+    logAudit(db, 'cli', 'backup', null, 'command line');
+    console.log(`Backup written to ${written}`);
   } else if (cmd === 'list') {
     const rows = db.prepare(`
       SELECT u.candidate, u.role, u.display_name, u.disabled, u.must_change, u.last_login_at,

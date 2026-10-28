@@ -119,6 +119,8 @@ async function loadCandidates() {
   draw();
 }
 
+const nameOf = (candidate) => ((sv.students || []).find((s) => s.candidate === candidate) || {}).name || null;
+
 async function loadDetail(candidate) {
   const d = { candidate, events: [], entries: [], selected: new Set(), loading: true, error: '' };
   sv.detail = d;
@@ -157,6 +159,7 @@ function studentsView() {
       h('button', { class: 'srow', onclick: () => { window.scrollTo(0, 0); loadDetail(s.candidate); } },
         h('span', { class: 'srow-main' },
           h('strong', {}, s.candidate),
+          s.name ? h('span', { class: 'small' }, s.name) : null,
           h('span', { class: 'muted small' }, `${s.entries} logged · last update ${timeAgo(s.last_received)}`)),
         s.unsigned > 0 ? h('span', { class: 'tag warn' }, `${s.unsigned} to sign`) : h('span', { class: 'tag ok' }, 'all signed')))));
   }
@@ -203,6 +206,7 @@ function detailView() {
   return h('section', {},
     back,
     h('h2', {}, d.candidate),
+    nameOf(d.candidate) ? h('p', { class: 'muted' }, nameOf(d.candidate)) : null,
     h('div', { class: 'stats' }, stat(d.entries.length, 'logged'), stat(signed.length, 'signed'), stat(unsigned.length, 'to sign')),
     unsigned.length
       ? h('div', { class: 'card' },
@@ -273,18 +277,18 @@ function confirmRemove(candidate) {
 
 function addView() {
   const list = h('div', { class: 'plist' });
-  const input = h('input', { type: 'search', placeholder: 'Search candidate number', class: 'search', value: sv.query, autocapitalize: 'characters', autocomplete: 'off' });
+  const input = h('input', { type: 'search', placeholder: 'Search candidate number or name', class: 'search', value: sv.query, autocapitalize: 'characters', autocomplete: 'off' });
   const drawList = () => {
     sv.query = input.value;
     if (sv.error) { list.replaceChildren(errorBox()); return; }
     if (sv.candidates === null) { list.replaceChildren(h('p', { class: 'muted' }, 'Loading…')); return; }
     const q = core.normCandidate(input.value);
-    const all = sv.candidates.filter((c) => !c.mine && c.candidate.includes(q));
+    const all = sv.candidates.filter((c) => !c.mine && (c.candidate.includes(q) || (c.name || '').toUpperCase().replace(/\s+/g, '').includes(q)));
     const shown = all.slice(0, 40);
     list.replaceChildren(
       ...(shown.length
         ? shown.map((c) => h('div', { class: 'addrow' },
-          h('strong', {}, c.candidate),
+          h('span', { class: 'srow-main' }, h('strong', {}, c.candidate), c.name ? h('span', { class: 'small' }, c.name) : null),
           h('button', { class: 'btn small', type: 'button', onclick: () => addStudent(c, drawList) }, 'Add')))
         : [h('p', { class: 'muted' }, q ? 'No match. Check the candidate number, or ask CapaCare to create the account.' : 'Every student is already added.')]),
       ...(all.length > shown.length ? [h('p', { class: 'muted small' }, `Showing ${shown.length} of ${all.length}. Type to narrow down.`)] : []),

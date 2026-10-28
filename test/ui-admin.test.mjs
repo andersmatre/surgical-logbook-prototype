@@ -17,6 +17,8 @@ globalThis.document = window.document;
 globalThis.localStorage = window.localStorage;
 Object.defineProperty(globalThis, 'navigator', { value: window.navigator, configurable: true });
 globalThis.LOGBOOK_SYNC_DELAY = 30;
+const saved = []; // files the page hands to the browser as downloads
+globalThis.LOGBOOK_SAVE_FILE = (blob, filename) => saved.push({ blob, filename });
 
 const server = await createServer({ dbPath: ':memory:' });
 const port = await server.listen(0, '127.0.0.1');
@@ -92,7 +94,31 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.equal($$('tbody tr', matrix)[0].children[1].textContent, '2', 'CC1001 logged 2');
   assert.match(matrix.textContent, /1\/1/);
   assert.match($('.main').textContent, /created the student account CC1001/, 'recent changes list');
+  assert.match($('.main').textContent, /No backup has been downloaded yet/, 'a reminder while there is data and no backup');
+  const hosp = byText('.card', 'Hospitals');
+  assert.deepEqual($$('tbody tr', hosp).map((r) => [...r.children].map((c) => c.textContent)), [['Masanga Hospital', '3', '3', '2']]);
   clean();
+
+  // ---- spreadsheet downloads: the chosen format is used
+  assert.equal($('select[aria-label="File format"]').value, ';');
+  await click(byText('.btn', 'Procedures per student'), 400);
+  assert.equal(saved.length, 1);
+  assert.match(saved[0].filename, /^logbook-procedures-\d{4}-\d{2}-\d{2}\.csv$/);
+  const csv1 = await saved[0].blob.text(); // text() drops the byte order mark; the file itself keeps it
+  assert.deepEqual([...Buffer.from(await saved[0].blob.arrayBuffer()).subarray(0, 3)], [0xef, 0xbb, 0xbf]);
+  assert.match(csv1, /^candidate;name;procedure_id;procedure;/);
+  assert.match(csv1, /CC1001;;cs;Caesarean section;0;0;1;0;1;1;0/);
+  const fmt = $('select[aria-label="File format"]');
+  fmt.value = ',';
+  fmt.dispatchEvent(new window.Event('change'));
+  await click(byText('.btn', 'Every entry'), 400);
+  const csv2 = await saved[1].blob.text();
+  assert.match(csv2, /^candidate,name,entry_id,performed_on,entered_on,hospital,/);
+  assert.match(csv2, /,Masanga Hospital,cs,Caesarean section,/);
+  assert.match($('.main').textContent, /downloaded the entries spreadsheet/, 'downloads are listed under recent changes');
+  assert.doesNotMatch($('.main').textContent, /\bnull\b|undefined/);
+  fmt.value = ';';
+  fmt.dispatchEvent(new window.Event('change'));
 
   // ---- one student's entries
   await click($$('tbody tr', matrix)[0], 600);
@@ -119,14 +145,15 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
 
   // ---- add students in bulk: one already exists
   await click(byText('.tab', 'Add users'));
-  type($('#ids'), 'cc2001, CC2002\nCC1001');
+  type($('#ids'), 'cc2001 Mohamed  Kamara\nCC2002, CC2003\nCC1001');
   await submit($('.setup-form'), 800);
-  assert.match($('.sheet').textContent, /2 accounts created/);
+  assert.match($('.sheet').textContent, /3 accounts created/);
   assert.match($('.sheet').textContent, /Not created: CC1001/);
   assert.match($('.sheet').textContent, /cannot be shown again/);
-  const shown = Object.fromEntries($$('.pwtable tbody tr').map((r) => [r.children[0].textContent, r.children[1].textContent]));
-  assert.deepEqual(Object.keys(shown), ['CC2001', 'CC2002']);
+  const shown = Object.fromEntries($$('.pwtable tbody tr').map((r) => [r.children[0].textContent, r.children[2].textContent]));
+  assert.deepEqual(Object.keys(shown), ['CC2001', 'CC2002', 'CC2003']);
   assert.ok(await loginOk('CC2001', shown.CC2001), 'the shown password works');
+  assert.equal($$('.pwtable tbody tr')[0].children[1].textContent, 'Mohamed Kamara', 'the name is shown next to the password');
   await click(byText('.sheet .btn', 'Done'));
   assert.equal($('#ids').value, '', 'the list is cleared');
   clean();
@@ -137,7 +164,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   type($('#newname'), 'Dr Ben Sesay');
   await submit($('.setup-form'), 800);
   assert.match($('.sheet').textContent, /Supervisor account created/);
-  const supPw = $('.pwtable tbody tr').children[1].textContent;
+  const supPw = $('.pwtable tbody tr').children[2].textContent;
   assert.equal(server.db.prepare("SELECT role, display_name FROM users WHERE candidate = 'SUP-BEN'").get().display_name, 'Dr Ben Sesay');
   assert.ok(await loginOk('SUP-BEN', supPw));
   await click(byText('.sheet .btn', 'Done'));
@@ -148,8 +175,14 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   await submit($('.setup-form'), 100);
   assert.match($('.error').textContent, /2 to 20/);
 
-  // ---- a student: give a supervisor access
+  // ---- the new student has the name that was typed
   await click(byText('.tab', 'Users'));
+  assert.ok(byText('.srow', 'Mohamed Kamara'), 'the name is in the list');
+  type($('.search'), 'mohamed');
+  assert.deepEqual($$('.srow strong').map((e) => e.textContent), ['CC2001 · Mohamed Kamara'], 'search finds a name');
+  type($('.search'), '');
+
+  // ---- a student: give a supervisor access
   await click(byText('.srow', 'CC1002'), 200);
   assert.match($('.sheet').textContent, /Student/);
   assert.match($('.sheet').textContent, /None yet/);
@@ -164,13 +197,22 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.equal(server.db.prepare('SELECT COUNT(*) AS n FROM assignments').get().n, 0);
   clean();
 
+  // ---- give a student a name afterwards
+  await click(byText('.sheet .link', 'Add a name'), 100);
+  type($('#rename'), '  Fatmata   Bangura ');
+  await submit($('.setup-form'), 800);
+  assert.match($('#toast').textContent, /Name saved/);
+  assert.match($('.sheet').textContent, /Fatmata Bangura/);
+  assert.equal(server.db.prepare("SELECT display_name FROM users WHERE candidate = 'CC1002'").get().display_name, 'Fatmata Bangura');
+  assert.ok(byText('.sheet .link', 'Change name'));
+
   // ---- reset a password: confirm first, then shown once
   await click(byText('.sheet .btn', 'New password'), 100);
   assert.match($('.sheet').textContent, /New password for CC1002\?/);
   await click(byText('.sheet .btn', 'Cancel'), 100);
   await click(byText('.sheet .btn', 'New password'), 100);
   await click(byText('.sheet .btn', 'Reset password'), 800);
-  const newPw = $('.pwtable tbody tr').children[1].textContent;
+  const newPw = $('.pwtable tbody tr').children[2].textContent;
   assert.ok(await loginOk('CC1002', newPw), 'the new initial password works');
   assert.equal((await post('/api/login', null, { candidate: 'CC1002', password: 'initial-pw-1' })).error, 'bad_credentials');
   await click(byText('.sheet .btn', 'Done'));
@@ -203,6 +245,15 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   await click(byText('.tab', 'More'));
   assert.match($('.main').textContent, /ADMIN-ANDERS/);
   assert.match($('.main').textContent, /cannot sign/);
+  assert.match($('.main').textContent, /Last backup\s*never/);
+  await click(byText('.btn', 'Download backup'), 600);
+  assert.equal(saved.length, 3);
+  assert.match(saved[2].filename, /^logbook-backup-\d{4}-\d{2}-\d{2}\.db$/);
+  assert.equal(Buffer.from(await saved[2].blob.arrayBuffer()).subarray(0, 15).toString(), 'SQLite format 3', 'a real database file');
+  assert.match($('.main').textContent, /Last backup\s*just now/);
+  await click(byText('.tab', 'Overview'));
+  assert.doesNotMatch($('.main').textContent, /No backup has been downloaded/, 'the reminder is gone after a backup');
+  await click(byText('.tab', 'More'));
   await click(byText('.btn', 'Log out'), 100);
   await click(byText('.sheet .btn.danger', 'Log out'), 500);
   assert.ok($('#cand'), 'login screen');

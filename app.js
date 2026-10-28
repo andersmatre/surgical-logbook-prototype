@@ -111,6 +111,7 @@ async function syncCore() {
     pulled += await core.addPulled(res.events || []);
     await core.setMeta('cursor', res.cursor);
     if (Array.isArray(res.supervisors)) await core.setMeta('supervisors', res.supervisors);
+    if (state.session && res.name !== undefined && (res.name || null) !== (state.session.name || null)) writeSession({ ...state.session, name: res.name || null });
     let refused = 0;
     for (const r of res.rejected || []) {
       if (!r.id) continue;
@@ -201,7 +202,7 @@ function header() {
   return h('header', { class: 'top' },
     h('div', { class: 'brand' },
       h('strong', {}, 'Surgical logbook'),
-      h('span', { class: 'who' }, `${state.profile.student} · ${state.profile.hospital}`)),
+      h('span', { class: 'who' }, [state.profile.student, state.session.name, state.profile.hospital].filter(Boolean).join(' · '))),
     h('button', { class: `chip ${st.cls}`, onclick: () => doSync(true), 'aria-label': `Sync status: ${st.text}. Tap to sync.` }, st.text));
 }
 
@@ -389,8 +390,21 @@ function openRoleSheet(proc) {
     },
   }, h('strong', {}, r.label), h('span', {}, r.hint)));
 
+  // The hospital is stored with every entry. It is the one chosen on this tablet; it can be changed right here.
+  const hospLabel = h('strong', {}, state.profile.hospital);
+  const hospSel = h('select', { 'aria-label': 'Hospital', class: 'dinput' }, HOSPITALS.map((x) => h('option', { value: x, selected: x === state.profile.hospital }, x)));
+  hospSel.addEventListener('change', async () => {
+    await core.setMeta('hospital', hospSel.value);
+    state.profile.hospital = hospSel.value;
+    hospLabel.textContent = hospSel.value;
+    hospSel.classList.remove('show');
+  });
+  const hospBtn = h('button', { class: 'link', type: 'button', onclick: () => hospSel.classList.toggle('show') }, 'Change hospital');
+
   openSheet([
     h('h3', {}, proc.name),
+    h('div', { class: 'daterow' }, h('span', {}, 'Hospital: '), hospLabel, hospBtn),
+    hospSel,
     h('div', { class: 'daterow' }, h('span', {}, 'Date: '), dateLabel, changeBtn),
     dateInput,
     h('p', { class: 'q' }, 'What was your role?'),
@@ -469,6 +483,7 @@ function entryRow(e) {
     h('div', { class: 'e-main' }, h('strong', {}, procName(e.procedure)), h('span', { class: `role-tag role-${e.role}` }, roleLabel(e.role))),
     h('div', { class: 'e-meta' },
       h('span', {}, core.fmtDate(e.performed_on)),
+      e.hospital ? h('span', {}, e.hospital) : null,
       late ? h('span', { class: 'tag' }, 'late entry') : null,
       e.sign ? h('span', { class: 'tag ok' }, `Signed · ${e.sign.supervisor_name || e.sign.supervisor}`) : h('span', { class: 'tag warn' }, 'Not signed')),
     e.sign ? null : h('button', { class: 'link danger', onclick: () => confirmDelete(e) }, 'Delete'));
@@ -498,6 +513,7 @@ function moreTab() {
     h('h2', {}, 'More'),
     h('div', { class: 'card' }, h('h3', {}, 'Account'),
       kv('Candidate number', state.profile.student),
+      state.session.name ? kv('Name', state.session.name) : null,
       h('label', { class: 'small muted' }, 'Hospital'), sel,
       h('div', { class: 'row' },
         h('button', { class: 'btn ghost', onclick: openChangePassword }, 'Change password'),

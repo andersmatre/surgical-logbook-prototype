@@ -36,6 +36,17 @@ export const timeAgo = (iso) => {
 export const stat = (n, label) => h('div', { class: 'stat' }, h('strong', {}, n), h('span', {}, label));
 export const kv = (k, v) => h('div', { class: 'kv' }, h('span', {}, k), h('strong', {}, v));
 
+// Hands a file to the browser as a download. Tests replace this with globalThis.LOGBOOK_SAVE_FILE.
+export function saveBlob(blob, filename) {
+  if (typeof globalThis.LOGBOOK_SAVE_FILE === 'function') { globalThis.LOGBOOK_SAVE_FILE(blob, filename); return; }
+  const url = URL.createObjectURL(blob);
+  const a = h('a', { href: url, download: filename });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
 // ---- toast and sheets ------------------------------------------------------
 
 let overlay;

@@ -55,6 +55,27 @@ async function call(path, { body, token } = {}) {
   return data;
 }
 
+// Downloads (CSV, backup): returns the file as a Blob.
+async function download(path, { body, token }) {
+  let res;
+  try {
+    res = await fetch(base() + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body || {}),
+      signal: typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(120000) : undefined,
+    });
+  } catch {
+    throw new ApiError(0, 'network', 'Could not reach the server. Check the internet connection and try again.');
+  }
+  if (!res.ok) {
+    let data = null;
+    try { data = await res.json(); } catch { /* not JSON */ }
+    throw new ApiError(res.status, (data && data.error) || 'error', (data && data.message) || `Server error (${res.status}).`);
+  }
+  return res.blob();
+}
+
 export const login = (candidate, password) => call('/api/login', { body: { candidate, password } });
 export const logout = (token) => call('/api/logout', { token });
 export const changePassword = (token, old_password, new_password) => call('/api/password', { token, body: { old_password, new_password } });
@@ -73,7 +94,10 @@ export const adminUsers = (token) => call('/api/admin/users', { token });
 export const adminStats = (token) => call('/api/admin/stats', { token });
 export const adminAudit = (token) => call('/api/admin/audit', { token });
 export const adminCreate = (token, role, id, name) => call('/api/admin/create', { token, body: { role, id, name } });
-export const adminCreateMany = (token, ids) => call('/api/admin/create_many', { token, body: { ids } });
+export const adminCreateMany = (token, people) => call('/api/admin/create_many', { token, body: { people } });
+export const adminRename = (token, id, name) => call('/api/admin/rename', { token, body: { id, name } });
+export const adminExport = (token, kind, delimiter) => download('/api/admin/export', { token, body: { kind, delimiter } });
+export const adminBackup = (token) => download('/api/admin/backup', { token });
 export const adminReset = (token, id) => call('/api/admin/reset', { token, body: { id } });
 export const adminSetDisabled = (token, id, disabled) => call(`/api/admin/${disabled ? 'disable' : 'enable'}`, { token, body: { id } });
 export const adminRevoke = (token, id) => call('/api/admin/revoke', { token, body: { id } });

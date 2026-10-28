@@ -314,7 +314,7 @@ test('supervisor: add a student, see the entries, sign them; the student receive
     assert.equal((await sup(t, supToken, 'entries', { candidate: 'S001' })).status, 403);
 
     const list = (await sup(t, supToken, 'candidates')).body.candidates;
-    assert.deepEqual(list, [{ candidate: 'S001', mine: false }, { candidate: 'S002', mine: false }]);
+    assert.deepEqual(list, [{ candidate: 'S001', name: null, mine: false }, { candidate: 'S002', name: null, mine: false }]);
     assert.equal((await sup(t, supToken, 'assign', { candidate: ' s001 ' })).status, 200);
     assert.equal((await sup(t, supToken, 'assign', { candidate: 'S001' })).status, 200); // adding twice is harmless
     assert.equal((await sup(t, supToken, 'assign', { candidate: 'NOBODY' })).status, 404);
@@ -636,4 +636,144 @@ test('the first administrator can be created from settings, once, without touchi
   assert.equal(await bootstrapAdmin(db, '', 'x'), null);
   await assert.rejects(() => bootstrapAdmin(db, 'bad id!', 'secret-secret'), /not a valid/);
   assert.equal(db.prepare("SELECT actor FROM audit WHERE action = 'create'").get().actor, 'startup');
+});
+
+// ---- names, exports, backup download, sessions ---------------------------------------------
+
+const raw = async (t, token, path, body = {}) => {
+  const r = await fetch(`${t.base}/api/admin/${path}`, {
+    method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify(body),
+  });
+  return { status: r.status, headers: r.headers, buf: Buffer.from(await r.arrayBuffer()) };
+};
+
+test('students can have a name; an administrator creates, changes and sees it; supervisors see it for students', async () => {
+  const t = await start();
+  try {
+    const admin = await adminReady(t);
+    const made = (await adm(t, admin, 'create_many', { people: [{ id: 'cc1', name: '  Mohamed   Kamara ' }, { id: 'CC2' }, 'CC3'] })).body;
+    assert.deepEqual(made.created.map((x) => x.id), ['CC1', 'CC2', 'CC3']);
+    const users = (await adm(t, admin, 'users')).body.users;
+    assert.equal(users.find((u) => u.id === 'CC1').name, 'Mohamed Kamara');
+    assert.equal(users.find((u) => u.id === 'CC2').name, null);
+    assert.equal((await adm(t, admin, 'create_many', { ids: ['CC4'] })).body.created.length, 1, 'the older ids form still works');
+
+    assert.equal((await adm(t, admin, 'rename', { id: 'CC2', name: 'Fatmata Bangura' })).status, 200);
+    assert.equal((await adm(t, admin, 'stats')).body.students.find((s) => s.candidate === 'CC2').name, 'Fatmata Bangura');
+    assert.equal((await adm(t, admin, 'rename', { id: 'NOBODY', name: 'x' })).status, 404);
+    assert.match((await adm(t, admin, 'audit')).body.log.map((e) => e.action).join(), /rename/);
+
+    // the student sees the name at login and in sync
+    const login = await t.call('/api/login', { body: { candidate: 'CC1', password: made.created[0].password } });
+    assert.equal(login.body.name, 'Mohamed Kamara');
+    // a supervisor sees names for the students it can choose from and for its own students
+    const supToken = await supervisorReady(t);
+    const list = (await sup(t, supToken, 'candidates')).body.candidates;
+    assert.equal(list.find((c) => c.candidate === 'CC1').name, 'Mohamed Kamara');
+    await sup(t, supToken, 'assign', { candidate: 'CC1' });
+    assert.equal((await sup(t, supToken, 'students')).body.students[0].name, 'Mohamed Kamara');
+    // students cannot rename anyone
+    const s = await t.call('/api/login', { body: { candidate: 'CC1', password: made.created[0].password } });
+    await t.call('/api/password', { token: s.body.token, body: { old_password: made.created[0].password, new_password: 'second-pw-22' } });
+    assert.equal((await adm(t, s.body.token, 'rename', { id: 'CC1', name: 'x' })).status, 403);
+  } finally { await t.s.close(); }
+});
+
+test('CSV exports: counts per student, per hospital and every entry; safe for spreadsheets; administrators only', async () => {
+  const t = await start();
+  try {
+    const admin = await adminReady(t);
+    const a = await ready(t, 'S001', 'initial-pw-1', 'second-pw-22');
+    const b = await ready(t, 'S002', 'initial-pw-2', 'second-pw-33');
+    await adm(t, admin, 'rename', { id: 'S001', name: '=HYPERLINK("x")' });
+    await adm(t, admin, 'rename', { id: 'S002', name: 'Doe, Jane' });
+    const supToken = await supervisorReady(t);
+    const e1 = entry({ procedure: 'cs', role: 'independent', hospital: 'Masanga Hospital' });
+    const e2 = entry({ procedure: 'cs', role: 'observing', hospital: 'Bo Government Hospital' });
+    const e3 = entry({ procedure: 'appendectomy', role: 'supervised', hospital: 'Masanga Hospital' });
+    const gone = entry({ procedure: 'laparotomy', role: 'assisting' });
+    await t.call('/api/sync', { token: a, body: { events: [e1, e2, gone, { id: '66666666-0000-4000-8000-000000000001', type: 'void', ts: new Date().toISOString(), target: gone.id }], cursor: 0 } });
+    await t.call('/api/sync', { token: b, body: { events: [e3], cursor: 0 } });
+    await sup(t, supToken, 'assign', { candidate: 'S001' });
+    await sup(t, supToken, 'sign', { candidate: 'S001', ids: [e1.id] });
+
+    const get = async (kind, delimiter) => {
+      const r = await raw(t, admin, 'export', { kind, delimiter });
+      assert.equal(r.status, 200);
+      assert.match(r.headers.get('content-type'), /text\/csv/);
+      assert.match(r.headers.get('content-disposition'), new RegExp(`attachment; filename="logbook-${kind}-\\d{4}-\\d{2}-\\d{2}\\.csv"`));
+      const text = r.buf.toString('utf8');
+      assert.ok(text.startsWith('﻿'), 'byte order mark so Excel reads UTF-8');
+      return text.slice(1).split('\r\n').filter(Boolean);
+    };
+
+    const entries = await get('entries');
+    assert.equal(entries[0], 'candidate,name,entry_id,performed_on,entered_on,hospital,procedure_id,procedure,role,performed,signed,signed_by,signed_at');
+    assert.equal(entries.length, 4, 'header and three live entries; the deleted one is left out');
+    const first = entries.find((l) => l.includes(e1.id));
+    assert.match(first, /^S001,"'=HYPERLINK\(""x""\)",/, 'a name starting with = cannot become a formula');
+    assert.match(first, /Masanga Hospital,cs,Caesarean section,Surgeon, independent|Masanga Hospital,cs,Caesarean section,"Surgeon, independent"/);
+    assert.match(first, /,yes,yes,SUP-ANNA,\d{4}-/, 'performed, signed, who signed');
+    assert.match(entries.find((l) => l.includes(e2.id)), /,Observing,no,no,,$/);
+    assert.match(entries.find((l) => l.includes(e3.id)), /^S002,"Doe, Jane",/, 'commas in a name are quoted');
+
+    const procs = await get('procedures');
+    assert.equal(procs[0], 'candidate,name,procedure_id,procedure,observing,assisting,surgeon_supervised,surgeon_independent,performed,total,signed');
+    assert.ok(procs.includes("S001,\"'=HYPERLINK(\"\"x\"\")\",cs,Caesarean section,1,0,0,1,1,2,1"), procs.join('\n'));
+    assert.equal(procs.length, 3, 'header, S001 caesarean, S002 appendectomy');
+
+    const hosp = await get('hospitals', ';');
+    assert.equal(hosp[0], 'hospital;procedure_id;procedure;observing;assisting;surgeon_supervised;surgeon_independent;performed;total;signed;students');
+    assert.ok(hosp.includes('Masanga Hospital;appendectomy;Appendectomy;0;0;1;0;1;1;0;1'), hosp.join('\n'));
+    assert.ok(hosp.includes('Bo Government Hospital;cs;Caesarean section;1;0;0;0;0;1;0;1'));
+
+    assert.equal((await adm(t, admin, 'export', { kind: 'everything' })).status, 400);
+    assert.equal((await raw(t, a, 'export', { kind: 'entries' })).status, 403);
+    assert.equal((await raw(t, supToken, 'export', { kind: 'entries' })).status, 403);
+    const stats = (await adm(t, admin, 'stats')).body;
+    assert.deepEqual(stats.hospitals.map((h) => [h.hospital, h.entries, h.performed, h.students]), [['Masanga Hospital', 2, 2, 2], ['Bo Government Hospital', 1, 0, 1]]);
+    assert.match((await adm(t, admin, 'audit')).body.log.map((e) => `${e.action}:${e.detail}`).join(), /export:entries/);
+  } finally { await t.s.close(); }
+});
+
+test('an administrator can download a complete backup that opens as a database', async () => {
+  const t = await start();
+  try {
+    const admin = await adminReady(t);
+    const a = await ready(t, 'S001', 'initial-pw-1', 'second-pw-22');
+    await t.call('/api/sync', { token: a, body: { events: [entry()], cursor: 0 } });
+    assert.equal((await raw(t, a, 'backup')).status, 403);
+    const r = await raw(t, admin, 'backup');
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get('content-disposition'), /logbook-backup-\d{4}-\d{2}-\d{2}\.db/);
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lb-')), 'copy.db');
+    fs.writeFileSync(file, r.buf);
+    const copy = new DatabaseSync(file);
+    assert.equal(copy.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'entry'").get().n, 1);
+    assert.equal(copy.prepare('SELECT COUNT(*) AS n FROM users').get().n, 2);
+    copy.close();
+    assert.deepEqual(fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('logbook-backup-')), [], 'no temporary copy is left behind');
+    assert.match((await adm(t, admin, 'audit')).body.log.map((e) => e.action).join(), /backup/);
+  } finally { await t.s.close(); }
+});
+
+test('sessions last a year of use, and a logged-out user is told why', async () => {
+  let clock = Date.parse('2026-01-01T10:00:00Z');
+  const t = await start({ now: () => clock });
+  try {
+    await ready(t, 'S001', 'initial-pw-1', 'second-pw-22');
+    const login = (await t.call('/api/login', { body: { candidate: 'S001', password: 'second-pw-22' } })).body.token;
+    clock += 300 * 24 * 3600 * 1000; // ten months without opening the app
+    assert.equal((await t.call('/api/sync', { token: login, body: { events: [], cursor: 0 } })).status, 200);
+    clock += 300 * 24 * 3600 * 1000; // another ten months: the use above kept the session alive
+    assert.equal((await t.call('/api/sync', { token: login, body: { events: [], cursor: 0 } })).status, 200);
+    clock += 400 * 24 * 3600 * 1000; // more than a year of silence
+    const gone = await t.call('/api/sync', { token: login, body: { events: [], cursor: 0 } });
+    assert.equal(gone.status, 401);
+    assert.match(gone.body.message, /unused for a year/);
+    const again = (await t.call('/api/login', { body: { candidate: 'S001', password: 'second-pw-22' } })).body.token;
+    revokeSessions(t.s.db, 'S001');
+    const unknown = await t.call('/api/sync', { token: again, body: { events: [], cursor: 0 } });
+    assert.match(unknown.body.message, /ended on the server/);
+  } finally { await t.s.close(); }
 });

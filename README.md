@@ -1,11 +1,11 @@
-# Surgical logbook — prototype v0.4 (login, sync, supervisor sign-off, administrator screens)
+# Surgical logbook — prototype v0.5 (login, sync, supervisor sign-off, administrator screens, downloads)
 
 An installable web app (PWA) for logging surgical procedures on a tablet, plus a small server for accounts, sync and supervisor sign-off.
 Built for CapaCare's Surgical Training Programme in Sierra Leone, to find out whether it can be better than the existing e-logbook.
 
 - **Students** log in with the candidate number from CapaCare and a password, on any tablet. They log procedures in two taps, also without internet; entries are sent to the server automatically.
 - **Supervisors** log in with a staff ID, add the students they supervise, see their entries and sign them. The server checks every signature.
-- **Administrators** log in too: they see all procedures across students, add accounts, give new passwords, disable accounts and choose who supervises whom. No command line needed.
+- **Administrators** log in too: they see all procedures across students and hospitals, add accounts (with names), give new passwords, disable accounts, choose who supervises whom, and download spreadsheets (CSV) and a backup. No command line needed.
 
 This is a prototype. It has not been used on a real tablet or deployed yet. Read "Known limits" in `PROJECT.md` before real use.
 
@@ -55,7 +55,7 @@ Open the server's address in Chrome, menu (three dots), "Add to Home screen" / "
 ## Tests
 
     npm install
-    npm test            # 44 tests, about 1 minute
+    npm test            # 48 tests, about 1 minute
 
 `core` (data layer), `server` (API, login, sync, supervisor rules, upgrade of an old database, backup), `ui` (the whole student flow in a simulated browser against a real server), `ui-supervisor` (the whole supervisor flow), `files` (file lists stay in step). They do not replace trying the app on a real tablet.
 

@@ -21,7 +21,10 @@
 //   POST /api/admin/stats       -> { totals, procedures, students }
 //   POST /api/admin/audit       -> { log: [...] }
 //   POST /api/admin/create      { role, id, name? } -> { id, password }     (password is shown once)
-//   POST /api/admin/create_many { ids } -> { created: [{id, password}], skipped: [{id, reason}] }   (students)
+//   POST /api/admin/create_many { people: [{id, name?}] } -> { created: [{id, password}], skipped: [{id, reason}] }   (students)
+//   POST /api/admin/rename      { id, name }
+//   POST /api/admin/export      { kind: procedures|hospitals|entries, delimiter } -> CSV file
+//   POST /api/admin/backup      -> a copy of the database file
 //   POST /api/admin/reset | disable | enable | revoke   { id }              (not on your own account, except revoke)
 //   POST /api/admin/assign | unassign   { supervisor, student }
 //   POST /api/admin/entries     { candidate, cursor } -> { events, cursor, has_more }
@@ -29,16 +32,18 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   openDb, hashPassword, verifyPassword, sha256, normCandidate, validCandidate, validatePassword, validateEvent,
   insertEvent, isSigned, signEntries, assign, unassign, isAssigned, LookupError,
   addUser, resetPassword, setDisabled, revokeSessions, generatePassword, ROLES, listUsers, adminStats, recentAudit,
+  renameUser, exportCsv, EXPORT_KINDS, backupTo, logAudit,
 } from './lib.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SESSION_MS = 120 * 24 * 3600 * 1000; // sliding: long, because tablets are often offline for weeks
+const SESSION_MS = 365 * 24 * 3600 * 1000; // sliding: long, because tablets are often offline for weeks
 const MAX_BODY = 1024 * 1024;
 const MAX_EVENTS_PER_SYNC = 200;
 const PAGE = 500;
@@ -64,6 +69,14 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
   const origins = allowedOrigin.split(',').map((s) => s.trim()).filter(Boolean);
   const dummyHash = await hashPassword('dummy-password-used-for-equal-timing');
   const failures = new Map(); // candidate -> { count, until }
+
+  const sendFile = (res, type, filename, data) => {
+    res.writeHead(200, {
+      'Content-Type': type, 'Cache-Control': 'no-store', 'Content-Length': Buffer.byteLength(data),
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    });
+    res.end(data);
+  };
 
   const send = (res, status, body) => {
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -117,7 +130,9 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
     const age = row ? now() - Date.parse(row.last_seen) : Infinity;
     if (!row || row.disabled || age > SESSION_MS) {
       if (row) db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash);
-      throw new HttpError(401, 'session_expired', 'Your session has ended. Please log in again.');
+      // The reason is in the message so a user who is logged out can tell us why it happened.
+      const why = !row ? 'it was ended on the server (password changed or reset, or logged out everywhere)' : row.disabled ? 'the account is disabled' : 'it was unused for a year';
+      throw new HttpError(401, 'session_expired', `Your session has ended: ${why}. Please log in again.`);
     }
     if (age > 3600 * 1000) db.prepare('UPDATE sessions SET last_seen = ? WHERE token_hash = ?').run(new Date(now()).toISOString(), tokenHash);
     return { candidate: row.candidate, mustChange: !!row.must_change, role: row.role, name: row.display_name, tokenHash };
@@ -245,7 +260,7 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
          FROM assignments a JOIN users u ON u.candidate = a.supervisor
          WHERE a.student = ? AND u.disabled = 0 ORDER BY a.created_at`,
       ).all(a.candidate);
-      return send(res, 200, { accepted, rejected, supervisors, ...eventsPage(a.candidate, cursorOf(body)) });
+      return send(res, 200, { accepted, rejected, supervisors, name: a.name, ...eventsPage(a.candidate, cursorOf(body)) });
     }
 
     // ---- supervisors --------------------------------------------------------
@@ -255,7 +270,7 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
       const live = `e.owner = s.student AND e.type = 'entry'
         AND NOT EXISTS (SELECT 1 FROM events v WHERE v.owner = e.owner AND v.type = 'void' AND v.target = e.id)`;
       const students = db.prepare(
-        `SELECT s.student AS candidate, s.created_at AS since,
+        `SELECT s.student AS candidate, u.display_name AS name, s.created_at AS since,
            (SELECT COUNT(*) FROM events e WHERE ${live}) AS entries,
            (SELECT COUNT(*) FROM events e WHERE ${live}
               AND NOT EXISTS (SELECT 1 FROM events g WHERE g.owner = e.owner AND g.type = 'sign' AND g.target = e.id)) AS unsigned,
@@ -270,9 +285,9 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
     if (route === 'POST /api/sup/candidates') {
       const a = requireSupervisor(req);
       const candidates = db.prepare(
-        `SELECT u.candidate, EXISTS (SELECT 1 FROM assignments x WHERE x.supervisor = ? AND x.student = u.candidate) AS mine
+        `SELECT u.candidate, u.display_name AS name, EXISTS (SELECT 1 FROM assignments x WHERE x.supervisor = ? AND x.student = u.candidate) AS mine
          FROM users u WHERE u.role = 'student' AND u.disabled = 0 ORDER BY u.candidate`,
-      ).all(a.candidate).map((r) => ({ candidate: r.candidate, mine: !!r.mine }));
+      ).all(a.candidate).map((r) => ({ candidate: r.candidate, name: r.name, mine: !!r.mine }));
       return send(res, 200, { candidates });
     }
 
@@ -339,25 +354,51 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
       }
 
       if (action === 'create_many') {
-        const ids = Array.isArray(body.ids) ? body.ids : [];
-        if (!ids.length) throw new HttpError(400, 'no_ids', 'Add at least one candidate number.');
-        if (ids.length > 100) throw new HttpError(413, 'too_many', 'At most 100 at a time.');
+        // { people: [{ id, name }] } (names optional), or the older { ids: [...] }.
+        const people = Array.isArray(body.people) ? body.people : (Array.isArray(body.ids) ? body.ids.map((id) => ({ id })) : []);
+        if (!people.length) throw new HttpError(400, 'no_ids', 'Add at least one candidate number.');
+        if (people.length > 100) throw new HttpError(413, 'too_many', 'At most 100 at a time.');
         const created = [];
         const skipped = [];
         const seen = new Set();
-        for (const raw of ids) {
+        for (const person of people) {
+          const raw = person && typeof person === 'object' ? person.id : person;
           const id = normCandidate(raw);
           if (!id || seen.has(id)) continue;
           seen.add(id);
           if (!validCandidate(id)) { skipped.push({ id: String(raw).slice(0, 30), reason: 'not a valid id' }); continue; }
           const password = generatePassword();
-          try { await addUser(db, id, password, { role: 'student', actor: a.candidate }); created.push({ id, password }); }
+          try { await addUser(db, id, password, { role: 'student', name: person && person.name, actor: a.candidate }); created.push({ id, password }); }
           catch (e) {
             if (/UNIQUE/.test(String(e.message))) skipped.push({ id, reason: 'already exists' });
             else throw e;
           }
         }
         return send(res, 200, { created, skipped });
+      }
+
+      if (action === 'rename') {
+        const t = accountOf(body.id);
+        renameUser(db, t.candidate, body.name, a.candidate);
+        return send(res, 200, { ok: true });
+      }
+
+      if (action === 'export') {
+        const kind = EXPORT_KINDS.includes(body.kind) ? body.kind : null;
+        if (!kind) throw new HttpError(400, 'bad_kind', 'Choose procedures, hospitals or entries.');
+        const delimiter = body.delimiter === ';' ? ';' : ',';
+        logAudit(db, a.candidate, 'export', null, kind, new Date(now()));
+        return sendFile(res, 'text/csv; charset=utf-8', `logbook-${kind}-${new Date(now()).toISOString().slice(0, 10)}.csv`, exportCsv(db, kind, delimiter));
+      }
+
+      if (action === 'backup') {
+        // A consistent copy of the live database. It holds everything, including password hashes.
+        const tmp = path.join(os.tmpdir(), `logbook-backup-${crypto.randomUUID()}.db`);
+        try {
+          backupTo(db, tmp);
+          logAudit(db, a.candidate, 'backup', null, null, new Date(now()));
+          return sendFile(res, 'application/octet-stream', `logbook-backup-${new Date(now()).toISOString().slice(0, 10)}.db`, fs.readFileSync(tmp));
+        } finally { fs.rmSync(tmp, { force: true }); }
       }
 
       if (action === 'reset') {

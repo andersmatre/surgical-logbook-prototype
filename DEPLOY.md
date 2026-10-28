@@ -158,7 +158,11 @@ Do all of these before you give the address to anyone:
 
 ## Backups
 
-All data is in the database file. Use the built-in command, which makes a consistent copy while the server runs:
+All data is in the database file.
+
+**Easiest: in the app.** Log in as an administrator, open **More → Download backup**. The file is saved on the device you are using. The Overview tab warns when no backup has been taken for a week. Move the file to a safe place that is not the server (a USB stick, or CapaCare's own storage), and do not send it by WhatsApp or e-mail.
+
+**From the command line**, if you cannot use the app, with the built-in command that makes a consistent copy while the server runs:
 
 ```
 # Fly
@@ -172,6 +176,8 @@ A copy that stays on the same disk does not protect you from losing the disk. **
 How often: at least weekly while testing; daily when real data is being collected (a `cron` job on a VPS; on Fly, a scheduled task on your own computer or a small scheduled machine). Remove old backup files so the disk does not fill.
 
 ### Restore
+
+The app downloads a plain database file, the same as the command line makes.
 
 1. Stop the server (`fly machine stop`, or `docker stop logbook`).
 2. Put the backup file in place of `/data/logbook.db`, and delete `/data/logbook.db-wal` and `/data/logbook.db-shm` if they exist.

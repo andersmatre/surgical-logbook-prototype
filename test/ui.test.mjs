@@ -23,7 +23,7 @@ globalThis.LOGBOOK_SYNC_DELAY = 30;
 const server = await createServer({ dbPath: ':memory:' });
 const port = await server.listen(0, '127.0.0.1');
 globalThis.LOGBOOK_API_BASE = `http://127.0.0.1:${port}`;
-await addUser(server.db, 'cc 1234', 'initial-pw-1'); // the admin creates the account: stored as CC1234
+await addUser(server.db, 'cc 1234', 'initial-pw-1', { name: 'Mohamed Kamara' }); // the admin creates the account: stored as CC1234
 
 const { init } = await import('../app.js');
 const wait = (ms = 80) => new Promise((r) => setTimeout(r, ms));
@@ -87,7 +87,7 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   $('#hosp').value = 'Masanga Hospital';
   await submit($('.setup-form'));
   assert.ok($('.top'), 'main screen');
-  assert.match($('.who').textContent, /CC1234 · Masanga Hospital/);
+  assert.match($('.who').textContent, /CC1234 · Mohamed Kamara · Masanga Hospital/);
   assert.equal(JSON.parse(localStorage.getItem('logbook.session')).must_change, false);
 
   // ---- log two entries; they are sent automatically
@@ -99,21 +99,38 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   assert.equal($('.chip').textContent, 'Up to date');
   assert.doesNotMatch(document.body.textContent, /null|undefined/, 'no stray "null" on screen');
 
-  // ---- offline: entries wait, then go out when the connection returns
+  // ---- offline: entries wait, then go out when the connection returns.
+  // The hospital is shown when logging and can be changed right there; it is stored with the entry.
   window.dispatchEvent(new window.Event('offline'));
   assert.match($('.chip').textContent, /Offline/);
   await click(byText('.proc', 'Laparotomy'));
+  assert.match($('.sheet').textContent, /Hospital:\s*Masanga Hospital/);
+  await click(byText('.sheet .link', 'Change hospital'), 100);
+  $('.sheet select').value = 'Bo Government Hospital';
+  $('.sheet select').dispatchEvent(new window.Event('change'));
+  await wait(100);
+  assert.match($('.sheet').textContent, /Hospital:\s*Bo Government Hospital/);
   await click(byText('.role', 'Assisting'), 200);
+  assert.match($('.who').textContent, /Bo Government Hospital/, 'the tablet now works at the new hospital');
   assert.equal(serverEvents(), 2, 'nothing sent while offline');
   assert.equal($('.chip').textContent, 'Offline · 1 waiting');
   window.dispatchEvent(new window.Event('online'));
   await wait(400);
   assert.equal(serverEvents(), 3);
   assert.equal($('.chip').textContent, 'Up to date');
+  assert.deepEqual(
+    server.db.prepare("SELECT json_extract(payload, '$.procedure') AS p, json_extract(payload, '$.hospital') AS h FROM events WHERE type = 'entry'").all().map((r) => `${r.p}@${r.h}`).sort(),
+    ['appendectomy@Masanga Hospital', 'cs@Masanga Hospital', 'laparotomy@Bo Government Hospital'],
+  );
+  server.db.prepare("UPDATE users SET display_name = 'Mohamed Sorie Kamara' WHERE candidate = 'CC1234'").run();
+  await click($('.chip'), 500);
+  assert.match($('.who').textContent, /Mohamed Sorie Kamara/, 'a changed name arrives with the next sync');
 
   // ---- no supervisor yet: the History tab says so, and there is no sign-off button
   await click(byText('.tab', 'History'));
   assert.match($('.note-info').textContent, /No supervisor has added you yet/);
+  assert.match($('.list').textContent, /Bo Government Hospital/, 'history shows where each procedure was done');
+  assert.match($('.list').textContent, /Masanga Hospital/);
   assert.equal(byText('.btn', 'Supervisor sign-off'), undefined);
   assert.equal($$('.tag.ok').length, 0);
 

@@ -31,7 +31,7 @@ const post = async (path, token, body = {}) => (await fetch(`http://127.0.0.1:${
 // Two students with entries on the server, as if they had synced from their tablets.
 let n = 0;
 async function studentWithEntries(candidate, procedures) {
-  await addUser(server.db, candidate, 'initial-pw-1');
+  await addUser(server.db, candidate, 'initial-pw-1', { name: candidate === 'CC1001' ? 'Mohamed Kamara' : null });
   const token = (await post('/api/login', null, { candidate, password: 'initial-pw-1' })).token;
   await post('/api/password', token, { old_password: 'initial-pw-1', new_password: 'student-own-1' });
   const events = procedures.map((procedure) => ({
@@ -96,6 +96,8 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   assert.deepEqual($$('.addrow strong').map((e) => e.textContent), ['CC1001'], 'an added student leaves the list');
   type($('.search'), 'zzz');
   assert.match($('.plist').textContent, /No match/);
+  type($('.search'), 'mohamed');
+  assert.match($('.addrow').textContent, /CC1001\s*Mohamed Kamara/, 'a student can be found by name');
   type($('.search'), '');
   await click(byText('.btn', 'Add', $('.addrow')));
   assert.match($('.plist').textContent, /Every student is already added/);
@@ -105,6 +107,7 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   const rows = $$('.srow');
   assert.equal(rows.length, 2);
   assert.match(rows[0].textContent, /CC1001/);
+  assert.match(rows[0].textContent, /Mohamed Kamara/, 'the name is shown');
   assert.match(rows[0].textContent, /3 to sign/);
   assert.match(rows[1].textContent, /CC1002/);
   assert.match($('.nav .badge').textContent, /4/, 'badge counts all entries waiting');
@@ -112,6 +115,7 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   // ---- one student: untick one entry, sign the rest
   await click(rows[0], 500);
   assert.match($('h2').textContent, /CC1001/);
+  assert.match($('.main').textContent, /Mohamed Kamara/);
   const boxes = $$('.signlist input[type=checkbox]');
   assert.equal(boxes.length, 3);
   assert.ok(boxes.every((b) => b.checked), 'everything unsigned starts ticked');

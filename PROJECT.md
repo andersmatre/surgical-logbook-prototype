@@ -39,8 +39,11 @@ Works:
 - Sync to the server with automatic retry; log in on any tablet and the history comes back.
 - Supervisor accounts: a supervisor logs in with a staff ID, adds students, sees their entries and signs selected ones. The server verifies every signature.
 - Administrator accounts and screens (no shell needed): overview of every procedure across all students, a matrix per student, user list, add many students at once, new password, disable, log out everywhere, assign supervisors, a log of recent changes. The first administrator is created from environment variables (`ADMIN_ID`, `ADMIN_PASSWORD`, see `DEPLOY.md`).
+- Students can have a name next to the candidate number (administrators set it; the student, their supervisors and administrators see it).
+- The hospital is stored in every entry. The student sees it when logging (and can change it there) and in the history; administrators get a hospital table and CSV downloads (procedures per student, per hospital, every entry).
+- Administrators download a complete database backup from the app and are reminded when none has been taken for a week.
 - Admin from the command line as a fallback: create accounts, assign, reset, disable, revoke, list, backup.
-- 44 automated tests, including whole-flow tests of both apps in a simulated browser against a real server.
+- 48 automated tests, including whole-flow tests of both apps in a simulated browser against a real server.
 
 Placeholders you must replace before real use: the target numbers and the "more procedures" list in `config.js`; the demo hospital list should be checked.
 
@@ -52,7 +55,7 @@ Needs **Node 22.13 or newer**. Nothing else: the server has no runtime dependenc
 
 ```
 npm install                                   # test tools only
-npm test                                      # 44 tests, about 1 minute
+npm test                                      # 48 tests, about 1 minute
 
 npm run admin -- add-admin ADMIN-ANDERS --name "Anders"            # prints an initial password; then do everything else in the app
 npm run admin -- add-supervisor SUP-ANNA --name "Dr Anna Kamara"   # prints an initial password
@@ -180,10 +183,13 @@ All calls are `POST` with a JSON body, except `GET /api/health`. Authenticated c
 | `POST /api/admin/stats` | admin | | `totals`, `procedures` (per procedure across students), `students` (per student, per procedure) |
 | `POST /api/admin/audit` | admin | | `log`: `at`, `actor`, `action`, `target`, `detail` |
 | `POST /api/admin/create` | admin | `role`, `id`, `name` | `id`, `password` (shown once) |
-| `POST /api/admin/create_many` | admin | `ids` (≤100 students) | `created` (`{id, password}`), `skipped` (`{id, reason}`) |
+| `POST /api/admin/create_many` | admin | `people` (≤100, each `{id, name?}`; the older `ids` still works) | `created` (`{id, password}`), `skipped` (`{id, reason}`) |
 | `POST /api/admin/reset` | admin, not own account | `id` | `id`, `password` (shown once) |
 | `POST /api/admin/disable` / `enable` | admin, disable not own account | `id` | `{ok}` |
 | `POST /api/admin/revoke` | admin | `id` | `{ok}` |
+| `POST /api/admin/rename` | admin | `id`, `name` | `{ok}` |
+| `POST /api/admin/export` | admin | `kind` (`procedures`, `hospitals`, `entries`), `delimiter` (`,` or `;`) | a CSV file (UTF-8 with byte order mark; cells starting with `= + - @` are prefixed so spreadsheets do not run them) |
+| `POST /api/admin/backup` | admin | | the database file (a consistent copy) |
 | `POST /api/admin/assign` / `unassign` | admin | `supervisor`, `student` | `{ok}` |
 | `POST /api/admin/entries` | admin | `candidate`, `cursor` | `events`, `cursor`, `has_more` |
 
@@ -194,7 +200,7 @@ Rejection reasons from `/api/sync`: `bad id`, `bad ts`, `bad procedure`, `bad ro
 What protects what:
 
 - **Passwords**: scrypt with a random salt, minimum 8 characters, not equal to the account id. The initial password (printed once by `admin.js`) works only until the first password change. Changing the password logs out every other session.
-- **Sessions**: random 256-bit tokens, stored only as SHA-256 hashes, valid 120 days since last use (long on purpose: tablets are offline for weeks). `disable` and `revoke` end sessions at once.
+- **Sessions**: random 256-bit tokens, stored only as SHA-256 hashes, valid 365 days since last use (long on purpose: tablets are offline for weeks). When a session is refused, the message says why (ended on the server, account disabled, unused for a year). `disable` and `revoke` end sessions at once.
 - **Login attempts**: 5 wrong passwords lock that account id for 10 minutes. The lock is in server memory (lost on restart) and per account id, not per address. Unknown ids take as long to answer as known ones and get the same error message.
 - **Isolation**: every query on student data filters on the logged-in account; supervisor calls first check the assignment. Tests cover cross-student and cross-supervisor access.
 - **Minimum data**: no patient data. A supervisor sees procedure, role, dates and hospital, not `ms_to_log` or `online`.
@@ -209,7 +215,8 @@ What is *not* protected, honestly:
 - Any supervisor can add any student without the student's approval (the student can see it, and an admin can remove it). Whether that is acceptable is a question for CapaCare ([14](#14-open-questions-for-capacare)).
 - Every supervisor can list all candidate numbers (to pick students to add).
 - "Delete" is a soft delete: voided entries stay in the database. A real erasure request needs a manual database operation.
-- Backups contain everything and must be protected as much as the live database.
+- Backups contain everything (names, entries, password hashes) and must be protected as much as the live database. An administrator can download one from the app; that download is written to the audit log.
+- Student names are personal data about staff-in-training. They are shown to administrators, to the student themselves and to the supervisors who can find or have added the student. They appear in the CSV files. Decide with CapaCare whether names are needed in research exports; the "procedures per hospital" file contains no names.
 - The audit log records account changes (create, reset, disable, enable, log out, rename, assign, unassign) with who did it and when; it never holds passwords. It does not record who *read* data.
 - An administrator can see every student's entries and give any account (except their own) a new initial password, which is shown once. Keep the number of administrators small and give each person their own account.
 
@@ -309,7 +316,7 @@ Hosting, updating, backups, restoring and costs are in **`DEPLOY.md`**. The shor
 | Plain JavaScript modules, no framework, no build step | Anyone (and any AI assistant) can read and run it; nothing to compile | `app.js` builds the DOM by hand and will get long; consider splitting by screen or adopting a small library later. |
 | Server with no runtime dependencies (`node:http`, `node:sqlite`, `node:crypto`) | Nothing to patch or audit; one file to back up | Needs Node ≥ 22.13; the sqlite module is experimental. Moving to Postgres later is possible: all queries are in `lib.js` and `app.js`. |
 | Candidate number + admin-issued password, no e-mail | E-mail is little used; CapaCare already issues candidate numbers | No self-service reset: forgotten password means asking an admin. |
-| Long sessions (120 days) | Tablets may be offline for weeks; a session that expires offline would lock students out | A stolen tablet stays logged in until an admin runs `revoke`. |
+| Long sessions (365 days) | Tablets may be offline for weeks; a session that expires offline would lock students out | A stolen tablet stays logged in until an admin runs `revoke`. |
 | Signing done by the server for a logged-in supervisor | Students cannot forge signatures; supervisors use their own account | Not cryptographic; relies on the account and a confirm dialog. |
 | Supervisors online only, nothing stored on their tablets | Simple, verifiable, no student data on supervisor devices | Supervisors in poor-signal places cannot sign. See [15](#15-next-steps). |
 | Supervisors add students themselves | Asked for by the product owner; low admin work | No approval step. See [14](#14-open-questions-for-capacare). |

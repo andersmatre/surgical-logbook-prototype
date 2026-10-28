@@ -7,10 +7,12 @@ import { PROCEDURES_TOP, procName, roleLabel } from './config.js';
 import * as core from './core.js';
 import * as api from './api.js';
 import {
-  h, timeAgo, stat, kv, toast, openSheet, closeSheet,
+  h, timeAgo, stat, kv, toast, openSheet, closeSheet, saveBlob,
 } from './ui.js';
 
 const ENDED = Symbol('session ended'); // the server ended the session; app.js shows the login screen
+const DELIM_KEY = 'logbook.csvDelimiter';
+const getDelim = () => { try { return localStorage.getItem(DELIM_KEY) === ',' ? ',' : ';'; } catch { return ';'; } };
 const ROLE_NAME = { student: 'Student', supervisor: 'Supervisor', admin: 'Administrator' };
 
 // Everything this screen remembers while it is open. Replaced on every new login.
@@ -112,7 +114,7 @@ function overviewView() {
     let otherTotal = 0;
     for (const [id, c] of Object.entries(st.by_procedure)) if (!top.has(id)) { otherPerformed += c.performed; otherTotal += c.total; }
     return h('tr', { class: st.disabled ? 'dim' : '', onclick: () => openEntries(st.candidate) },
-      h('td', {}, st.candidate, st.disabled ? h('span', { class: 'tag' }, 'disabled') : null),
+      h('td', {}, st.candidate, st.disabled ? h('span', { class: 'tag' }, 'disabled') : null, st.name ? h('span', { class: 'muted small block' }, st.name) : null),
       h('td', {}, st.entries), h('td', {}, st.performed), h('td', {}, st.signed),
       PROCEDURES_TOP.map((p) => h('td', {}, cell(st.by_procedure[p.id]))),
       h('td', {}, cell({ performed: otherPerformed, total: otherTotal })));
@@ -120,6 +122,7 @@ function overviewView() {
 
   return h('section', {},
     h('h2', {}, 'Overview'),
+    backupReminder(s),
     h('div', { class: 'stats four' }, stat(t.students, 'students'), stat(t.supervisors, 'supervisors'), stat(t.entries, 'procedures'), stat(t.unsigned, 'to sign')),
     h('div', { class: 'card' }, h('h3', {}, 'Procedures, all students'),
       s.procedures.length
@@ -131,10 +134,58 @@ function overviewView() {
         ? table(['Student', 'Logged', 'Performed', 'Signed', ...PROCEDURES_TOP.map((p) => p.name), 'Other'], studentRows, 'matrix')
         : h('p', { class: 'muted' }, 'No students yet. Add them under "Add users".'),
       h('p', { class: 'muted small' }, 'Each procedure column shows performed / logged. Tap a student to see the entries.')),
+    h('div', { class: 'card' }, h('h3', {}, 'Hospitals'),
+      s.hospitals.length
+        ? table(['Hospital', 'Logged', 'Performed', 'Students'], s.hospitals.map((x) => h('tr', {}, h('td', {}, x.hospital), h('td', {}, x.entries), h('td', {}, x.performed), h('td', {}, x.students))))
+        : h('p', { class: 'muted' }, 'Nothing has been logged yet.'),
+      h('p', { class: 'muted small' }, 'The hospital is stored with every entry, as chosen by the student when logging.')),
+    downloadsCard(),
     h('div', { class: 'card' }, h('h3', {}, 'Recent changes'), auditList()));
 }
 
+// ---- downloads ---------------------------------------------------------------------------------
+
+function backupReminder(s) {
+  const days = s.last_backup ? (Date.now() - Date.parse(s.last_backup)) / 86400000 : Infinity;
+  if (days <= 7 || s.totals.entries === 0) return null;
+  return h('div', { class: 'note' }, s.last_backup ? `The last backup was ${Math.floor(days)} days ago. ` : 'No backup has been downloaded yet. ',
+    h('button', { class: 'link', type: 'button', onclick: () => { ad.tab = 'more'; draw(); } }, 'Go to the backup'));
+}
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+async function downloadFile(label, fetcher, filename) {
+  try {
+    const blob = await call(fetcher);
+    if (blob === ENDED) return;
+    saveBlob(blob, filename);
+    toast('File downloaded', { sub: `${label} · ${filename}` });
+    loadAll({ quiet: true }); // the download is listed under Recent changes
+  } catch (e) {
+    toast('Could not download', { sub: e.message });
+  }
+}
+
+function downloadsCard() {
+  const delim = h('select', { 'aria-label': 'File format' },
+    [[';', 'Excel in Norway and most of Europe (semicolon)'], [',', 'Other programs (comma)']].map(([v, label]) => h('option', { value: v, selected: v === getDelim() }, label)));
+  delim.addEventListener('change', () => { try { localStorage.setItem(DELIM_KEY, delim.value); } catch { /* the choice is just not remembered */ } });
+  const one = (kind, label) => h('button', {
+    class: 'btn ghost wide', type: 'button',
+    onclick: () => downloadFile(label, (t) => api.adminExport(t, kind, delim.value), `logbook-${kind}-${today()}.csv`),
+  }, label);
+  return h('div', { class: 'card' }, h('h3', {}, 'Download as a spreadsheet (CSV)'),
+    h('label', { class: 'small muted' }, 'File format'), delim,
+    h('p', { class: 'muted small' }, 'If Excel puts everything in one column, choose the other format.'),
+    one('procedures', 'Procedures per student'),
+    one('hospitals', 'Procedures per hospital'),
+    one('entries', 'Every entry, one row each'),
+    h('p', { class: 'muted small' }, 'The files contain candidate numbers and names. Keep them safe and do not share them in group chats.'));
+}
+
 const AUDIT_TEXT = {
+  export: (e) => `downloaded the ${e.detail} spreadsheet`,
+  backup: () => 'downloaded a backup',
   create: (e) => `created the ${e.detail} account ${e.target}`,
   reset_password: (e) => `reset the password of ${e.target}`,
   disable: (e) => `disabled ${e.target}`,
@@ -153,6 +204,8 @@ function auditList() {
 }
 
 // All entries of one student, newest first.
+const nameOf = (id) => ((ad.users || []).find((u) => u.id === id) || {}).name || null;
+
 async function openEntries(candidate) {
   openSheet([h('h3', {}, candidate), h('p', { class: 'muted' }, 'Loading…')]);
   try {
@@ -168,8 +221,10 @@ async function openEntries(candidate) {
     }
     const entries = core.derive(events);
     const shown = entries.slice(0, 200);
+    const who = nameOf(candidate);
     openSheet([
       h('h3', {}, `${candidate} · ${entries.length} logged`),
+      who ? h('p', { class: 'muted' }, who) : null,
       entries.length
         ? h('ul', { class: 'list tight' }, shown.map((e) => h('li', { class: 'entry' },
           h('div', { class: 'e-main' }, h('strong', {}, procName(e.procedure)), h('span', { class: `role-tag role-${e.role}` }, roleLabel(e.role))),
@@ -234,7 +289,8 @@ function openUser(id) {
   const me = u.id === ctx.session.candidate;
   const parts = [
     h('h3', {}, u.id),
-    u.name ? h('p', { class: 'muted' }, u.name) : null,
+    kv('Name', u.name || 'not set'),
+    h('button', { class: 'link', type: 'button', onclick: () => openRename(u) }, u.name ? 'Change name' : 'Add a name'),
     kv('Role', ROLE_NAME[u.role]),
     kv('Status', u.disabled ? 'Disabled' : 'Active'),
     kv('Own password', u.password_set ? 'chosen' : 'not yet'),
@@ -280,6 +336,27 @@ function openUser(id) {
   openSheet(parts);
 }
 
+function openRename(u) {
+  const input = h('input', { type: 'text', id: 'rename', value: u.name || '', autocomplete: 'off', maxlength: '60', placeholder: 'e.g. Mohamed Kamara' });
+  const err = h('p', { class: 'error', role: 'alert' }, '');
+  const form = h('form', { class: 'setup-form' },
+    h('label', { for: 'rename' }, `Name for ${u.id}`), input, err,
+    h('div', { class: 'row' },
+      h('button', { class: 'btn', type: 'submit' }, 'Save'),
+      h('button', { class: 'btn ghost', type: 'button', onclick: () => openUser(u.id) }, 'Cancel')));
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    try {
+      const r = await call((t) => api.adminRename(t, u.id, input.value));
+      if (r === ENDED) return;
+      toast('Name saved');
+      await loadAll({ quiet: true });
+      openUser(u.id);
+    } catch (e) { err.textContent = e.message; }
+  });
+  openSheet([h('h3', {}, 'Name'), form]);
+}
+
 function confirmReset(u) {
   openSheet([
     h('h3', {}, `New password for ${u.id}?`),
@@ -292,7 +369,7 @@ function confirmReset(u) {
             const r = await call((t) => api.adminReset(t, u.id));
             if (r === ENDED) return;
             await loadAll({ quiet: true });
-            showPasswords('New initial password', [{ id: r.id, password: r.password }]);
+            showPasswords('New initial password', [{ id: r.id, name: u.name, password: r.password }]);
           } catch (e) { toast('Could not reset', { sub: e.message }); closeSheet(); }
         },
       }, 'Reset password'),
@@ -313,11 +390,11 @@ function confirmDisable(u) {
 
 // The only time an initial password is visible. It cannot be looked up afterwards.
 function showPasswords(title, rows, skipped = []) {
-  const text = ['account,initial_password', ...rows.map((r) => `${r.id},${r.password}`)].join('\n');
+  const text = ['account,name,initial_password', ...rows.map((r) => `${r.id},${r.name || ''},${r.password}`)].join('\n');
   openSheet([
     h('h3', {}, title),
     h('p', { class: 'note' }, 'Write these down or copy them now. They are not stored and cannot be shown again. Hand each one to the person through CapaCare, one at a time, not in a group chat.'),
-    table(['Account', 'Initial password'], rows.map((r) => h('tr', {}, h('td', {}, r.id), h('td', { class: 'mono' }, r.password))), 'pwtable'),
+    table(['Account', 'Name', 'Initial password'], rows.map((r) => h('tr', {}, h('td', {}, r.id), h('td', {}, r.name || ''), h('td', { class: 'mono' }, r.password))), 'pwtable'),
     skipped.length ? h('p', { class: 'muted small' }, `Not created: ${skipped.map((x) => `${x.id} (${x.reason})`).join(', ')}`) : null,
     h('div', { class: 'row' },
       h('button', {
@@ -340,23 +417,25 @@ function addView() {
   let form;
 
   if (role === 'student') {
-    const ids = h('textarea', { id: 'ids', rows: '6', placeholder: 'CC1234\nCC1235\nCC1236', value: ad.draft.ids, autocapitalize: 'characters', spellcheck: 'false' });
+    const ids = h('textarea', { id: 'ids', rows: '6', placeholder: 'CC1234 Mohamed Kamara\nCC1235 Fatmata Bangura\nCC1236', value: ad.draft.ids, autocapitalize: 'characters', spellcheck: 'false' });
     ids.addEventListener('input', () => { ad.draft.ids = ids.value; err.textContent = ''; });
     form = h('form', { class: 'setup-form' },
-      h('label', { for: 'ids' }, 'Candidate numbers'),
-      h('p', { class: 'muted small' }, 'One per line, or separated by commas. Paste a whole list if you have one.'),
+      h('label', { for: 'ids' }, 'Students'),
+      h('p', { class: 'muted small' }, 'One student per line: the candidate number, then the name. The name is optional and can be added later. Paste a whole list if you have one.'),
       ids, err, h('button', { class: 'btn wide', type: 'submit' }, 'Create accounts'));
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
-      const list = ids.value.split(/[\s,;]+/).filter(Boolean);
+      const list = parseStudents(ids.value);
       if (!list.length) { err.textContent = 'Type at least one candidate number.'; return; }
       await create(err, async () => {
         const created = [];
         const skipped = [];
         for (let i = 0; i < list.length; i += 100) {
-          const r = await call((t) => api.adminCreateMany(t, list.slice(i, i + 100)));
+          const chunk = list.slice(i, i + 100);
+          const r = await call((t) => api.adminCreateMany(t, chunk));
           if (r === ENDED) return null;
-          created.push(...r.created);
+          const names = new Map(chunk.map((p) => [core.normCandidate(p.id), p.name || '']));
+          created.push(...r.created.map((x) => ({ ...x, name: names.get(x.id) || '' })));
           skipped.push(...r.skipped);
         }
         ad.draft.ids = '';
@@ -380,7 +459,7 @@ function addView() {
         if (r === ENDED) return null;
         ad.draft.id = '';
         ad.draft.name = '';
-        return { title: `${ROLE_NAME[role]} account created`, rows: [{ id: r.id, password: r.password }], skipped: [] };
+        return { title: `${ROLE_NAME[role]} account created`, rows: [{ id: r.id, name: name.value.trim(), password: r.password }], skipped: [] };
       });
     });
   }
@@ -389,6 +468,20 @@ function addView() {
     h('h2', {}, 'Add users'),
     h('p', { class: 'muted' }, 'Each new account gets an initial password that works once. The person chooses their own password at the first login.'),
     seg, form);
+}
+
+// "CC1234 Mohamed Kamara" per line. A line with only candidate numbers (each has a digit) is several students.
+export function parseStudents(text) {
+  const people = [];
+  for (const line of String(text).split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t) continue;
+    const parts = t.split(/[\s,;]+/).filter(Boolean);
+    if (parts.length > 1 && parts.every((p) => /\d/.test(p))) { parts.forEach((id) => people.push({ id })); continue; }
+    const m = /^([^\s,;]+)[\s,;]+(.+)$/.exec(t);
+    people.push(m ? { id: m[1], name: m[2].trim().replace(/\s+/g, ' ') } : { id: t });
+  }
+  return people;
 }
 
 async function create(err, run) {
@@ -412,9 +505,22 @@ function moreView() {
       h('div', { class: 'row' },
         h('button', { class: 'btn ghost', onclick: ctx.openChangePassword }, 'Change password'),
         h('button', { class: 'btn ghost', onclick: confirmLogout }, 'Log out'))),
+    backupCard(),
     h('div', { class: 'card' }, h('h3', {}, 'What an administrator can do'),
       h('p', { class: 'muted' }, 'See all students and their procedures, add accounts, give new passwords, disable accounts and choose which supervisor sees which student. You cannot sign procedures. Every change is listed under "Recent changes" on the Overview tab, with who made it. Initial passwords are shown once and never stored.')),
     h('div', { class: 'card' }, h('h3', {}, 'About'), kv('Version', ctx.version), kv('Server', api.serverLabel())));
+}
+
+function backupCard() {
+  const last = ad.stats && ad.stats.last_backup;
+  return h('div', { class: 'card' }, h('h3', {}, 'Backup'),
+    h('p', { class: 'muted' }, 'A complete copy of all data, in one file. If the server disk is ever lost, this file is the only way to get the data back. Download one every week and keep it somewhere safe that is not this server, for example on a USB stick or in CapaCare\'s own storage.'),
+    kv('Last backup', last ? timeAgo(last) : 'never'),
+    h('button', {
+      class: 'btn wide', type: 'button',
+      onclick: () => downloadFile('Backup', (t) => api.adminBackup(t), `logbook-backup-${today()}.db`),
+    }, 'Download backup'),
+    h('p', { class: 'muted small' }, 'The file contains all names, entries and the scrambled passwords of every account. Treat it like the live data: do not send it by WhatsApp or e-mail.'));
 }
 
 function confirmLogout() {
