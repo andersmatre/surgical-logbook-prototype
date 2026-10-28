@@ -1,7 +1,23 @@
 # Putting the server online
 
 This explains how to get the logbook server running on the internet so students can log in from their tablets.
-It was written from the documentation and published prices of the hosts below. **The `Dockerfile` and these steps have not been run on a real host** (the build environment had no Docker), so expect to fix small things on the first deployment. The server itself is tested and was started and used over HTTP locally.
+It was written from the documentation and published prices of the hosts below. **The Fly.io steps (option A) have since been used for the current deployment** (see "Current deployment" below); the other options (B and C) have not been run. The server itself is tested and was started and used over HTTP locally.
+
+## Current deployment
+
+Status as reported by the product owner on 2026-10-28. It was not checked by the AI assistant that wrote this section, which cannot reach the service from its workspace.
+
+| | |
+|---|---|
+| Host | Fly.io, option A below, set up with the settings in `fly.toml` |
+| Address | `https://capacare-logbook.fly.dev` (students install the app from here; changing it means reinstalling on every tablet) |
+| Setup | App `capacare-logbook`, region Stockholm (`arn`), one 512 MB machine, one volume `logbook_data` mounted at `/data` |
+| Works in | Chrome on a Windows PC and on an iPhone |
+| Not yet tried | A Samsung tablet (installing from the home screen, offline use, speed), supervisors on a second device |
+| Not recorded | Whether the checklist below was done, in particular **taking and restoring a backup**; the data controller and the person who holds the Fly account (see `PROJECT.md` section 16) |
+| Deviations from this guide | None reported |
+
+Update this table whenever something changes (host, address, region, who owns the account).
 
 ## What you are deploying
 

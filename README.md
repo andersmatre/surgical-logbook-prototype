@@ -7,7 +7,7 @@ Built for CapaCare's Surgical Training Programme in Sierra Leone, to find out wh
 - **Supervisors** log in with a staff ID, add the students they supervise, see their entries and sign them. The server checks every signature.
 - **Administrators** log in too: they see all procedures across students and hospitals, add accounts (with names), give new passwords, disable accounts, choose who supervises whom, and download spreadsheets (CSV) and a backup. No command line needed.
 
-This is a prototype. It has not been used on a real tablet or deployed yet. Read "Known limits" in `PROJECT.md` before real use.
+This is a prototype. It is deployed on Fly.io (see "Current deployment" in `DEPLOY.md`) and works in Chrome on a Windows PC and an iPhone, but it has **not yet been tried on a Samsung tablet**. Read "Known limits" in `PROJECT.md` before real use.
 
 **New to the project? Read [`PROJECT.md`](PROJECT.md).** It explains how things are structured, the rules the design depends on, how to make changes, and what a new maintainer needs.
 To put the server online, read [`DEPLOY.md`](DEPLOY.md). Instructions for people trying the app: [`TESTER-GUIDE.md`](TESTER-GUIDE.md).

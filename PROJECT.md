@@ -31,7 +31,7 @@ The context that shaped every decision:
 
 ## 2. Status
 
-Version **0.5.1**. A working prototype, tested automatically but **not yet used on a real tablet and not yet deployed**.
+Version **0.5.1**. A working prototype, tested automatically and **deployed on Fly.io** (see [11](#11-running-it)), but **not yet used on a Samsung tablet**.
 
 Works:
 
@@ -47,7 +47,7 @@ Works:
 
 Placeholders you must replace before real use: the target numbers and the "more procedures" list in `config.js`; the demo hospital list should be checked.
 
-Not done: hosting (see `DEPLOY.md`), research export, offline signing for supervisors, ethics and data-protection approval. See [13](#13-known-limits) and [15](#15-next-steps).
+Not done: trying it on a real Samsung tablet, research export, offline signing for supervisors, ethics and data-protection approval. See [13](#13-known-limits) and [15](#15-next-steps).
 
 ## 3. Get it running
 
@@ -125,7 +125,7 @@ Read these before changing anything. Most bugs in this kind of system come from 
 | `server/app.js` | The HTTP API and static file serving. |
 | `server/lib.js` | Database schema and upgrades, passwords, account functions, assignments, event validation, signing. No HTTP. |
 | `server/admin.js` | Command-line administration (the same operations as the administrator screens, for when the app cannot be used). |
-| `Dockerfile`, `.dockerignore` | One container with server and app. Untested on a real host. |
+| `Dockerfile`, `.dockerignore` | One container with server and app. Built and run by Fly.io for the current deployment. |
 | `docker-compose.yml`, `local.env` | Run the container (or the plain server) on your own computer with production-like settings. |
 | `test/*.test.mjs` | `core` (data layer), `server` (API and rules), `api` (the localhost-only server override), `ui` (student flow), `ui-supervisor` (supervisor flow), `ui-admin` (administrator flow), `files` (file lists stay in step). |
 | `README.md` | Short overview. `DEPLOY.md` hosting guide. `TESTER-GUIDE.md` instructions for people trying the app. |
@@ -299,7 +299,7 @@ Account ids: 2 to 20 characters, letters, digits, `/`, `_`, `-`. Candidate numbe
 
 ## 11. Running it
 
-Hosting, updating, backups, restoring and costs are in **`DEPLOY.md`**. The short version:
+Hosting, updating, backups, restoring and costs are in **`DEPLOY.md`**. The current deployment is described in its section "Current deployment". The short version:
 
 - It is one Node process and one SQLite file in a directory called `data`. Whatever host you use must keep that directory on a **persistent disk**, serve **HTTPS**, and run exactly **one** copy (SQLite on a single file does not support two servers).
 - **Back up regularly** with `admin.js backup` and keep copies somewhere else. **Test a restore once.** The database is the only copy of the research data.
@@ -325,8 +325,8 @@ Hosting, updating, backups, restoring and costs are in **`DEPLOY.md`**. The shor
 
 ## 13. Known limits
 
-- **Not tried on a real tablet.** Installation, offline behaviour, performance on the actual devices and the look on the real screen are unverified.
-- **Not deployed.** The `Dockerfile` and `DEPLOY.md` have not been run on a real host.
+- **Not tried on a Samsung tablet.** It works in Chrome on a Windows PC and an iPhone (reported by the product owner). Installation on the tablet, offline behaviour, performance on the actual devices and the look on the real screen are unverified.
+- **Deployment only partly checked.** It runs on Fly.io (see `DEPLOY.md`, "Current deployment"). The rest of the `DEPLOY.md` checklist (backup and restore, offline mode, second device) has not been recorded as done.
 - **Supervisors need internet to sign**, and see nothing offline.
 - **No password reset without an administrator**, no two-factor login, no per-address rate limiting; the login lock is in memory.
 - **Administrators cannot delete accounts**, only disable them (data stays). An administrator cannot reset or disable their own account; another administrator must.
@@ -357,7 +357,7 @@ These need people, not code. Record the answers here.
 
 In rough order:
 
-1. Deploy (`DEPLOY.md`), then try it on a real tablet with one or two students and one supervisor, with a contact person on site. Fix what you learn before anything else.
+1. Try the deployed app on a real Samsung tablet with one or two students and one supervisor, with a contact person on site. Fix what you learn before anything else.
 2. Replace the placeholder targets and procedure list; check hospitals.
 3. Settle the questions in section 14, especially data ownership and ethics.
 4. If supervisors cannot rely on internet: let them queue signatures offline and send them later (the token already authorises the call, so the server rule stays the same).
