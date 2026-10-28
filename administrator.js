@@ -50,7 +50,7 @@ function paint() {
 function header() {
   return h('header', { class: 'top' },
     h('div', { class: 'brand' },
-      h('strong', {}, 'Surgical logbook'),
+      h('strong', {}, 'CapaCare logbook'),
       h('span', { class: 'who' }, `Administrator · ${ctx.session.name || ctx.session.candidate}`)),
     h('button', { class: 'chip ok', onclick: () => loadAll(), 'aria-label': 'Refresh from the server' }, ad.loading ? 'Loading…' : 'Refresh'));
 }

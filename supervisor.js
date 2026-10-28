@@ -48,7 +48,7 @@ function paint() {
 function header() {
   return h('header', { class: 'top' },
     h('div', { class: 'brand' },
-      h('strong', {}, 'Surgical logbook'),
+      h('strong', {}, 'CapaCare logbook'),
       h('span', { class: 'who' }, `Supervisor · ${ctx.session.name || ctx.session.candidate}`)),
     h('button', { class: 'chip ok', onclick: refreshCurrent, 'aria-label': 'Refresh from the server' }, sv.loading ? 'Loading…' : 'Refresh'));
 }
