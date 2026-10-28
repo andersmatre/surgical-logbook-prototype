@@ -1,6 +1,6 @@
 {
   "name": "surgical-logbook-prototype",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "private": true,
   "type": "module",
   "description": "Offline-first surgical logbook: static PWA plus a small login and sync server",

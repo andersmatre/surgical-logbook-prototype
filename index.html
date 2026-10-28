@@ -3,6 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>
+    // Only iPhone and iPad: draw the page down to the very bottom edge, so the tab bar covers the area under the home bar.
+    // Never do this on Android: Chrome there would draw the page under the system gesture bar and leave an empty strip.
+    if (/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
+      document.querySelector('meta[name=viewport]').content += ', viewport-fit=cover';
+    }
+  </script>
   <meta name="theme-color" content="#0F6E56">
   <meta name="mobile-web-app-capable" content="yes">
   <title>Surgical logbook (prototype)</title>

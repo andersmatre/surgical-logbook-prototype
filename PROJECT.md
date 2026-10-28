@@ -31,7 +31,7 @@ The context that shaped every decision:
 
 ## 2. Status
 
-Version **0.5.4**. A working prototype, tested automatically and **deployed on Fly.io** (see [11](#11-running-it)), but **not yet used on a Samsung tablet**.
+Version **0.5.5**. A working prototype, tested automatically and **deployed on Fly.io** (see [11](#11-running-it)), but **not yet used on a Samsung tablet**.
 
 Works:
 
@@ -271,7 +271,7 @@ In `server/app.js` add a branch in `api()`. Use `authenticate(req)` or `requireS
 
 ### 10.7 Add a screen
 
-Student: add to `TABS` and `tabContent()` in `app.js`. Supervisor: add to the `tabs` array in `nav()` and to `body()` in `supervisor.js`. Use classes from `style.css`; keep touch targets at least 44 px. Do not add `viewport-fit=cover` to `index.html`: on Android Chrome it draws the page under the system gesture bar and leaves an empty white strip under the bottom tab bar (a test checks this). Strings are written inline in English; there is no translation layer yet (adding one means extracting the strings first).
+Student: add to `TABS` and `tabContent()` in `app.js`. Supervisor: add to the `tabs` array in `nav()` and to `body()` in `supervisor.js`. Use classes from `style.css`; keep touch targets at least 44 px. Do not put `viewport-fit=cover` in the viewport tag of `index.html`: on Android Chrome it draws the page under the system gesture bar and leaves an empty white strip under the bottom tab bar. A small script in `index.html` adds it on iPhone and iPad only, where it lets the tab bar reach the bottom edge (a test checks both). Strings are written inline in English; there is no translation layer yet (adding one means extracting the strings first).
 
 ### 10.8 Manage accounts (administrator)
 
