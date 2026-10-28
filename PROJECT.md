@@ -39,7 +39,7 @@ Works:
 - Sync to the server with automatic retry; log in on any tablet and the history comes back.
 - Supervisor accounts: a supervisor logs in with a staff ID, adds students, sees their entries and signs selected ones. The server verifies every signature.
 - Admin from the command line: create accounts, assign, reset, disable, revoke, list, backup.
-- 34 automated tests, including whole-flow tests of both apps in a simulated browser against a real server.
+- 36 automated tests, including whole-flow tests of both apps in a simulated browser against a real server.
 
 Placeholders you must replace before real use: the target numbers and the "more procedures" list in `config.js`; the demo hospital list should be checked.
 
@@ -51,13 +51,15 @@ Needs **Node 22.13 or newer**. Nothing else: the server has no runtime dependenc
 
 ```
 npm install                                   # test tools only
-npm test                                      # 34 tests, about 35 seconds
+npm test                                      # 36 tests, about 35 seconds
 
 npm run admin -- add-supervisor SUP-ANNA --name "Dr Anna Kamara"   # prints an initial password
 npm run admin -- add CC1234                                        # a student; prints an initial password
 npm run admin -- assign SUP-ANNA CC1234                            # optional: supervisors can also add students themselves
 npm start                                                          # http://localhost:8080 (app and API)
 ```
+
+`npm run local` does the same with the settings in `local.env`, and `docker compose up --build` runs the real container with a persistent volume (see `DEPLOY.md`, "First rehearse on your own computer").
 
 Open `http://localhost:8080` in Chrome. Log in as `CC1234`, choose a password, log a procedure. Open a second browser profile and log in as `SUP-ANNA` to sign it.
 The database is the single file `data/logbook.db` (ignored by git). Delete it to start over.
@@ -107,7 +109,7 @@ Read these before changing anything. Most bugs in this kind of system come from 
 | `index.html`, `manifest.webmanifest`, `icon-*.png` | The page that loads the app; install metadata. |
 | `config.js` | **Content to edit**: version, server address, procedures, roles, targets, hospitals. |
 | `core.js` | Student data layer. IndexedDB event log, `derive`, progress, weekly summary, sync bookkeeping, test metrics and export. No DOM, so it can be tested in Node. |
-| `api.js` | Every call to the server, as a function. Turns failures into `ApiError` with a message that can be shown as is. |
+| `api.js` | Every call to the server, as a function. Turns failures into `ApiError` with a message that can be shown as is. Also the `?api=http://localhost:...` override that lets the hosted app talk to a server on the tester's own computer (localhost only, by design). |
 | `ui.js` | Shared interface pieces: the `h()` DOM helper, toast, sheets (modals), the password form. |
 | `app.js` | Entry point. Decides what to show (login, forced password, hospital, student tabs, or the supervisor screens). Student screens and sync live here. |
 | `supervisor.js` | The supervisor screens: My students, Add students, one student with signing, More. |
@@ -118,7 +120,8 @@ Read these before changing anything. Most bugs in this kind of system come from 
 | `server/lib.js` | Database schema and upgrades, passwords, account functions, assignments, event validation, signing. No HTTP. |
 | `server/admin.js` | Command-line administration. |
 | `Dockerfile`, `.dockerignore` | One container with server and app. Untested on a real host. |
-| `test/*.test.mjs` | `core` (data layer), `server` (API and rules), `ui` (student flow), `ui-supervisor` (supervisor flow), `files` (file lists stay in step). |
+| `docker-compose.yml`, `local.env` | Run the container (or the plain server) on your own computer with production-like settings. |
+| `test/*.test.mjs` | `core` (data layer), `server` (API and rules), `api` (the localhost-only server override), `ui` (student flow), `ui-supervisor` (supervisor flow), `files` (file lists stay in step). |
 | `README.md` | Short overview. `DEPLOY.md` hosting guide. `TESTER-GUIDE.md` instructions for people trying the app. |
 | `CLAUDE.md` | Short instructions for AI assistants working in this repository. |
 

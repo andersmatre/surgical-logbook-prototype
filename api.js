@@ -3,7 +3,31 @@
 
 import { API_BASE } from './config.js';
 
-const base = () => String(globalThis.LOGBOOK_API_BASE ?? API_BASE).replace(/\/$/, '');
+// For testing the hosted app against a server on your own computer: open the app once with
+// ?api=http://localhost:8080 and the address is remembered ("?api=" with nothing clears it).
+// Only localhost addresses are accepted, so a link can never send someone's password to another server.
+const OVERRIDE_KEY = 'logbook.api';
+const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?$/;
+
+export function applyApiParam(search) {
+  try {
+    const p = new URLSearchParams(search);
+    if (!p.has('api')) return;
+    const v = p.get('api').trim().replace(/\/$/, '');
+    if (!v) localStorage.removeItem(OVERRIDE_KEY);
+    else if (LOCAL.test(v)) localStorage.setItem(OVERRIDE_KEY, v);
+  } catch { /* storage blocked: the override simply does not apply */ }
+}
+
+export function apiOverride() {
+  try {
+    const v = localStorage.getItem(OVERRIDE_KEY);
+    return v && LOCAL.test(v) ? v : null;
+  } catch { return null; }
+}
+
+const base = () => String(globalThis.LOGBOOK_API_BASE ?? apiOverride() ?? API_BASE).replace(/\/$/, '');
+export const serverLabel = () => base() || globalThis.location?.origin || '';
 
 export class ApiError extends Error {
   constructor(status, code, message) {

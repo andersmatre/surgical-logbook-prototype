@@ -36,6 +36,10 @@ The database is `./data/logbook.db`.
 
 Initial passwords are printed once. Hand them out through CapaCare, one at a time, not in a group chat. They work only for the first login.
 
+## Try it on your own computer like a real server
+
+`docker compose up --build` runs the same container a rented server would, with a persistent volume (`docker-compose.yml`, untested by the author). Without Docker: `npm run local`. To use the app published on GitHub Pages against the server on your computer, open the Pages address once with `?api=http://localhost:8080` at the end. Details and limits: the first section of [`DEPLOY.md`](DEPLOY.md).
+
 ## Put it online
 
 The server is one Node process plus one SQLite file. It needs a persistent disk, HTTPS and a single running copy, in an EU/EEA region. [`DEPLOY.md`](DEPLOY.md) has step-by-step guides (Fly.io, or your own server with Docker and Caddy), a checklist for after the first deploy, and backup and restore. The Dockerfile has not been run on a real host yet.
@@ -49,7 +53,7 @@ Open the server's address in Chrome, menu (three dots), "Add to Home screen" / "
 ## Tests
 
     npm install
-    npm test            # 34 tests, about 35 seconds
+    npm test            # 36 tests, about 35 seconds
 
 `core` (data layer), `server` (API, login, sync, supervisor rules, upgrade of an old database, backup), `ui` (the whole student flow in a simulated browser against a real server), `ui-supervisor` (the whole supervisor flow), `files` (file lists stay in step). They do not replace trying the app on a real tablet.
 

@@ -245,6 +245,10 @@ test('CORS only for the allowed origin; static serving only exposes the app file
     const pre = await fetch(`${t.base}/api/login`, { method: 'OPTIONS', headers: { origin: 'https://andersmatre.github.io', 'access-control-request-method': 'POST' } });
     assert.equal(pre.status, 204);
     assert.equal(pre.headers.get('access-control-allow-origin'), 'https://andersmatre.github.io');
+    // Chrome's extra question when a public page calls a server on localhost
+    const pna = await fetch(`${t.base}/api/login`, { method: 'OPTIONS', headers: { origin: 'https://andersmatre.github.io', 'access-control-request-method': 'POST', 'access-control-request-private-network': 'true' } });
+    assert.equal(pna.headers.get('access-control-allow-private-network'), 'true');
+    assert.equal(pre.headers.get('access-control-allow-private-network'), null);
     const evil = await fetch(`${t.base}/api/health`, { headers: { origin: 'https://evil.example' } });
     assert.equal(evil.headers.get('access-control-allow-origin'), null);
 

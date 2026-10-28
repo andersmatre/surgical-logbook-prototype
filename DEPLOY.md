@@ -17,6 +17,34 @@ The host must give you three things:
 
 Also choose a region in the **EU/EEA** (data protection), and pick it with latency in mind: a tablet in Sierra Leone reaches Europe in a few hundred milliseconds, which is fine for these small requests.
 
+## First rehearse on your own computer
+
+Do this before renting anything. It uses the same container, a persistent volume and the same settings as a rented server, so what you learn carries over.
+
+**Closest to the real thing (needs Docker Desktop):**
+
+```
+docker compose up --build
+docker compose exec logbook node --no-warnings=ExperimentalWarning server/admin.js add-supervisor SUP-ANNA --name "Dr Anna Kamara"
+docker compose exec logbook node --no-warnings=ExperimentalWarning server/admin.js add CC1234
+```
+
+Open `http://localhost:8080`. The server serves the app itself, exactly as a rented server will. Use two browser profiles (or one normal and one private window) to be a student and a supervisor at the same time. `docker compose down` stops it and keeps the data; `docker compose down -v` deletes the database. (`docker-compose.yml` has not been run by its author: no Docker was available where it was written.)
+
+**Without Docker:** `npm run local` starts the server with the settings in `local.env`; create accounts with `npm run admin -- add CC1234`.
+
+**With the app on GitHub Pages and the server on your computer:** start the server as above, then open
+
+```
+https://andersmatre.github.io/surgical-logbook-prototype/?api=http://localhost:8080
+```
+
+once. The app remembers the address (the login screen says "Test mode"); `?api=` with nothing after it switches it off. Only `localhost` addresses are accepted. This works only on the computer that runs the server. The server must allow the Pages address (`ALLOWED_ORIGIN`, already set in `docker-compose.yml` and `local.env`). Chrome may ask for permission to connect to devices on your local network; allow it. If it does not work, use `http://localhost:8080` directly. This combination (app on one address, server on another) is **not** how the rented setup works, so use it only to try the Pages publishing.
+
+**What is different from a rented server:** no HTTPS and no public address. A tablet on the same Wi-Fi cannot install the app from `http://<your-computer>:8080`, because installing and offline mode need HTTPS. Testing on a real tablet therefore needs the real server (or a tunnel, for a short demo with test data).
+
+**Tested in a real browser:** with the app and the server on two different local addresses, in Chromium: login, own password, logging, sync, opening the app offline after a reload, and syncing when the connection returns. Not tested: GitHub Pages itself talking to localhost, Safari or Firefox, a real tablet.
+
 ## Decide first
 
 1. **Whose account hosts it?** Preferably a CapaCare or project account that more than one person can recover, not only your private card. See the handover checklist in `PROJECT.md`.

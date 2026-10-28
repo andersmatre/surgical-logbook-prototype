@@ -68,6 +68,8 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
       res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
       res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
       res.setHeader('Access-Control-Max-Age', '86400');
+      // Chrome asks this when a public page (e.g. GitHub Pages) calls a server on localhost.
+      if (req.headers['access-control-request-private-network'] === 'true') res.setHeader('Access-Control-Allow-Private-Network', 'true');
     }
   }
 

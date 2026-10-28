@@ -1,0 +1,22 @@
+# A rehearsal of the real server on your own computer: the same container image, a persistent
+# volume for the database, and the same settings you would give a rented server.
+#   docker compose up --build           start (first time builds the image)
+#   docker compose exec logbook node --no-warnings=ExperimentalWarning server/admin.js add CC1234
+#   docker compose down                 stop (the data stays in the volume)
+#   docker compose down -v              stop AND delete the database
+# Not tested by the author (no Docker where it was written).
+services:
+  logbook:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      # Addresses the app may be loaded from when it is not served by this server itself,
+      # for example the GitHub Pages site. Comma separated.
+      ALLOWED_ORIGIN: "https://andersmatre.github.io"
+    volumes:
+      - logbook-data:/data
+    restart: unless-stopped
+
+volumes:
+  logbook-data:

@@ -262,8 +262,18 @@ function loginScreen() {
   return h('div', { class: 'setup' },
     h('h1', {}, 'Surgical logbook'),
     h('p', { class: 'muted' }, 'Log in with the candidate number (students) or staff ID (supervisors) and the password you got from CapaCare. You need internet the first time you log in on a tablet. After that the student logbook also works without internet.'),
-    note, form,
+    note, serverNote(), form,
     h('p', { class: 'muted small' }, `Prototype v${APP_VERSION}. Never type patient names or numbers anywhere.`));
+}
+
+// Tells a tester which server the app talks to, when it is not the address the app was loaded from.
+function serverNote() {
+  const o = api.apiOverride();
+  if (o) return h('p', { class: 'note' }, `Test mode: this app talks to the server on ${o}. Open the app with ?api= at the end of the address to switch it off.`);
+  if (/\.github\.io$/.test(window.location.hostname) && !globalThis.LOGBOOK_API_BASE) {
+    return h('p', { class: 'note' }, 'This address has no server of its own. To test against a server on your own computer, add ?api=http://localhost:8080 to the address.');
+  }
+  return null;
 }
 
 function forcedPasswordScreen() {
@@ -498,7 +508,7 @@ function moreTab() {
         h('button', { class: 'btn ghost', onclick: exportData }, 'Export test data')),
       h('p', { class: 'muted small' }, 'Entries are sent to the server automatically when there is internet. "Export test data" saves a file you can send on WhatsApp.')),
     supervisorsCard(),
-    h('div', { class: 'card' }, h('h3', {}, 'About'), kv('Version', APP_VERSION)));
+    h('div', { class: 'card' }, h('h3', {}, 'About'), kv('Version', APP_VERSION), kv('Server', api.serverLabel())));
 }
 
 function supervisorsCard() {
@@ -601,6 +611,7 @@ async function requestPersist() {
 
 export async function init() {
   root = document.getElementById('app');
+  api.applyApiParam(window.location.search);
   initUi({ overlayEl: document.getElementById('overlay'), toastElement: document.getElementById('toast') });
   state.online = navigator.onLine !== false;
 
