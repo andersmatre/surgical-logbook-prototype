@@ -34,11 +34,8 @@ test('every local import in the app files is listed, so the app works offline', 
   }
 });
 
-test('viewport-fit=cover is added for iPhone and iPad only, never in the static viewport tag (it leaves an empty strip on Android Chrome)', () => {
-  const html = read('index.html');
-  const tag = /<meta name="viewport"[^>]*>/.exec(html)[0];
-  assert.ok(!/viewport-fit/.test(tag), 'the viewport tag in index.html must not contain viewport-fit');
-  assert.ok(/iPhone\|iPad/.test(html) && /viewport-fit=cover/.test(html), 'the iOS-only script that adds viewport-fit=cover is missing');
+test('the page is not drawn under the system bars, so the bottom tab bar reaches the bottom edge on Android Chrome', () => {
+  assert.ok(!/viewport-fit\s*=\s*cover/.test(read('index.html')), 'index.html must not use viewport-fit=cover (empty white strip under the tab bar)');
 });
 
 test('the version is the same in config.js, package.json, the service worker cache name and PROJECT.md', () => {
