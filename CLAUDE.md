@@ -5,7 +5,7 @@ Read `PROJECT.md` first (what this is, the rules, where things are, how to make 
 ## Before you finish any change
 - Run `npm test`. All tests must pass. Add or update tests for what you changed.
 - If behaviour, data, API or files changed, update `PROJECT.md` in the same change.
-- If you changed an app file (anything the browser loads), release it: bump the version in `config.js`, `package.json` **and** `CACHE` in `sw.js`; a new app file must also be added to `sw.js` ASSETS, `server/app.js` STATIC and the `Dockerfile`. `test/files.test.mjs` checks this.
+- If you changed an app file (anything the browser loads), release it: bump the version in `config.js`, `package.json`, `CACHE` in `sw.js` **and** the `Version **x.y.z**` line in section 2 of `PROJECT.md`; a new app file must also be added to `sw.js` ASSETS, `server/app.js` STATIC and the `Dockerfile`. `test/files.test.mjs` checks this.
 
 ## Rules that must not be broken
 - The event log is append-only. Never add "edit entry". Mistakes are `void` events, signatures are `sign` events.

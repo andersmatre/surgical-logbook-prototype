@@ -34,8 +34,9 @@ test('every local import in the app files is listed, so the app works offline', 
   }
 });
 
-test('the version is the same in config.js, package.json and the service worker cache name', () => {
+test('the version is the same in config.js, package.json, the service worker cache name and PROJECT.md', () => {
   const v = /APP_VERSION = '([^']+)'/.exec(read('config.js'))[1];
   assert.equal(JSON.parse(read('package.json')).version, v);
   assert.ok(read('sw.js').includes(`'logbook-v${v}'`), 'bump CACHE in sw.js together with APP_VERSION');
+  assert.ok(read('PROJECT.md').includes(`Version **${v}**`), 'update the "Version **x.y.z**" line in section 2 of PROJECT.md together with APP_VERSION');
 });

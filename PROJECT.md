@@ -31,7 +31,7 @@ The context that shaped every decision:
 
 ## 2. Status
 
-Version **0.3.0**. A working prototype, tested automatically but **not yet used on a real tablet and not yet deployed**.
+Version **0.5.1**. A working prototype, tested automatically but **not yet used on a real tablet and not yet deployed**.
 
 Works:
 
@@ -233,7 +233,7 @@ When the real targets are known set `TARGETS_ARE_PLACEHOLDER = false`. Then rele
 
 ### 10.2 Release a new version
 
-1. Change the version in **three** places: `APP_VERSION` in `config.js`, `version` in `package.json`, and `CACHE` in `sw.js` (`logbook-v<version>`). `test/files.test.mjs` fails if they differ.
+1. Change the version in **four** places: `APP_VERSION` in `config.js`, `version` in `package.json`, `CACHE` in `sw.js` (`logbook-v<version>`), and the line `Version **x.y.z**` in section 2 of this file (check at the same time that the status text there is still true). `test/files.test.mjs` fails if they differ.
 2. **Why `CACHE` matters:** the browser only installs a new service worker if `sw.js` itself changed. If you forget, tablets keep serving the old app files from the old cache.
 3. If you added an app file: add it to `ASSETS` in `sw.js`, to `STATIC` in `server/app.js` and to the `COPY` line in `Dockerfile`. The same test checks this.
 4. `npm test`, commit, deploy (`DEPLOY.md`).
