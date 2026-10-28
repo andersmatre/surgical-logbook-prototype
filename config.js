@@ -1,6 +1,12 @@
 // config.js — content, not logic. Edit lists, targets and demo supervisors here.
 
-export const APP_VERSION = '0.1.0';
+export const APP_VERSION = '0.2.0';
+
+// Where the logbook server lives. '' = the same address the app was loaded from
+// (when the server also serves the app). If the app is hosted elsewhere, for example
+// on GitHub Pages, put the server address here, e.g. 'https://logbook.example.org',
+// and set ALLOWED_ORIGIN on the server to the address of the app.
+export const API_BASE = '';
 
 // Top ten procedures registered by students in 2025
 // (source: CapaCare Annual Report 2025, Table 2).

@@ -8,18 +8,30 @@
 import { TARGETS, TARGETS_ARE_PLACEHOLDER, procName } from './config.js';
 import { APP_VERSION } from './config.js';
 
-const DB_NAME = 'surgical-logbook';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
+let dbName = 'surgical-logbook';
 let dbPromise = null;
+
+// Each student gets a separate local database, so two students sharing a tablet
+// never see each other's entries, and logging out can wipe exactly one student.
+export function useUser(candidate) {
+  if (dbPromise) dbPromise.then((db) => db.close()).catch(() => {});
+  dbName = `surgical-logbook-${candidate}`;
+  dbPromise = null;
+}
+
+export const normCandidate = (s) => String(s ?? '').trim().toUpperCase().replace(/\s+/g, '');
+export const validCandidate = (c) => /^[A-Z0-9/_-]{2,20}$/.test(c);
 
 export function openDb() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    const req = indexedDB.open(dbName, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains('events')) db.createObjectStore('events', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
+      if (!db.objectStoreNames.contains('sent')) db.createObjectStore('sent', { keyPath: 'id' }); // ids the server has confirmed
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -68,7 +80,7 @@ export async function wipeAll() {
     dbPromise = null;
   }
   await new Promise((resolve, reject) => {
-    const req = indexedDB.deleteDatabase(DB_NAME);
+    const req = indexedDB.deleteDatabase(dbName);
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
     req.onblocked = () => resolve();
@@ -182,17 +194,44 @@ export function weeklySummary(entries, { student, now = new Date(), days = 7 }) 
   return lines.join('\n');
 }
 
-// ---- sync bookkeeping (simulated in v0.1: there is no server yet) ---------
+// ---- sync bookkeeping ---------------------------------------------------------
+// An event is "sent" once the server has confirmed it (or once it came from the server).
 
-export function unsyncedCount(events, syncedUpto) {
-  return events.filter((e) => !syncedUpto || e.ts > syncedUpto).length;
+export async function sentIds() {
+  const s = await store('sent');
+  return new Set(await wrap(s.getAllKeys()));
 }
 
-export async function markSynced(events) {
-  if (!events.length) return;
-  await setMeta('synced_upto', events[events.length - 1].ts);
-  await setMeta('last_sync_at', new Date().toISOString());
+function txDone(tx) {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
 }
+
+export async function markSent(ids) {
+  if (!ids.length) return;
+  const db = await openDb();
+  const tx = db.transaction('sent', 'readwrite');
+  for (const id of ids) tx.objectStore('sent').put({ id });
+  await txDone(tx);
+}
+
+// Store events that came from the server. Returns how many were new on this tablet.
+export async function addPulled(events) {
+  if (!events.length) return 0;
+  const have = new Set((await allEvents()).map((e) => e.id));
+  const fresh = events.filter((e) => !have.has(e.id));
+  const db = await openDb();
+  const tx = db.transaction(['events', 'sent'], 'readwrite');
+  for (const e of events) tx.objectStore('sent').put({ id: e.id });
+  for (const e of fresh) tx.objectStore('events').put(e);
+  await txDone(tx);
+  return fresh.length;
+}
+
+export const unsyncedCount = (events, sentSet) => events.filter((e) => !sentSet.has(e.id)).length;
 
 // ---- test metrics and export ----------------------------------------------
 

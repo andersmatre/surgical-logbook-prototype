@@ -1,12 +1,14 @@
 {
   "name": "surgical-logbook-prototype",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Offline-first surgical logbook prototype (static PWA, no build step)",
+  "description": "Offline-first surgical logbook: static PWA plus a small login and sync server",
+  "engines": { "node": ">=22.13" },
   "scripts": {
-    "test": "node --test test/*.test.mjs",
-    "serve": "python3 -m http.server 8080"
+    "start": "node --no-warnings=ExperimentalWarning server/index.js",
+    "admin": "node --no-warnings=ExperimentalWarning server/admin.js",
+    "test": "node --no-warnings=ExperimentalWarning --test test/*.test.mjs"
   },
   "devDependencies": {
     "fake-indexeddb": "^6.0.0",

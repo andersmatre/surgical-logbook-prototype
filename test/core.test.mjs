@@ -50,16 +50,46 @@ test('late entries are flagged and the weekly summary only counts the last 7 day
   assert.doesNotMatch(text, /patient/i);
 });
 
-test('sync bookkeeping counts only events newer than the last sync', async () => {
-  await core.logEntry({ ...base, procedure: 'cs', role: 'observing', ms_to_log: 1 });
-  let events = await core.allEvents();
-  assert.equal(core.unsyncedCount(events, await core.getMeta('synced_upto')), 1);
-  await core.markSynced(events);
-  assert.equal(core.unsyncedCount(events, await core.getMeta('synced_upto')), 0);
-  await new Promise((r) => setTimeout(r, 5));
+test('sync bookkeeping: only events the server has not confirmed count as unsynced', async () => {
+  const a = await core.logEntry({ ...base, procedure: 'cs', role: 'observing', ms_to_log: 1 });
   await core.logEntry({ ...base, procedure: 'cs', role: 'assisting', ms_to_log: 1 });
-  events = await core.allEvents();
-  assert.equal(core.unsyncedCount(events, await core.getMeta('synced_upto')), 1);
+  let events = await core.allEvents();
+  assert.equal(core.unsyncedCount(events, await core.sentIds()), 2);
+  await core.markSent([a.id]);
+  assert.equal(core.unsyncedCount(events, await core.sentIds()), 1);
+});
+
+test('events pulled from the server are stored once and count as already sent', async () => {
+  const fromServer = [
+    { id: 'aaaaaaaa-0000-4000-8000-000000000001', type: 'entry', ts: '2026-10-01T08:00:00.000Z', student: 'S001', hospital: 'Bo Government Hospital', procedure: 'cs', role: 'independent', performed_on: '2026-10-01', entered_on: '2026-10-01', ms_to_log: 3000, online: true, schema: 1 },
+    { id: 'aaaaaaaa-0000-4000-8000-000000000002', type: 'entry', ts: '2026-10-02T08:00:00.000Z', student: 'S001', hospital: 'Bo Government Hospital', procedure: 'appendectomy', role: 'observing', performed_on: '2026-10-02', entered_on: '2026-10-02', ms_to_log: 3000, online: true, schema: 1 },
+  ];
+  assert.equal(await core.addPulled(fromServer), 2);
+  assert.equal(await core.addPulled(fromServer), 0); // the same events again: nothing new
+  const events = await core.allEvents();
+  assert.equal(events.length, 2);
+  assert.equal(core.unsyncedCount(events, await core.sentIds()), 0);
+  assert.equal(core.derive(events).length, 2);
+});
+
+test('each student has a separate local database', async () => {
+  core.useUser('S001');
+  await core.wipeAll();
+  await core.logEntry({ ...base, procedure: 'cs', role: 'observing', ms_to_log: 1 });
+  assert.equal((await core.allEvents()).length, 1);
+
+  core.useUser('S002');
+  await core.wipeAll();
+  assert.equal((await core.allEvents()).length, 0); // S002 does not see S001's entry
+  await core.logEntry({ ...base, student: 'S002', procedure: 'laparotomy', role: 'assisting', ms_to_log: 1 });
+
+  core.useUser('S001');
+  assert.equal((await core.allEvents()).length, 1);
+  await core.wipeAll(); // logging out S001 leaves S002 alone
+  core.useUser('S002');
+  assert.equal((await core.allEvents()).length, 1);
+  await core.wipeAll();
+  core.useUser('default-test-user');
 });
 
 test('export contains events and metrics, and wipeAll removes everything', async () => {
