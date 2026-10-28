@@ -7,11 +7,9 @@
   --radius: 14px;
 }
 * { box-sizing: border-box; }
-/* The page does not extend under the phone's home bar (see the viewport-fit note below). The strip down there shows the
-   background of <html>, so it has the colour of the bottom bar and looks like part of it. */
-html { -webkit-text-size-adjust: 100%; background: var(--card); }
+html { -webkit-text-size-adjust: 100%; }
 body {
-  margin: 0; background: var(--bg); color: var(--ink); min-height: 100vh; min-height: 100dvh;
+  margin: 0; background: var(--bg); color: var(--ink);
   font: 18px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 button, input, select { font: inherit; color: inherit; }
