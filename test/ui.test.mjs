@@ -49,6 +49,8 @@ async function supervisorToken() { // a fresh login each time: other tests clear
 
 test.after(async () => { await server.close(); });
 
+const syncNow = async (back) => { await click(byText('.tab', 'More')); await click(byText('.btn', 'Sync now'), 500); await click(byText('.tab', back)); };
+
 test('login, first password, logging, sync, logout, login on a new tablet', async () => {
   await init();
   await wait();
@@ -96,7 +98,7 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   await click(byText('.proc', 'Appendectomy'));
   await click(byText('.role', 'Observing'), 400);
   assert.equal(serverEvents(), 2);
-  assert.equal($('.chip').textContent, 'Up to date');
+  assert.equal($('.chip'), null, 'no sync button when everything is up to date');
   assert.doesNotMatch(document.body.textContent, /null|undefined/, 'no stray "null" on screen');
 
   // ---- offline: entries wait, then go out when the connection returns.
@@ -117,13 +119,13 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   window.dispatchEvent(new window.Event('online'));
   await wait(400);
   assert.equal(serverEvents(), 3);
-  assert.equal($('.chip').textContent, 'Up to date');
+  assert.equal($('.chip'), null, 'no sync button when everything is up to date');
   assert.deepEqual(
     server.db.prepare("SELECT json_extract(payload, '$.procedure') AS p, json_extract(payload, '$.hospital') AS h FROM events WHERE type = 'entry'").all().map((r) => `${r.p}@${r.h}`).sort(),
     ['appendectomy@Masanga Hospital', 'cs@Masanga Hospital', 'laparotomy@Bo Government Hospital'],
   );
   server.db.prepare("UPDATE users SET display_name = 'Mohamed Sorie Kamara' WHERE candidate = 'CC1234'").run();
-  await click($('.chip'), 500);
+  await syncNow('Log');
   assert.match($('.who').textContent, /Mohamed Sorie Kamara/, 'a changed name arrives with the next sync');
 
   // ---- no supervisor yet: the History tab says so, and there is no sign-off button
@@ -146,7 +148,7 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   assert.equal(serverEvents(), 6); // 3 entries + 3 signatures
 
   // ---- the student sees the signatures after the next sync (tap the sync button)
-  await click($('.chip'), 500);
+  await syncNow('History');
   assert.equal($$('.tag.ok').length, 3);
   assert.match($('.entry').textContent, /Signed · Dr Anna Kamara/);
   assert.match($('.note-info').textContent, /All your entries are signed/);
@@ -187,7 +189,7 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   assert.match(byText('.proc', 'Caesarean section').textContent, /1 logged/);
   assert.match(byText('.proc', 'Appendectomy').textContent, /1 logged/);
   assert.match(byText('.proc', 'Laparotomy').textContent, /1 logged/);
-  assert.equal($('.chip').textContent, 'Up to date');
+  assert.equal($('.chip'), null, 'no sync button when everything is up to date');
   await click(byText('.tab', 'History'));
   assert.equal($$('.entry').length, 3);
   assert.equal($$('.tag.ok').length, 3, 'signatures came back too');
@@ -248,5 +250,5 @@ test('deleting an entry that a supervisor signed in the meantime keeps it, and s
   await click(byText('.btn.danger', 'Delete'), 700);
   assert.ok(row(), 'the entry is still there');
   assert.match(row().textContent, /Signed · Dr Anna Kamara/);
-  assert.equal($('.chip').textContent, 'Up to date');
+  assert.equal($('.chip'), null, 'no sync button when everything is up to date');
 });

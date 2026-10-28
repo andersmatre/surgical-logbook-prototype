@@ -43,7 +43,7 @@ function draw() {
 
 function paint() {
   const y = window.scrollY || 0;
-  ctx.root.replaceChildren(h('div', { 'data-admin': '' }, header(), h('div', { class: 'banner' }, `Prototype v${ctx.version} · administrator`), h('main', { class: 'main' }, body()), nav()));
+  ctx.root.replaceChildren(h('div', { 'data-admin': '' }, h('div', { class: 'sticky-top' }, header(), nav()), h('div', { class: 'banner' }, `Prototype v${ctx.version} · administrator`), h('main', { class: 'main' }, body())));
   if (y) window.scrollTo(0, y);
 }
 

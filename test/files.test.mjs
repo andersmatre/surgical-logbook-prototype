@@ -34,8 +34,8 @@ test('every local import in the app files is listed, so the app works offline', 
   }
 });
 
-test('the page is not drawn under the system bars, so the bottom tab bar reaches the bottom edge on Android Chrome', () => {
-  assert.ok(!/viewport-fit\s*=\s*cover/.test(read('index.html')), 'index.html must not use viewport-fit=cover (empty white strip under the tab bar)');
+test('the page is not drawn under the system bars (Android Chrome leaves an empty strip at the bottom)', () => {
+  assert.ok(!/viewport-fit\s*=\s*cover/.test(read('index.html')), 'index.html must not use viewport-fit=cover (empty white strip at the bottom)');
 });
 
 test('the version is the same in config.js, package.json, the service worker cache name and PROJECT.md', () => {

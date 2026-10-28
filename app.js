@@ -84,13 +84,20 @@ function syncStatus() {
   return { cls: 'ok', text: 'Up to date' };
 }
 
+// The sync button is only shown when something needs attention; when everything is up to date it is left out.
+function chipFor(st) {
+  if (st.text === 'Up to date') return null;
+  return h('button', { class: `chip ${st.cls}`, onclick: () => doSync(true), 'aria-label': `Sync status: ${st.text}. Tap to sync.` }, st.text);
+}
+
 function updateChip() {
-  const el = root && root.querySelector('.chip');
-  if (!el) return;
-  const st = syncStatus();
-  el.className = `chip ${st.cls}`;
-  el.textContent = st.text;
-  el.setAttribute('aria-label', `Sync status: ${st.text}. Tap to sync.`);
+  const top = root && root.querySelector('header.top');
+  if (!top) return;
+  const old = top.querySelector('.chip');
+  const fresh = chipFor(syncStatus());
+  if (old && fresh) old.replaceWith(fresh);
+  else if (old) old.remove();
+  else if (fresh) top.append(fresh);
 }
 
 // Send what the server has not confirmed yet, then fetch what this tablet has not seen.
@@ -183,10 +190,9 @@ function render() {
   }
   if (!state.profile || !state.profile.hospital) { root.append(hospitalScreen()); return; }
   root.append(
-    header(),
+    h('div', { class: 'sticky-top' }, header(), nav()),
     h('div', { class: 'banner' }, `Prototype v${APP_VERSION} · never type patient names or numbers`),
     h('main', { class: 'main' }, tabContent()),
-    nav(),
   );
 }
 
@@ -198,12 +204,11 @@ function tabContent() {
 }
 
 function header() {
-  const st = syncStatus();
   return h('header', { class: 'top' },
     h('div', { class: 'brand' },
       h('strong', {}, 'CapaCare logbook'),
       h('span', { class: 'who' }, [state.profile.student, state.session.name, state.profile.hospital].filter(Boolean).join(' · '))),
-    h('button', { class: `chip ${st.cls}`, onclick: () => doSync(true), 'aria-label': `Sync status: ${st.text}. Tap to sync.` }, st.text));
+    chipFor(syncStatus()));
 }
 
 function nav() {
