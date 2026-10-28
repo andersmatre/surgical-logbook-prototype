@@ -59,6 +59,9 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 .link.danger { color: var(--danger); }
 .row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
 .row > .btn { flex: 1 1 200px; }
+/* Full-width buttons (and list rows) stacked directly under each other or under a list get a gap, like .row. */
+.btn.wide + .btn.wide, .list + .btn.wide, .addrow + .btn.wide { margin-top: 12px; }
+.addrow + .addrow { margin-top: 8px; }
 
 .nav {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; background: var(--card); border-top: 1px solid var(--line);
