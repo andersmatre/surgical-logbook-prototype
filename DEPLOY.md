@@ -63,53 +63,25 @@ Regions: Fly has Europe regions including Amsterdam (`ams`), Stockholm (`arn`), 
 
 Install the Fly command-line tool (`flyctl`) and sign in (`fly auth login`). In the project folder:
 
-1. Create `fly.toml` (adjust `app` to a unique name):
+1. The repository already contains `fly.toml` (app name `capacare-logbook`, Stockholm, one 512 MB machine, a volume mounted at `/data`, a health check). Change `app` if the name is taken: names are global on Fly.
 
-   ```toml
-   app = "capacare-logbook"
-   primary_region = "arn"
-
-   [build]
-
-   [env]
-     PORT = "8080"
-     LOGBOOK_DB = "/data/logbook.db"
-
-   [mounts]
-     source = "logbook_data"
-     destination = "/data"
-
-   [http_service]
-     internal_port = 8080
-     force_https = true
-     auto_stop_machines = "off"
-     auto_start_machines = true
-     min_machines_running = 1
-
-     [[http_service.checks]]
-       method = "GET"
-       path = "/api/health"
-       interval = "30s"
-       timeout = "5s"
-       grace_period = "10s"
-   ```
-
-2. Create the app and the volume, then deploy:
+2. Create the app and the volume, then deploy. Fly asks to confirm the volume ("a single volume has no redundancy"): answer yes.
 
    ```
    fly apps create capacare-logbook
    fly volumes create logbook_data --region arn --size 1
-   fly scale memory 512
-   fly deploy
+   fly deploy --ha=false
    ```
 
-   Keep it to **one machine** (`fly scale count 1`). If Fly offers to create a second machine for availability, decline: the volume belongs to one machine.
+   `--ha=false` stops Fly from creating a second machine. There must be **one** machine only (check with `fly status`): the volume belongs to one machine and SQLite cannot be shared.
 
-3. Create the first accounts on the server:
+3. Create the first accounts on the server. Open a shell on the machine and run the commands there (this avoids quoting problems on Windows):
 
    ```
-   fly ssh console -C "node --no-warnings=ExperimentalWarning server/admin.js add-supervisor SUP-ANNA --name 'Dr Anna Kamara'"
-   fly ssh console -C "node --no-warnings=ExperimentalWarning server/admin.js add CC1234"
+   fly ssh console
+   node --no-warnings=ExperimentalWarning server/admin.js add-supervisor SUP-ANNA --name "Dr Anna Kamara"
+   node --no-warnings=ExperimentalWarning server/admin.js add CC1234
+   exit
    ```
 
    Each prints an initial password **once**. Write it down and pass it on through CapaCare.
