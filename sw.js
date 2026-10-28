@@ -1,9 +1,9 @@
 // sw.js — caches the app shell so the logbook opens and works with no internet.
 // To ship an update: change CACHE (e.g. bump the version) and redeploy.
 
-const CACHE = 'logbook-v0.3.2';
+const CACHE = 'logbook-v0.4.0';
 const ASSETS = [
-  './', './index.html', './app.js', './core.js', './config.js', './api.js', './ui.js', './supervisor.js',
+  './', './index.html', './app.js', './core.js', './config.js', './api.js', './ui.js', './supervisor.js', './administrator.js',
   './style.css', './manifest.webmanifest', './icon-192.png', './icon-512.png',
 ];
 

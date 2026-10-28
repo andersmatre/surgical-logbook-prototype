@@ -38,12 +38,13 @@ Works:
 - Student app: login with candidate number and password, forced own password at first login, log a procedure in two taps (procedure, then role), undo, history, progress against targets, weekly summary to share on WhatsApp, works offline, installable.
 - Sync to the server with automatic retry; log in on any tablet and the history comes back.
 - Supervisor accounts: a supervisor logs in with a staff ID, adds students, sees their entries and signs selected ones. The server verifies every signature.
-- Admin from the command line: create accounts, assign, reset, disable, revoke, list, backup.
-- 36 automated tests, including whole-flow tests of both apps in a simulated browser against a real server.
+- Administrator accounts and screens (no shell needed): overview of every procedure across all students, a matrix per student, user list, add many students at once, new password, disable, log out everywhere, assign supervisors, a log of recent changes. The first administrator is created from environment variables (`ADMIN_ID`, `ADMIN_PASSWORD`, see `DEPLOY.md`).
+- Admin from the command line as a fallback: create accounts, assign, reset, disable, revoke, list, backup.
+- 44 automated tests, including whole-flow tests of both apps in a simulated browser against a real server.
 
 Placeholders you must replace before real use: the target numbers and the "more procedures" list in `config.js`; the demo hospital list should be checked.
 
-Not done: hosting (see `DEPLOY.md`), research export, admin screen, offline signing for supervisors, ethics and data-protection approval. See [13](#13-known-limits) and [15](#15-next-steps).
+Not done: hosting (see `DEPLOY.md`), research export, offline signing for supervisors, ethics and data-protection approval. See [13](#13-known-limits) and [15](#15-next-steps).
 
 ## 3. Get it running
 
@@ -51,8 +52,9 @@ Needs **Node 22.13 or newer**. Nothing else: the server has no runtime dependenc
 
 ```
 npm install                                   # test tools only
-npm test                                      # 36 tests, about 35 seconds
+npm test                                      # 44 tests, about 1 minute
 
+npm run admin -- add-admin ADMIN-ANDERS --name "Anders"            # prints an initial password; then do everything else in the app
 npm run admin -- add-supervisor SUP-ANNA --name "Dr Anna Kamara"   # prints an initial password
 npm run admin -- add CC1234                                        # a student; prints an initial password
 npm run admin -- assign SUP-ANNA CC1234                            # optional: supervisors can also add students themselves
@@ -113,15 +115,16 @@ Read these before changing anything. Most bugs in this kind of system come from 
 | `ui.js` | Shared interface pieces: the `h()` DOM helper, toast, sheets (modals), the password form. |
 | `app.js` | Entry point. Decides what to show (login, forced password, hospital, student tabs, or the supervisor screens). Student screens and sync live here. |
 | `supervisor.js` | The supervisor screens: My students, Add students, one student with signing, More. |
+| `administrator.js` | The administrator screens: Overview (procedures across all students, per-student matrix, recent changes), Users, Add users, More. |
 | `style.css` | All styling. Large touch targets; colours are variables at the top. |
 | `sw.js` | Service worker: caches the app files so it opens offline. **Change `CACHE` on every release.** |
 | `server/index.js` | Starts the server from environment variables. |
 | `server/app.js` | The HTTP API and static file serving. |
 | `server/lib.js` | Database schema and upgrades, passwords, account functions, assignments, event validation, signing. No HTTP. |
-| `server/admin.js` | Command-line administration. |
+| `server/admin.js` | Command-line administration (the same operations as the administrator screens, for when the app cannot be used). |
 | `Dockerfile`, `.dockerignore` | One container with server and app. Untested on a real host. |
 | `docker-compose.yml`, `local.env` | Run the container (or the plain server) on your own computer with production-like settings. |
-| `test/*.test.mjs` | `core` (data layer), `server` (API and rules), `api` (the localhost-only server override), `ui` (student flow), `ui-supervisor` (supervisor flow), `files` (file lists stay in step). |
+| `test/*.test.mjs` | `core` (data layer), `server` (API and rules), `api` (the localhost-only server override), `ui` (student flow), `ui-supervisor` (supervisor flow), `ui-admin` (administrator flow), `files` (file lists stay in step). |
 | `README.md` | Short overview. `DEPLOY.md` hosting guide. `TESTER-GUIDE.md` instructions for people trying the app. |
 | `CLAUDE.md` | Short instructions for AI assistants working in this repository. |
 
@@ -173,6 +176,16 @@ All calls are `POST` with a JSON body, except `GET /api/health`. Authenticated c
 | `POST /api/sup/assign` / `unassign` | supervisor | `candidate` | `{ok}` |
 | `POST /api/sup/entries` | supervisor, assigned student | `candidate`, `cursor` | `events` (reduced fields), `cursor`, `has_more` |
 | `POST /api/sup/sign` | supervisor, assigned student | `candidate`, `ids` (≤200) | `signed`, `signed_ids`, `skipped` (`{id, reason}`) |
+| `POST /api/admin/users` | admin | | `users`: `id`, `role`, `name`, `disabled`, `password_set`, `last_login_at`, `entries`, `supervisors` / `students` |
+| `POST /api/admin/stats` | admin | | `totals`, `procedures` (per procedure across students), `students` (per student, per procedure) |
+| `POST /api/admin/audit` | admin | | `log`: `at`, `actor`, `action`, `target`, `detail` |
+| `POST /api/admin/create` | admin | `role`, `id`, `name` | `id`, `password` (shown once) |
+| `POST /api/admin/create_many` | admin | `ids` (≤100 students) | `created` (`{id, password}`), `skipped` (`{id, reason}`) |
+| `POST /api/admin/reset` | admin, not own account | `id` | `id`, `password` (shown once) |
+| `POST /api/admin/disable` / `enable` | admin, disable not own account | `id` | `{ok}` |
+| `POST /api/admin/revoke` | admin | `id` | `{ok}` |
+| `POST /api/admin/assign` / `unassign` | admin | `supervisor`, `student` | `{ok}` |
+| `POST /api/admin/entries` | admin | `candidate`, `cursor` | `events`, `cursor`, `has_more` |
 
 Rejection reasons from `/api/sync`: `bad id`, `bad ts`, `bad procedure`, `bad role`, `bad date`, `bad hospital`, `bad ms_to_log`, `bad target`, `unknown type`, `sign_not_allowed`, `signed_locked`.
 
@@ -197,7 +210,8 @@ What is *not* protected, honestly:
 - Every supervisor can list all candidate numbers (to pick students to add).
 - "Delete" is a soft delete: voided entries stay in the database. A real erasure request needs a manual database operation.
 - Backups contain everything and must be protected as much as the live database.
-- There is no audit log of administrator actions.
+- The audit log records account changes (create, reset, disable, enable, log out, rename, assign, unassign) with who did it and when; it never holds passwords. It does not record who *read* data.
+- An administrator can see every student's entries and give any account (except their own) a new initial password, which is shown once. Keep the number of administrators small and give each person their own account.
 
 Legal and ethical status (not legal advice): the server holds performance data about people identified by candidate number. Before real data is collected someone must be named as data controller; the host must be chosen with data location in mind (EU/EEA recommended); and research use needs ethics approval (in Sierra Leone through the SLESRC) and consent. As of the last check Sierra Leone had a data protection policy (April 2026) but no data protection act; the details should be confirmed locally. WhatsApp Business policy restricts health information, so WhatsApp is used only to share a short numbers-only text.
 
@@ -254,12 +268,15 @@ Student: add to `TABS` and `tabContent()` in `app.js`. Supervisor: add to the `t
 
 ### 10.8 Manage accounts (administrator)
 
-Run on the machine that has the database (`DEPLOY.md` shows how to get a shell there). Use `npm run admin -- ...` or `node --no-warnings=ExperimentalWarning server/admin.js ...`.
+Normal route: log in as an administrator and use the screens (Users, Add users). Every action there is written to the audit log. The first administrator is created at startup from `ADMIN_ID` and `ADMIN_PASSWORD` (only if that account does not exist yet).
+
+Fallback, on the machine that has the database (`DEPLOY.md` shows how to get a shell there). Use `npm run admin -- ...` or `node --no-warnings=ExperimentalWarning server/admin.js ...`.
 
 ```
 add CC1234 [--password x]                 student; prints the initial password once
 import candidates.csv                     many students; first column = candidate number
 add-supervisor SUP-ANNA --name "Dr Anna K"
+add-admin ADMIN-ANDERS --name "Anders"
 assign SUP-ANNA CC1234 [CC1235 ...]       or let the supervisor add students in the app
 unassign SUP-ANNA CC1234
 rename SUP-ANNA "Dr Anna Kamara"
@@ -279,7 +296,7 @@ Hosting, updating, backups, restoring and costs are in **`DEPLOY.md`**. The shor
 
 - It is one Node process and one SQLite file in a directory called `data`. Whatever host you use must keep that directory on a **persistent disk**, serve **HTTPS**, and run exactly **one** copy (SQLite on a single file does not support two servers).
 - **Back up regularly** with `admin.js backup` and keep copies somewhere else. **Test a restore once.** The database is the only copy of the research data.
-- Environment variables: `PORT` (8080), `HOST` (0.0.0.0), `LOGBOOK_DB` (`./data/logbook.db`), `ALLOWED_ORIGIN` (only if the app is hosted on a different address than the server, for example GitHub Pages), `SERVE_STATIC` (`0` stops the server serving the app files).
+- Environment variables: `PORT` (8080), `HOST` (0.0.0.0), `LOGBOOK_DB` (`./data/logbook.db`), `ALLOWED_ORIGIN` (only if the app is hosted on a different address than the server, for example GitHub Pages), `SERVE_STATIC` (`0` stops the server serving the app files), `ADMIN_ID` and `ADMIN_PASSWORD` (create the first administrator at startup if the account does not exist; remove `ADMIN_PASSWORD` afterwards).
 - Use `GET /api/health` for uptime monitoring.
 - The Node `sqlite` module is still marked experimental in Node 22, which is why start commands carry `--no-warnings=ExperimentalWarning`. Pin the Node version in the `Dockerfile` and test before upgrading Node.
 
@@ -305,7 +322,7 @@ Hosting, updating, backups, restoring and costs are in **`DEPLOY.md`**. The shor
 - **Not deployed.** The `Dockerfile` and `DEPLOY.md` have not been run on a real host.
 - **Supervisors need internet to sign**, and see nothing offline.
 - **No password reset without an administrator**, no two-factor login, no per-address rate limiting; the login lock is in memory.
-- **No admin screen**: accounts are managed from the command line, so it needs someone with server access.
+- **Administrators cannot delete accounts**, only disable them (data stays). An administrator cannot reset or disable their own account; another administrator must.
 - **No research export yet.** The data is in the `events` table; a pseudonymised export (candidate number replaced by a code) still has to be built and approved.
 - **Soft deletes only**; erasure is manual.
 - **English only.**
@@ -337,9 +354,8 @@ In rough order:
 2. Replace the placeholder targets and procedure list; check hospitals.
 3. Settle the questions in section 14, especially data ownership and ethics.
 4. If supervisors cannot rely on internet: let them queue signatures offline and send them later (the token already authorises the call, so the server rule stays the same).
-5. A small admin screen (reset password, assign, list) so accounts do not need a shell.
-6. Pseudonymised research export, once ethics allows.
-7. A supervisor "waiting for signature" summary they can share on WhatsApp.
+5. Pseudonymised research export, once ethics allows.
+6. A supervisor "waiting for signature" summary they can share on WhatsApp.
 8. Automated backups to a second location, plus uptime monitoring.
 9. Split `app.js` by screen and consider translations if the project grows.
 

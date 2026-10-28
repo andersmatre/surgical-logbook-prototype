@@ -25,8 +25,8 @@ export function initSchema(db) {
       disabled      INTEGER NOT NULL DEFAULT 0,
       created_at    TEXT NOT NULL,
       last_login_at TEXT,
-      role          TEXT NOT NULL DEFAULT 'student',   -- 'student' | 'supervisor'
-      display_name  TEXT                         -- shown to students next to a signature; supervisors only
+      role          TEXT NOT NULL DEFAULT 'student',   -- 'student' | 'supervisor' | 'admin'
+      display_name  TEXT                         -- supervisors and admins: shown to students next to a signature
     );
     CREATE TABLE IF NOT EXISTS sessions (
       token_hash TEXT PRIMARY KEY,
@@ -52,6 +52,14 @@ export function initSchema(db) {
       PRIMARY KEY (supervisor, student)
     );
     CREATE INDEX IF NOT EXISTS assignments_student ON assignments (student);
+    CREATE TABLE IF NOT EXISTS audit (           -- who changed accounts and access, and when. Never holds passwords.
+      id     INTEGER PRIMARY KEY AUTOINCREMENT,
+      at     TEXT NOT NULL,
+      actor  TEXT NOT NULL,                      -- an account id, or 'cli' / 'startup' for the command line and server start
+      action TEXT NOT NULL,
+      target TEXT,
+      detail TEXT
+    );
   `);
 
   // Upgrade a database created by v0.2 (no roles, no type/target columns).
@@ -123,49 +131,77 @@ export function validatePassword(pw, candidate) {
   return null;
 }
 
+// ---- audit log ------------------------------------------------------------------
+
+// Records who changed accounts or access. `actor` is an account id, or 'cli' / 'startup'.
+export function logAudit(db, actor, action, target = null, detail = null, at = new Date()) {
+  db.prepare('INSERT INTO audit (at, actor, action, target, detail) VALUES (?, ?, ?, ?, ?)').run(at.toISOString(), actor, action, target, detail);
+}
+
+export const recentAudit = (db, limit = 50) =>
+  db.prepare('SELECT at, actor, action, target, detail FROM audit ORDER BY id DESC LIMIT ?').all(limit).map((r) => ({ ...r }));
+
 // ---- user administration (used by admin.js, the HTTP layer and tests) ---------
 
-export const ROLES = ['student', 'supervisor'];
+export const ROLES = ['student', 'supervisor', 'admin'];
 
 export function cleanName(s) {
   const n = String(s ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().replace(/\s+/g, ' ');
   return n ? n.slice(0, 60) : null;
 }
 
-export async function addUser(db, candidate, password, { role = 'student', name = null } = {}) {
+export async function addUser(db, candidate, password, { role = 'student', name = null, actor = 'cli' } = {}) {
   const c = normCandidate(candidate);
   if (!validCandidate(c)) throw new Error(`Invalid id: "${candidate}" (2-20 letters, numbers, / _ -)`);
   if (!ROLES.includes(role)) throw new Error(`Unknown role: ${role}`);
   const hash = await hashPassword(password);
   db.prepare('INSERT INTO users (candidate, pw_hash, must_change, disabled, created_at, role, display_name) VALUES (?, ?, 1, 0, ?, ?, ?)')
-    .run(c, hash, new Date().toISOString(), role, role === 'supervisor' ? cleanName(name) : null);
+    .run(c, hash, new Date().toISOString(), role, role === 'student' ? null : cleanName(name));
+  logAudit(db, actor, 'create', c, role);
   return c;
 }
 
-export async function resetPassword(db, candidate, password) {
+// First start of a new server: create the first administrator from ADMIN_ID and ADMIN_PASSWORD
+// (set as secrets on the host), so no shell access is needed. Does nothing if the account exists.
+export async function bootstrapAdmin(db, id, password) {
+  const c = normCandidate(id);
+  if (!c || !password) return null;
+  if (!validCandidate(c)) throw new Error(`ADMIN_ID is not a valid account id: "${id}"`);
+  if (db.prepare('SELECT 1 FROM users WHERE candidate = ?').get(c)) return null;
+  await addUser(db, c, password, { role: 'admin', actor: 'startup' });
+  return c;
+}
+
+export async function resetPassword(db, candidate, password, actor = 'cli') {
   const c = normCandidate(candidate);
   const res = db.prepare('UPDATE users SET pw_hash = ?, must_change = 1 WHERE candidate = ?').run(await hashPassword(password), c);
   if (!res.changes) throw new Error(`No such account: ${c}`);
   db.prepare('DELETE FROM sessions WHERE candidate = ?').run(c);
+  logAudit(db, actor, 'reset_password', c);
   return c;
 }
 
-export function setDisabled(db, candidate, disabled) {
+export function setDisabled(db, candidate, disabled, actor = 'cli') {
   const c = normCandidate(candidate);
   const res = db.prepare('UPDATE users SET disabled = ? WHERE candidate = ?').run(disabled ? 1 : 0, c);
   if (!res.changes) throw new Error(`No such account: ${c}`);
   if (disabled) db.prepare('DELETE FROM sessions WHERE candidate = ?').run(c);
+  logAudit(db, actor, disabled ? 'disable' : 'enable', c);
   return c;
 }
 
-export function revokeSessions(db, candidate) {
-  return db.prepare('DELETE FROM sessions WHERE candidate = ?').run(normCandidate(candidate)).changes;
+export function revokeSessions(db, candidate, actor = 'cli') {
+  const c = normCandidate(candidate);
+  const n = db.prepare('DELETE FROM sessions WHERE candidate = ?').run(c).changes;
+  logAudit(db, actor, 'revoke_sessions', c, `${n}`);
+  return n;
 }
 
-export function renameUser(db, candidate, name) {
+export function renameUser(db, candidate, name, actor = 'cli') {
   const c = normCandidate(candidate);
-  const res = db.prepare("UPDATE users SET display_name = ? WHERE candidate = ? AND role = 'supervisor'").run(cleanName(name), c);
-  if (!res.changes) throw new Error(`No such supervisor: ${c}`);
+  const res = db.prepare("UPDATE users SET display_name = ? WHERE candidate = ? AND role != 'student'").run(cleanName(name), c);
+  if (!res.changes) throw new Error(`No such supervisor or administrator: ${c}`);
+  logAudit(db, actor, 'rename', c);
   return c;
 }
 
@@ -174,22 +210,101 @@ export function renameUser(db, candidate, name) {
 export class LookupError extends Error {}
 
 // Returns 1 if the assignment is new, 0 if it already existed.
-export function assign(db, supervisor, student, now = new Date()) {
+export function assign(db, supervisor, student, { now = new Date(), actor = 'cli' } = {}) {
   const s = normCandidate(supervisor);
   const c = normCandidate(student);
   const sup = db.prepare('SELECT role, disabled FROM users WHERE candidate = ?').get(s);
   if (!sup || sup.role !== 'supervisor' || sup.disabled) throw new LookupError(`No such supervisor: ${s}`);
   const stu = db.prepare('SELECT role, disabled FROM users WHERE candidate = ?').get(c);
   if (!stu || stu.role !== 'student' || stu.disabled) throw new LookupError(`No such candidate: ${c}`);
-  return db.prepare('INSERT OR IGNORE INTO assignments (supervisor, student, created_at) VALUES (?, ?, ?)').run(s, c, now.toISOString()).changes;
+  const added = db.prepare('INSERT OR IGNORE INTO assignments (supervisor, student, created_at) VALUES (?, ?, ?)').run(s, c, now.toISOString()).changes;
+  if (added) logAudit(db, actor, 'assign', c, s, now);
+  return added;
 }
 
-export function unassign(db, supervisor, student) {
-  return db.prepare('DELETE FROM assignments WHERE supervisor = ? AND student = ?').run(normCandidate(supervisor), normCandidate(student)).changes;
+export function unassign(db, supervisor, student, { actor = 'cli' } = {}) {
+  const s = normCandidate(supervisor);
+  const c = normCandidate(student);
+  const n = db.prepare('DELETE FROM assignments WHERE supervisor = ? AND student = ?').run(s, c).changes;
+  if (n) logAudit(db, actor, 'unassign', c, s);
+  return n;
 }
 
 export const isAssigned = (db, supervisor, student) =>
   !!db.prepare('SELECT 1 FROM assignments WHERE supervisor = ? AND student = ?').get(supervisor, student);
+
+// ---- overviews for administrators ---------------------------------------------------
+
+const NOT_VOIDED = "NOT EXISTS (SELECT 1 FROM events v WHERE v.owner = e.owner AND v.type = 'void' AND v.target = e.id)";
+
+// Every account with what an administrator needs to see at a glance.
+export function listUsers(db) {
+  const rows = db.prepare(
+    `SELECT u.candidate AS id, u.role, u.display_name AS name, u.disabled, u.must_change, u.last_login_at, u.created_at,
+       (SELECT COUNT(*) FROM events e WHERE e.owner = u.candidate AND e.type = 'entry' AND ${NOT_VOIDED}) AS entries
+     FROM users u ORDER BY CASE u.role WHEN 'admin' THEN 0 WHEN 'supervisor' THEN 1 ELSE 2 END, u.candidate`,
+  ).all();
+  const links = db.prepare(
+    'SELECT a.supervisor, a.student, s.display_name AS supervisor_name FROM assignments a JOIN users s ON s.candidate = a.supervisor',
+  ).all();
+  const supervisorsOf = new Map();
+  const studentsOf = new Map();
+  for (const l of links) {
+    if (!supervisorsOf.has(l.student)) supervisorsOf.set(l.student, []);
+    supervisorsOf.get(l.student).push({ id: l.supervisor, name: l.supervisor_name || l.supervisor });
+    if (!studentsOf.has(l.supervisor)) studentsOf.set(l.supervisor, []);
+    studentsOf.get(l.supervisor).push(l.student);
+  }
+  return rows.map((r) => ({
+    id: r.id, role: r.role, name: r.name, disabled: !!r.disabled, password_set: !r.must_change,
+    last_login_at: r.last_login_at, created_at: r.created_at, entries: r.entries,
+    supervisors: r.role === 'student' ? (supervisorsOf.get(r.id) || []) : undefined,
+    students: r.role === 'supervisor' ? (studentsOf.get(r.id) || []) : undefined,
+  }));
+}
+
+// Procedures across all students: totals, per procedure, and per student per procedure.
+export function adminStats(db) {
+  const entries = db.prepare(
+    `SELECT e.owner AS student, json_extract(e.payload, '$.procedure') AS procedure, json_extract(e.payload, '$.role') AS role,
+            json_extract(e.payload, '$.performed_on') AS performed_on,
+            EXISTS (SELECT 1 FROM events g WHERE g.owner = e.owner AND g.type = 'sign' AND g.target = e.id) AS signed
+     FROM events e WHERE e.type = 'entry' AND ${NOT_VOIDED}`,
+  ).all();
+  const students = db.prepare("SELECT candidate, disabled FROM users WHERE role = 'student' ORDER BY candidate").all();
+  const activeSupervisors = db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'supervisor' AND disabled = 0").get().n;
+
+  const performedRole = (r) => r === 'supervised' || r === 'independent';
+  const byProcedure = new Map();
+  const byStudent = new Map(students.map((u) => [u.candidate, {
+    candidate: u.candidate, disabled: !!u.disabled, entries: 0, performed: 0, signed: 0, last_performed_on: null, by_procedure: {},
+  }]));
+  let signed = 0;
+  for (const e of entries) {
+    const p = byProcedure.get(e.procedure) || { procedure: e.procedure, observing: 0, assisting: 0, supervised: 0, independent: 0, total: 0, performed: 0, students: new Set() };
+    p[e.role] += 1;
+    p.total += 1;
+    if (performedRole(e.role)) p.performed += 1;
+    p.students.add(e.student);
+    byProcedure.set(e.procedure, p);
+
+    const st = byStudent.get(e.student);
+    if (!st) continue;
+    st.entries += 1;
+    if (e.signed) { st.signed += 1; signed += 1; }
+    if (performedRole(e.role)) st.performed += 1;
+    if (!st.last_performed_on || e.performed_on > st.last_performed_on) st.last_performed_on = e.performed_on;
+    const cell = st.by_procedure[e.procedure] || (st.by_procedure[e.procedure] = { performed: 0, total: 0 });
+    cell.total += 1;
+    if (performedRole(e.role)) cell.performed += 1;
+  }
+  const active = students.filter((u) => !u.disabled).length;
+  return {
+    totals: { students: active, supervisors: activeSupervisors, entries: entries.length, signed, unsigned: entries.length - signed },
+    procedures: [...byProcedure.values()].map((p) => ({ ...p, students: p.students.size })).sort((a, b) => b.total - a.total),
+    students: [...byStudent.values()],
+  };
+}
 
 // ---- events -------------------------------------------------------------------
 

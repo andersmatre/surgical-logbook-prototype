@@ -15,6 +15,16 @@
 //   POST /api/sup/unassign    { candidate }
 //   POST /api/sup/entries     { candidate, cursor } -> { events, cursor, has_more }
 //   POST /api/sup/sign        { candidate, ids } -> { signed, skipped }
+//
+// Administrators (accounts, overviews; they cannot sign and have no logbook):
+//   POST /api/admin/users       -> { users: [...] }
+//   POST /api/admin/stats       -> { totals, procedures, students }
+//   POST /api/admin/audit       -> { log: [...] }
+//   POST /api/admin/create      { role, id, name? } -> { id, password }     (password is shown once)
+//   POST /api/admin/create_many { ids } -> { created: [{id, password}], skipped: [{id, reason}] }   (students)
+//   POST /api/admin/reset | disable | enable | revoke   { id }              (not on your own account, except revoke)
+//   POST /api/admin/assign | unassign   { supervisor, student }
+//   POST /api/admin/entries     { candidate, cursor } -> { events, cursor, has_more }
 
 import http from 'node:http';
 import crypto from 'node:crypto';
@@ -24,6 +34,7 @@ import { fileURLToPath } from 'node:url';
 import {
   openDb, hashPassword, verifyPassword, sha256, normCandidate, validCandidate, validatePassword, validateEvent,
   insertEvent, isSigned, signEntries, assign, unassign, isAssigned, LookupError,
+  addUser, resetPassword, setDisabled, revokeSessions, generatePassword, ROLES, listUsers, adminStats, recentAudit,
 } from './lib.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -35,7 +46,7 @@ const PAGE = 500;
 // Only these files are ever served; the database and server code are not reachable.
 const STATIC = {
   '/': 'index.html', '/index.html': 'index.html', '/app.js': 'app.js', '/core.js': 'core.js',
-  '/config.js': 'config.js', '/api.js': 'api.js', '/ui.js': 'ui.js', '/supervisor.js': 'supervisor.js',
+  '/config.js': 'config.js', '/api.js': 'api.js', '/ui.js': 'ui.js', '/supervisor.js': 'supervisor.js', '/administrator.js': 'administrator.js',
   '/style.css': 'style.css', '/sw.js': 'sw.js',
   '/manifest.webmanifest': 'manifest.webmanifest', '/icon-192.png': 'icon-192.png', '/icon-512.png': 'icon-512.png',
 };
@@ -117,6 +128,21 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
     if (a.role !== 'supervisor') throw new HttpError(403, 'wrong_role', 'This is only for supervisors.');
     if (a.mustChange) throw new HttpError(403, 'password_change_required', 'Change your password first.');
     return a;
+  }
+
+  function requireAdmin(req) {
+    const a = authenticate(req);
+    if (a.role !== 'admin') throw new HttpError(403, 'wrong_role', 'This is only for administrators.');
+    if (a.mustChange) throw new HttpError(403, 'password_change_required', 'Change your password first.');
+    return a;
+  }
+
+  // An existing account named in an administrator's request.
+  function accountOf(id) {
+    const c = normCandidate(id);
+    const row = validCandidate(c) ? db.prepare('SELECT candidate, role, disabled FROM users WHERE candidate = ?').get(c) : null;
+    if (!row) throw new HttpError(404, 'no_such_account', 'There is no account with that id.');
+    return row;
   }
 
   // Resolves { candidate } in a request body to a student this supervisor may work with.
@@ -253,7 +279,7 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
     if (route === 'POST /api/sup/assign') {
       const a = requireSupervisor(req);
       const body = await readJson(req);
-      try { assign(db, a.candidate, normCandidate(body.candidate), new Date(now())); }
+      try { assign(db, a.candidate, normCandidate(body.candidate), { now: new Date(now()), actor: a.candidate }); }
       catch (e) {
         if (e instanceof LookupError) throw new HttpError(404, 'no_such_candidate', 'There is no active student with that candidate number.');
         throw e;
@@ -264,7 +290,7 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
     if (route === 'POST /api/sup/unassign') {
       const a = requireSupervisor(req);
       const body = await readJson(req);
-      unassign(db, a.candidate, normCandidate(body.candidate));
+      unassign(db, a.candidate, normCandidate(body.candidate), { actor: a.candidate });
       return send(res, 200, { ok: true });
     }
 
@@ -283,6 +309,94 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
       if (body.ids.length > MAX_EVENTS_PER_SYNC) throw new HttpError(413, 'too_many_events', `At most ${MAX_EVENTS_PER_SYNC} entries per request.`);
       const r = signEntries(db, { id: a.candidate, name: a.name }, student, body.ids, new Date(now()).toISOString());
       return send(res, 200, { signed: r.signed.length, signed_ids: r.signed, skipped: r.skipped });
+    }
+
+    // ---- administrators -----------------------------------------------------
+
+    if (route.startsWith('POST /api/admin/')) {
+      const a = requireAdmin(req);
+      const action = url.pathname.slice('/api/admin/'.length);
+      const body = await readJson(req);
+      const notSelf = (id) => {
+        if (id === a.candidate) throw new HttpError(400, 'not_yourself', 'You cannot do this to your own account. Ask another administrator.');
+      };
+
+      if (action === 'users') return send(res, 200, { users: listUsers(db) });
+      if (action === 'stats') return send(res, 200, adminStats(db));
+      if (action === 'audit') return send(res, 200, { log: recentAudit(db, 50) });
+
+      if (action === 'create') {
+        if (!ROLES.includes(body.role)) throw new HttpError(400, 'bad_role', 'Choose student, supervisor or administrator.');
+        const id = normCandidate(body.id);
+        if (!validCandidate(id)) throw new HttpError(400, 'bad_id', 'The id must be 2 to 20 letters, numbers, / _ or -.');
+        const password = generatePassword();
+        try { await addUser(db, id, password, { role: body.role, name: body.name, actor: a.candidate }); }
+        catch (e) {
+          if (/UNIQUE/.test(String(e.message))) throw new HttpError(409, 'exists', `${id} already exists.`);
+          throw e;
+        }
+        return send(res, 200, { id, password });
+      }
+
+      if (action === 'create_many') {
+        const ids = Array.isArray(body.ids) ? body.ids : [];
+        if (!ids.length) throw new HttpError(400, 'no_ids', 'Add at least one candidate number.');
+        if (ids.length > 100) throw new HttpError(413, 'too_many', 'At most 100 at a time.');
+        const created = [];
+        const skipped = [];
+        const seen = new Set();
+        for (const raw of ids) {
+          const id = normCandidate(raw);
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          if (!validCandidate(id)) { skipped.push({ id: String(raw).slice(0, 30), reason: 'not a valid id' }); continue; }
+          const password = generatePassword();
+          try { await addUser(db, id, password, { role: 'student', actor: a.candidate }); created.push({ id, password }); }
+          catch (e) {
+            if (/UNIQUE/.test(String(e.message))) skipped.push({ id, reason: 'already exists' });
+            else throw e;
+          }
+        }
+        return send(res, 200, { created, skipped });
+      }
+
+      if (action === 'reset') {
+        const t = accountOf(body.id);
+        notSelf(t.candidate);
+        const password = generatePassword();
+        await resetPassword(db, t.candidate, password, a.candidate);
+        return send(res, 200, { id: t.candidate, password });
+      }
+      if (action === 'disable' || action === 'enable') {
+        const t = accountOf(body.id);
+        if (action === 'disable') notSelf(t.candidate);
+        setDisabled(db, t.candidate, action === 'disable', a.candidate);
+        return send(res, 200, { ok: true });
+      }
+      if (action === 'revoke') {
+        const t = accountOf(body.id);
+        return send(res, 200, { ok: true, sessions: revokeSessions(db, t.candidate, a.candidate) });
+      }
+
+      if (action === 'assign' || action === 'unassign') {
+        const sup = accountOf(body.supervisor);
+        const stu = accountOf(body.student);
+        if (action === 'unassign') unassign(db, sup.candidate, stu.candidate, { actor: a.candidate });
+        else {
+          try { assign(db, sup.candidate, stu.candidate, { now: new Date(now()), actor: a.candidate }); }
+          catch (e) {
+            if (e instanceof LookupError) throw new HttpError(400, 'cannot_assign', 'That needs an active supervisor and an active student.');
+            throw e;
+          }
+        }
+        return send(res, 200, { ok: true });
+      }
+
+      if (action === 'entries') {
+        const t = accountOf(body.candidate);
+        if (t.role !== 'student') throw new HttpError(400, 'not_a_student', 'Only students have entries.');
+        return send(res, 200, eventsPage(t.candidate, cursorOf(body), supervisorView));
+      }
     }
 
     throw new HttpError(404, 'not_found', 'No such endpoint.');

@@ -105,6 +105,8 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 
 .card { background: var(--card); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; border: 1px solid var(--line); }
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+.stats.four { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 520px) { .stats.four { grid-template-columns: repeat(2, 1fr); } }
 .stat { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; text-align: center; display: flex; flex-direction: column; }
 .stat strong { font-size: 30px; color: var(--teal-dark); }
 .stat span { color: var(--muted); font-size: 14px; }
@@ -139,6 +141,29 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .srow-main { display: flex; flex-direction: column; min-width: 0; }
 .addrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; padding: 4px 4px 4px 14px; background: #fff; border: 2px solid var(--line); border-radius: 10px; }
 .btn.small { min-height: 44px; padding: 8px 20px; }
+
+/* administrator screens */
+textarea {
+  width: 100%; padding: 10px 12px; border: 2px solid var(--line); border-radius: 10px; margin: 4px 0 14px; background: #fff;
+  font: 16px/1.5 ui-monospace, Menlo, monospace; resize: vertical;
+}
+.scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; }
+.tbl { border-collapse: collapse; width: 100%; font-size: 16px; }
+.tbl th, .tbl td { padding: 8px 10px; border-bottom: 1px solid #efede6; text-align: right; white-space: nowrap; }
+.tbl th:first-child, .tbl td:first-child { text-align: left; }
+.tbl th { font-size: 13px; color: var(--muted); font-weight: 600; white-space: normal; vertical-align: bottom; }
+.tbl.matrix th { min-width: 84px; }
+.tbl.matrix td:first-child, .tbl.matrix th:first-child { position: sticky; left: 0; background: var(--card); min-width: 96px; }
+.tbl.matrix tbody tr { cursor: pointer; }
+.tbl.matrix tbody tr:active td { background: var(--teal-light); }
+.tbl .dim td { color: var(--muted); }
+.tbl .tag { margin-left: 6px; }
+.mono { font-family: ui-monospace, Menlo, monospace; font-size: 18px; letter-spacing: .5px; }
+.seg { display: flex; gap: 8px; margin: 8px 0 12px; flex-wrap: wrap; }
+.seg-b { flex: 1 1 120px; min-height: 52px; border: 2px solid var(--line); border-radius: var(--radius); background: #fff; font-weight: 600; }
+.seg-b.on { background: var(--teal-light); border-color: var(--teal); color: var(--teal-dark); }
+.audit { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #efede6; }
+h4 { font-size: 17px; margin: 16px 0 6px; }
 .block { display: block; }
 .list.tight { margin-top: 8px; }
 

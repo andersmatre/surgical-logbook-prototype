@@ -1,11 +1,11 @@
-# Surgical logbook — prototype v0.3 (login, sync, supervisor sign-off)
+# Surgical logbook — prototype v0.4 (login, sync, supervisor sign-off, administrator screens)
 
 An installable web app (PWA) for logging surgical procedures on a tablet, plus a small server for accounts, sync and supervisor sign-off.
 Built for CapaCare's Surgical Training Programme in Sierra Leone, to find out whether it can be better than the existing e-logbook.
 
 - **Students** log in with the candidate number from CapaCare and a password, on any tablet. They log procedures in two taps, also without internet; entries are sent to the server automatically.
 - **Supervisors** log in with a staff ID, add the students they supervise, see their entries and sign them. The server checks every signature.
-- **Administrators** create accounts from the command line.
+- **Administrators** log in too: they see all procedures across students, add accounts, give new passwords, disable accounts and choose who supervises whom. No command line needed.
 
 This is a prototype. It has not been used on a real tablet or deployed yet. Read "Known limits" in `PROJECT.md` before real use.
 
@@ -14,18 +14,20 @@ To put the server online, read [`DEPLOY.md`](DEPLOY.md). Instructions for people
 
 ## Run it locally (Node 22.13 or newer; nothing to install to run)
 
-    npm run admin -- add-supervisor SUP-ANNA --name "Dr Anna Kamara"   # prints an initial password once
-    npm run admin -- add CC1234                                        # a student; prints an initial password once
+    npm run admin -- add-admin ADMIN-ANDERS --name "Anders"            # prints an initial password once
     npm start                                                          # app and API on http://localhost:8080
 
-Open http://localhost:8080. Log in as `CC1234`, choose your own password, log a procedure. In another browser profile log in as `SUP-ANNA`, add `CC1234` under "Add students" and sign the entry.
+Open http://localhost:8080. Log in as `ADMIN-ANDERS`, choose your own password, and create a supervisor and a student under "Add users". In other browser profiles log in as them: the student logs a procedure, the supervisor adds the student under "Add students" and signs the entry.
 The database is `./data/logbook.db`.
 
 ## Accounts (administrator)
 
+Normally in the app. The command line does the same and is the fallback:
+
     npm run admin -- add CC1234 [--password x]          student
     npm run admin -- import candidates.csv              many students (first column = candidate number)
     npm run admin -- add-supervisor SUP-ANNA --name "Dr Anna K"
+    npm run admin -- add-admin ADMIN-ANDERS --name "Anders"
     npm run admin -- assign SUP-ANNA CC1234 CC1235      (supervisors can also add students themselves)
     npm run admin -- unassign SUP-ANNA CC1234
     npm run admin -- reset CC1234                       new initial password, logs the account out everywhere
@@ -53,7 +55,7 @@ Open the server's address in Chrome, menu (three dots), "Add to Home screen" / "
 ## Tests
 
     npm install
-    npm test            # 36 tests, about 35 seconds
+    npm test            # 44 tests, about 1 minute
 
 `core` (data layer), `server` (API, login, sync, supervisor rules, upgrade of an old database, backup), `ui` (the whole student flow in a simulated browser against a real server), `ui-supervisor` (the whole supervisor flow), `files` (file lists stay in step). They do not replace trying the app on a real tablet.
 
@@ -63,7 +65,7 @@ Open the server's address in Chrome, menu (three dots), "Add to Home screen" / "
 |---|---|
 | `config.js` | Procedures, targets, hospitals, version, `API_BASE`. Edit content here. |
 | `core.js`, `api.js` | Local event log in IndexedDB; calls to the server. |
-| `app.js`, `ui.js`, `supervisor.js`, `style.css` | The interface: student app, shared pieces, supervisor screens. |
+| `app.js`, `ui.js`, `supervisor.js`, `administrator.js`, `style.css` | The interface: student app, shared pieces, supervisor and administrator screens. |
 | `sw.js`, `manifest.webmanifest` | Offline cache and installability. |
 | `server/` | `app.js` (HTTP API), `lib.js` (database, passwords, rules), `admin.js`, `index.js`. |
 | `PROJECT.md`, `DEPLOY.md`, `CLAUDE.md` | Project guide and handover, hosting guide, instructions for AI assistants. |

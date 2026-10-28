@@ -25,13 +25,14 @@ Do this before renting anything. It uses the same container, a persistent volume
 
 ```
 docker compose up --build
-docker compose exec logbook node --no-warnings=ExperimentalWarning server/admin.js add-supervisor SUP-ANNA --name "Dr Anna Kamara"
-docker compose exec logbook node --no-warnings=ExperimentalWarning server/admin.js add CC1234
+docker compose exec logbook node --no-warnings=ExperimentalWarning server/admin.js add-admin ADMIN-ANDERS --name "Anders"
 ```
+
+Then log in as the administrator and create supervisors and students on the Add users tab.
 
 Open `http://localhost:8080`. The server serves the app itself, exactly as a rented server will. Use two browser profiles (or one normal and one private window) to be a student and a supervisor at the same time. `docker compose down` stops it and keeps the data; `docker compose down -v` deletes the database. (`docker-compose.yml` has not been run by its author: no Docker was available where it was written.)
 
-**Without Docker:** `npm run local` starts the server with the settings in `local.env`; create accounts with `npm run admin -- add CC1234`.
+**Without Docker:** `npm run local` starts the server with the settings in `local.env`; create the first administrator with `npm run admin -- add-admin ADMIN-ANDERS --name "Anders"`.
 
 **With the app on GitHub Pages and the server on your computer:** start the server as above, then open
 
@@ -75,16 +76,19 @@ Install the Fly command-line tool (`flyctl`) and sign in (`fly auth login`). In 
 
    `--ha=false` stops Fly from creating a second machine. There must be **one** machine only (check with `fly status`): the volume belongs to one machine and SQLite cannot be shared.
 
-3. Create the first accounts on the server. Open a shell on the machine and run the commands there (this avoids quoting problems on Windows):
+3. Create the first administrator. No shell is needed: set an initial password as a secret and deploy again.
 
    ```
-   fly ssh console
-   node --no-warnings=ExperimentalWarning server/admin.js add-supervisor SUP-ANNA --name "Dr Anna Kamara"
-   node --no-warnings=ExperimentalWarning server/admin.js add CC1234
-   exit
+   fly secrets set ADMIN_ID=ADMIN-ANDERS ADMIN_PASSWORD=choose-a-temporary-password
    ```
 
-   Each prints an initial password **once**. Write it down and pass it on through CapaCare.
+   (`fly secrets set` restarts the machine; the account is created at startup, only if it does not exist.) Open the address, log in with `ADMIN-ANDERS` and that password, and choose your own password. Then remove the temporary one:
+
+   ```
+   fly secrets unset ADMIN_PASSWORD
+   ```
+
+   Create supervisors and students in the app (**Add users**). Each gets an initial password that is shown **once**; pass it on through CapaCare. Later administrators are created the same way, in the app.
 
 4. Open the address (`fly status` shows it) and run the checklist below.
 
@@ -126,9 +130,10 @@ Needs a **domain name** pointing at the server (Caddy uses it to get the HTTPS c
 5. Create accounts:
 
    ```
-   docker exec logbook node --no-warnings=ExperimentalWarning server/admin.js add-supervisor SUP-ANNA --name "Dr Anna Kamara"
-   docker exec logbook node --no-warnings=ExperimentalWarning server/admin.js add CC1234
+   docker exec logbook node --no-warnings=ExperimentalWarning server/admin.js add-admin ADMIN-ANDERS --name "Anders"
    ```
+
+   It prints an initial password once. Log in and create everyone else in the app.
 
 Updating: `cd /opt/logbook && git pull && docker build -t logbook . && docker rm -f logbook && docker run ...` (same `run` line as above; the data volume stays).
 Logs: `docker logs logbook`.

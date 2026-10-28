@@ -3,6 +3,7 @@
 //   node server/admin.js add S1234 [--password secret]            create a student account
 //   node server/admin.js import candidates.csv                    create many students (first column = candidate number)
 //   node server/admin.js add-supervisor SUP-ANNA --name "Dr Anna K" [--password secret]
+//   node server/admin.js add-admin ADMIN-ANDERS --name "Anders" [--password secret]
 //   node server/admin.js assign SUP-ANNA S1234 [S1235 ...]        let a supervisor see and sign these students
 //   node server/admin.js unassign SUP-ANNA S1234
 //   node server/admin.js rename SUP-ANNA "Dr Anna Kamara"         change a supervisor's display name
@@ -43,6 +44,7 @@ function usage() {
     '  admin.js add <candidate> [--password pw]',
     '  admin.js import <file.csv>',
     '  admin.js add-supervisor <id> [--name "Dr X"] [--password pw]',
+    '  admin.js add-admin <id> [--name "Name"] [--password pw]',
     '  admin.js assign <supervisor> <candidate> [<candidate> ...]',
     '  admin.js unassign <supervisor> <candidate>',
     '  admin.js rename <supervisor> "<name>"',
@@ -63,6 +65,11 @@ try {
   } else if (cmd === 'add-supervisor' && args[0]) {
     const pw = flag('password') || generatePassword();
     const c = await addUser(db, args[0], pw, { role: 'supervisor', name: flag('name') });
+    console.log('account,initial_password');
+    console.log(`${c},${pw}`);
+  } else if (cmd === 'add-admin' && args[0]) {
+    const pw = flag('password') || generatePassword();
+    const c = await addUser(db, args[0], pw, { role: 'admin', name: flag('name') });
     console.log('account,initial_password');
     console.log(`${c},${pw}`);
   } else if (cmd === 'import' && args[0]) {

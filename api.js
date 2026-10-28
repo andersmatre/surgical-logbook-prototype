@@ -67,3 +67,16 @@ export const supAssign = (token, candidate) => call('/api/sup/assign', { token, 
 export const supUnassign = (token, candidate) => call('/api/sup/unassign', { token, body: { candidate } });
 export const supEntries = (token, candidate, cursor) => call('/api/sup/entries', { token, body: { candidate, cursor } });
 export const supSign = (token, candidate, ids) => call('/api/sup/sign', { token, body: { candidate, ids } });
+
+// Administrator calls (the server checks the role).
+export const adminUsers = (token) => call('/api/admin/users', { token });
+export const adminStats = (token) => call('/api/admin/stats', { token });
+export const adminAudit = (token) => call('/api/admin/audit', { token });
+export const adminCreate = (token, role, id, name) => call('/api/admin/create', { token, body: { role, id, name } });
+export const adminCreateMany = (token, ids) => call('/api/admin/create_many', { token, body: { ids } });
+export const adminReset = (token, id) => call('/api/admin/reset', { token, body: { id } });
+export const adminSetDisabled = (token, id, disabled) => call(`/api/admin/${disabled ? 'disable' : 'enable'}`, { token, body: { id } });
+export const adminRevoke = (token, id) => call('/api/admin/revoke', { token, body: { id } });
+export const adminAssign = (token, supervisor, student) => call('/api/admin/assign', { token, body: { supervisor, student } });
+export const adminUnassign = (token, supervisor, student) => call('/api/admin/unassign', { token, body: { supervisor, student } });
+export const adminEntries = (token, candidate, cursor) => call('/api/admin/entries', { token, body: { candidate, cursor } });

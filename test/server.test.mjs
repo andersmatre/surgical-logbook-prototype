@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
-  addUser, setDisabled, revokeSessions, resetPassword, generatePassword, initSchema, openDb, backupTo,
+  addUser, setDisabled, revokeSessions, resetPassword, generatePassword, initSchema, openDb, backupTo, bootstrapAdmin,
 } from '../server/lib.js';
 
 async function start(opts = {}) {
@@ -452,4 +452,188 @@ test('admin backup writes a complete, readable copy and refuses to overwrite', a
     copy.close();
     assert.throws(() => backupTo(t.s.db, file), /already exists/);
   } finally { await t.s.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+// ---- administrators -----------------------------------------------------------------
+
+async function adminReady(t, id = 'ADMIN-ONE') {
+  await addUser(t.s.db, id, 'initial-adm-1', { role: 'admin', name: 'Admin One' });
+  const login = await t.call('/api/login', { body: { candidate: id, password: 'initial-adm-1' } });
+  assert.equal(login.body.role, 'admin');
+  await t.call('/api/password', { token: login.body.token, body: { old_password: 'initial-adm-1', new_password: 'adm-own-secret-1' } });
+  return login.body.token;
+}
+const adm = (t, token, path, body = {}) => t.call(`/api/admin/${path}`, { token, body });
+
+test('administrator routes are closed to students and supervisors, and administrators have no logbook', async () => {
+  const t = await start();
+  try {
+    const student = await ready(t, 'S001', 'initial-pw-1', 'second-pw-22');
+    const supToken = await supervisorReady(t);
+    const admin = await adminReady(t);
+    for (const token of [student, supToken]) {
+      for (const p of ['users', 'stats', 'audit', 'create', 'reset', 'assign', 'entries']) {
+        assert.equal((await adm(t, token, p, { role: 'student', id: 'X1' })).status, 403, p);
+      }
+    }
+    assert.equal((await adm(t, null, 'users')).status, 401);
+    assert.equal((await t.call('/api/sync', { token: admin, body: { events: [], cursor: 0 } })).status, 403);
+    assert.equal((await sup(t, admin, 'students')).status, 403, 'an administrator cannot sign or add students as a supervisor');
+    // an administrator must choose their own password first
+    await addUser(t.s.db, 'ADMIN-TWO', 'initial-adm-2', { role: 'admin' });
+    const fresh = (await t.call('/api/login', { body: { candidate: 'ADMIN-TWO', password: 'initial-adm-2' } })).body.token;
+    assert.equal((await adm(t, fresh, 'users')).body.error, 'password_change_required');
+  } finally { await t.s.close(); }
+});
+
+test('administrator creates accounts; the initial password is shown once and must be changed', async () => {
+  const t = await start();
+  try {
+    const admin = await adminReady(t);
+    const one = await adm(t, admin, 'create', { role: 'student', id: ' cc 1234 ' });
+    assert.equal(one.status, 200);
+    assert.equal(one.body.id, 'CC1234');
+    assert.match(one.body.password, /^[a-z2-9]{5}-[a-z2-9]{5}$/);
+    const login = await t.call('/api/login', { body: { candidate: 'CC1234', password: one.body.password } });
+    assert.equal(login.body.must_change_password, true);
+
+    const sp = await adm(t, admin, 'create', { role: 'supervisor', id: 'SUP-ANNA', name: '  Dr  Anna Kamara ' });
+    assert.equal(sp.status, 200);
+    const spLogin = await t.call('/api/login', { body: { candidate: 'SUP-ANNA', password: sp.body.password } });
+    assert.equal(spLogin.body.role, 'supervisor');
+    assert.equal(spLogin.body.name, 'Dr Anna Kamara');
+
+    assert.equal((await adm(t, admin, 'create', { role: 'student', id: 'CC1234' })).status, 409);
+    assert.equal((await adm(t, admin, 'create', { role: 'student', id: '!' })).status, 400);
+    assert.equal((await adm(t, admin, 'create', { role: 'owner', id: 'X123' })).status, 400);
+
+    const many = await adm(t, admin, 'create_many', { ids: ['cc2001', 'CC2002', 'cc 2001', 'CC1234', 'bad id!', '', 'CC2003'] });
+    assert.deepEqual(many.body.created.map((c) => c.id), ['CC2001', 'CC2002', 'CC2003']);
+    assert.deepEqual(many.body.skipped.map((c) => c.reason).sort(), ['already exists', 'not a valid id']);
+    assert.equal(new Set(many.body.created.map((c) => c.password)).size, 3, 'each account gets its own password');
+    assert.equal((await adm(t, admin, 'create_many', { ids: [] })).status, 400);
+    assert.equal((await adm(t, admin, 'create_many', { ids: Array.from({ length: 101 }, (_, i) => `ZZ${i}`) })).status, 413);
+
+    const users = (await adm(t, admin, 'users')).body.users;
+    assert.deepEqual(users.map((u) => u.id), ['ADMIN-ONE', 'SUP-ANNA', 'CC1234', 'CC2001', 'CC2002', 'CC2003']);
+    assert.equal(users.find((u) => u.id === 'ADMIN-ONE').password_set, true);
+    assert.equal(users.find((u) => u.id === 'CC1234').password_set, false);
+  } finally { await t.s.close(); }
+});
+
+test('administrator can reset, disable, enable and log out accounts, but not harm their own', async () => {
+  const t = await start();
+  try {
+    const admin = await adminReady(t);
+    const student = await ready(t, 'S001', 'initial-pw-1', 'second-pw-22');
+
+    const rst = await adm(t, admin, 'reset', { id: 's001' });
+    assert.equal(rst.status, 200);
+    assert.equal((await t.call('/api/sync', { token: student, body: { events: [], cursor: 0 } })).status, 401, 'reset logs the student out everywhere');
+    const again = await t.call('/api/login', { body: { candidate: 'S001', password: rst.body.password } });
+    assert.equal(again.body.must_change_password, true);
+
+    assert.equal((await adm(t, admin, 'disable', { id: 'S001' })).status, 200);
+    assert.equal((await t.call('/api/login', { body: { candidate: 'S001', password: rst.body.password } })).status, 401);
+    assert.equal((await adm(t, admin, 'enable', { id: 'S001' })).status, 200);
+    assert.equal((await t.call('/api/login', { body: { candidate: 'S001', password: rst.body.password } })).status, 200);
+    assert.equal((await adm(t, admin, 'revoke', { id: 'S001' })).body.sessions >= 1, true);
+
+    assert.equal((await adm(t, admin, 'reset', { id: 'ADMIN-ONE' })).body.error, 'not_yourself');
+    assert.equal((await adm(t, admin, 'disable', { id: 'ADMIN-ONE' })).body.error, 'not_yourself');
+    assert.equal((await adm(t, admin, 'reset', { id: 'NOBODY' })).status, 404);
+    assert.equal((await adm(t, admin, 'users')).status, 200, 'the administrator is still logged in');
+  } finally { await t.s.close(); }
+});
+
+test('administrator assigns supervisors, sees every student, and the audit log records it without passwords', async () => {
+  const t = await start();
+  try {
+    const admin = await adminReady(t);
+    const s1 = await ready(t, 'S001', 'initial-pw-1', 'second-pw-22');
+    await ready(t, 'S002', 'initial-pw-2', 'second-pw-33');
+    const supToken = await supervisorReady(t, 'SUP-ANNA', 'Dr Anna');
+    const e1 = entry();
+    await t.call('/api/sync', { token: s1, body: { events: [e1], cursor: 0 } });
+
+    assert.equal((await adm(t, admin, 'assign', { supervisor: 'SUP-ANNA', student: 'S001' })).status, 200);
+    assert.equal((await adm(t, admin, 'assign', { supervisor: 'S001', student: 'S002' })).status, 400, 'the first must be a supervisor');
+    assert.equal((await sup(t, supToken, 'students')).body.students[0].candidate, 'S001');
+    const listed = (await adm(t, admin, 'users')).body.users;
+    assert.deepEqual(listed.find((u) => u.id === 'S001').supervisors, [{ id: 'SUP-ANNA', name: 'Dr Anna' }]);
+    assert.deepEqual(listed.find((u) => u.id === 'SUP-ANNA').students, ['S001']);
+
+    // an administrator can read a student's entries, but not sign
+    const view = await adm(t, admin, 'entries', { candidate: 'S001', cursor: 0 });
+    assert.equal(view.body.events.length, 1);
+    assert.equal(view.body.events[0].ms_to_log, undefined);
+    assert.equal((await adm(t, admin, 'entries', { candidate: 'SUP-ANNA' })).status, 400);
+    assert.equal((await adm(t, admin, 'sign', { candidate: 'S001', ids: [e1.id] })).status, 404);
+
+    assert.equal((await adm(t, admin, 'unassign', { supervisor: 'SUP-ANNA', student: 'S001' })).status, 200);
+    assert.deepEqual((await sup(t, supToken, 'students')).body.students, []);
+
+    // supervisors adding students themselves is recorded too
+    await sup(t, supToken, 'assign', { candidate: 'S002' });
+    await adm(t, admin, 'reset', { id: 'S002' });
+    const log = (await adm(t, admin, 'audit')).body.log;
+    const actions = log.map((l) => `${l.actor}:${l.action}:${l.target}`);
+    assert.ok(actions.includes('ADMIN-ONE:assign:S001'));
+    assert.ok(actions.includes('ADMIN-ONE:unassign:S001'));
+    assert.ok(actions.includes('SUP-ANNA:assign:S002'), 'who added whom is recorded');
+    assert.ok(actions.includes('ADMIN-ONE:reset_password:S002'));
+    assert.equal(log[0].action, 'reset_password', 'newest first');
+    assert.doesNotMatch(JSON.stringify(log), /password":"|[a-z2-9]{5}-[a-z2-9]{5}/, 'no password ever in the log');
+  } finally { await t.s.close(); }
+});
+
+test('the overview counts live entries per procedure and per student', async () => {
+  const t = await start();
+  try {
+    const admin = await adminReady(t);
+    const a = await ready(t, 'S001', 'initial-pw-1', 'second-pw-22');
+    const b = await ready(t, 'S002', 'initial-pw-2', 'second-pw-33');
+    await ready(t, 'S003', 'initial-pw-3', 'second-pw-44'); // nothing logged
+    const supToken = await supervisorReady(t);
+
+    const a1 = entry({ procedure: 'cs', role: 'independent', performed_on: '2026-10-01' });
+    const a2 = entry({ procedure: 'cs', role: 'observing', performed_on: '2026-10-05' });
+    const a3 = entry({ procedure: 'appendectomy', role: 'supervised', performed_on: '2026-10-03' });
+    const a4 = entry({ procedure: 'laparotomy', role: 'assisting' });
+    const voidA4 = { id: '55555555-0000-4000-8000-000000000001', type: 'void', ts: new Date().toISOString(), target: a4.id };
+    const b1 = entry({ procedure: 'cs', role: 'supervised', performed_on: '2026-10-09' });
+    await t.call('/api/sync', { token: a, body: { events: [a1, a2, a3, a4, voidA4], cursor: 0 } });
+    await t.call('/api/sync', { token: b, body: { events: [b1], cursor: 0 } });
+    await sup(t, supToken, 'assign', { candidate: 'S001' });
+    await sup(t, supToken, 'sign', { candidate: 'S001', ids: [a1.id] });
+
+    const r = (await adm(t, admin, 'stats')).body;
+    assert.deepEqual(r.totals, { students: 3, supervisors: 1, entries: 4, signed: 1, unsigned: 3 });
+    const cs = r.procedures.find((p) => p.procedure === 'cs');
+    assert.deepEqual({ ...cs }, { procedure: 'cs', observing: 1, assisting: 0, supervised: 1, independent: 1, total: 3, performed: 2, students: 2 });
+    assert.equal(r.procedures.find((p) => p.procedure === 'laparotomy'), undefined, 'a deleted entry is not counted');
+    assert.equal(r.procedures[0].procedure, 'cs', 'most frequent first');
+
+    const s1 = r.students.find((s) => s.candidate === 'S001');
+    assert.equal(s1.entries, 3);
+    assert.equal(s1.performed, 2);
+    assert.equal(s1.signed, 1);
+    assert.equal(s1.last_performed_on, '2026-10-05');
+    assert.deepEqual(s1.by_procedure.cs, { performed: 1, total: 2 });
+    assert.equal(r.students.find((s) => s.candidate === 'S003').entries, 0, 'students without entries are listed too');
+  } finally { await t.s.close(); }
+});
+
+test('the first administrator can be created from settings, once, without touching an existing account', async () => {
+  const db = openDb(':memory:');
+  assert.equal(await bootstrapAdmin(db, 'admin-anders', 'first-secret-1'), 'ADMIN-ANDERS');
+  const row = db.prepare("SELECT role, must_change FROM users WHERE candidate = 'ADMIN-ANDERS'").get();
+  assert.equal(row.role, 'admin');
+  assert.equal(row.must_change, 1, 'must choose their own password at first login');
+  const hash = db.prepare("SELECT pw_hash FROM users WHERE candidate = 'ADMIN-ANDERS'").get().pw_hash;
+  assert.equal(await bootstrapAdmin(db, 'ADMIN-ANDERS', 'another-secret-2'), null, 'second start creates nothing');
+  assert.equal(db.prepare("SELECT pw_hash FROM users WHERE candidate = 'ADMIN-ANDERS'").get().pw_hash, hash, 'and does not reset the password');
+  assert.equal(await bootstrapAdmin(db, '', 'x'), null);
+  await assert.rejects(() => bootstrapAdmin(db, 'bad id!', 'secret-secret'), /not a valid/);
+  assert.equal(db.prepare("SELECT actor FROM audit WHERE action = 'create'").get().actor, 'startup');
 });

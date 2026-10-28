@@ -1,6 +1,6 @@
 // app.js — the student app, and the entry point that decides what to show.
 // Screens: login, choose-password, hospital, then Log / Progress / History / More.
-// A supervisor account gets the supervisor screens in supervisor.js instead.
+// A supervisor account gets the screens in supervisor.js, an administrator those in administrator.js.
 // Plain JavaScript, no build step. Shared interface pieces live in ui.js.
 
 import {
@@ -13,6 +13,10 @@ import {
   h, timeAgo, stat, kv, initUi, toast, hideToast, openSheet, closeSheet, passwordForm,
 } from './ui.js';
 import { mountSupervisor } from './supervisor.js';
+import { mountAdministrator } from './administrator.js';
+
+// Only students have a logbook on the tablet. Sessions saved by older versions have no role: students.
+const isStudent = (session) => !!session && (session.role || 'student') === 'student';
 
 const SESSION_KEY = 'logbook.session';
 
@@ -46,7 +50,7 @@ function handleAuthError(e) {
 // ---- state loading ---------------------------------------------------------
 
 async function loadState() {
-  if (!state.session || state.session.role === 'supervisor') {
+  if (!isStudent(state.session)) {
     Object.assign(state, { events: [], entries: [], sent: new Set(), meta: {}, profile: null });
     return;
   }
@@ -125,7 +129,7 @@ async function syncCore() {
 }
 
 async function doSync(manual = false) {
-  if (!state.session || state.session.role === 'supervisor' || state.session.must_change || state.syncing) return;
+  if (!isStudent(state.session) || state.session.must_change || state.syncing) return;
   if (!state.online) {
     if (manual) toast('No internet right now', { sub: 'Your entries are safe on this tablet and will be sent later.' });
     return;
@@ -168,8 +172,9 @@ function render() {
   root.replaceChildren();
   if (!state.session) { root.append(loginScreen()); return; }
   if (state.session.must_change) { root.append(forcedPasswordScreen()); return; }
-  if (state.session.role === 'supervisor') {
-    mountSupervisor({
+  if (state.session.role === 'supervisor' || state.session.role === 'admin') {
+    const mount = state.session.role === 'admin' ? mountAdministrator : mountSupervisor;
+    mount({
       root, session: state.session, version: APP_VERSION,
       onAuthError: handleAuthError, onLogout: doLogout, openChangePassword,
     });
@@ -241,7 +246,7 @@ function loginScreen() {
     try {
       const res = await api.login(candidate, pw.value);
       state.sessionNote = '';
-      const role = res.role === 'supervisor' ? 'supervisor' : 'student';
+      const role = res.role === 'supervisor' || res.role === 'admin' ? res.role : 'student';
       writeSession({ candidate: res.candidate, token: res.token, must_change: !!res.must_change_password, role, name: res.name || null });
       if (role === 'student') {
         // Supervisors keep no logbook on the tablet, so only students get a local database.
@@ -261,7 +266,7 @@ function loginScreen() {
 
   return h('div', { class: 'setup' },
     h('h1', {}, 'Surgical logbook'),
-    h('p', { class: 'muted' }, 'Log in with the candidate number (students) or staff ID (supervisors) and the password you got from CapaCare. You need internet the first time you log in on a tablet. After that the student logbook also works without internet.'),
+    h('p', { class: 'muted' }, 'Log in with the candidate number (students) or staff ID (supervisors and administrators) and the password you got from CapaCare. You need internet the first time you log in on a tablet. After that the student logbook also works without internet.'),
     note, serverNote(), form,
     h('p', { class: 'muted small' }, `Prototype v${APP_VERSION}. Never type patient names or numbers anywhere.`));
 }
@@ -284,7 +289,7 @@ function forcedPasswordScreen() {
     onAuthError: handleAuthError,
     onDone: async () => {
       writeSession({ ...state.session, must_change: false });
-      if (state.session.role !== 'supervisor') await pullAll();
+      if (isStudent(state.session)) await pullAll();
       await refresh();
     },
   });
@@ -562,7 +567,7 @@ async function doLogout() {
     await Promise.race([api.logout(token).catch(() => {}), new Promise((r) => setTimeout(r, 3000))]);
   }
   clearTimeout(syncTimer);
-  if (!state.session || state.session.role !== 'supervisor') await core.wipeAll();
+  if (!state.session || isStudent(state.session)) await core.wipeAll();
   writeSession(null);
   state.sessionNote = '';
   state.tab = 'log';
@@ -620,7 +625,7 @@ export async function init() {
   window.addEventListener('offline', () => { state.online = false; updateChip(); });
 
   state.session = readSession();
-  if (state.session && state.session.role !== 'supervisor') {
+  if (isStudent(state.session)) {
     core.useUser(state.session.candidate);
     await core.setMeta('open_count', ((await core.getMeta('open_count', 0)) || 0) + 1);
   }
@@ -628,11 +633,11 @@ export async function init() {
   render();
   registerSW();
   requestPersist();
-  if (state.session && state.session.role !== 'supervisor' && !state.session.must_change) scheduleSync();
+  if (isStudent(state.session) && !state.session.must_change) scheduleSync();
 
   // Retry now and then while the app stays open on a flaky connection.
   const timer = setInterval(() => {
-    if (state.session && state.session.role !== 'supervisor' && !state.session.must_change && state.online
+    if (isStudent(state.session) && !state.session.must_change && state.online
       && (core.unsyncedCount(state.events, state.sent) > 0 || state.meta.cursor == null)) doSync(false);
   }, 180000);
   if (timer && timer.unref) timer.unref();
