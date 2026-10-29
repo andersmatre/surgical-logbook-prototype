@@ -331,7 +331,7 @@ function logTab() {
     h('h2', { class: 'log-title' }, 'What did you do?'),
     h('p', { class: 'muted log-hint' }, 'Tap the procedure to add it.'),
     h('div', { class: 'grid' }, PROCEDURES_TOP.map((p) =>
-      h('button', { class: 'proc', onclick: () => openRoleSheet(p) },
+      h('button', { class: 'proc', onclick: () => openEntrySheet(p) },
         h('span', { class: 'proc-text' },
           h('span', { class: 'proc-name' }, p.name),
           h('span', { class: 'proc-count' }, `${counts[p.id] || 0} logged`)),
@@ -350,7 +350,7 @@ function openMoreProcedures() {
     const q = input.value.trim().toLowerCase();
     const rows = PROCEDURES_OTHER.filter((p) => p.name.toLowerCase().includes(q));
     list.replaceChildren(...(rows.length
-      ? rows.map((p) => h('button', { class: 'row-btn', type: 'button', onclick: () => { closeSheet(); openRoleSheet(p); } }, p.name))
+      ? rows.map((p) => h('button', { class: 'row-btn', type: 'button', onclick: () => { closeSheet(); openEntrySheet(p); } }, p.name))
       : [h('p', { class: 'muted' }, 'No match. Use "Other / not listed".')]));
   };
   input.addEventListener('input', draw);
@@ -368,9 +368,12 @@ function openPicker(el) {
   el.focus();
 }
 
-function openRoleSheet(proc) {
+// Logging a procedure: one pop-up with everything on it. Hospital and date are filled in, the role is the
+// one thing to choose, the details under it are optional, and Save (always in view at the bottom) stores it.
+function openEntrySheet(proc) {
   const t0 = performance.now();
   let date = core.localDateISO();
+  let role = null;
   let saving = false;
   const today = core.localDateISO();
   const dateLabel = h('strong', {}, 'Today');
@@ -383,20 +386,46 @@ function openRoleSheet(proc) {
   });
   const changeBtn = h('button', { class: 'change', type: 'button', 'aria-label': 'Change date', onclick: () => openPicker(dateInput) }, 'Change');
 
-  const save = async (r, details) => {
-    if (saving) return;
+  // The hospital is stored with every entry. It is the one chosen on this tablet; it can be changed right here.
+  const hospLabel = h('strong', {}, state.profile.hospital);
+  const hospSel = h('select', { 'aria-label': 'Hospital', class: 'dinput picker' }, HOSPITALS.map((x) => h('option', { value: x, selected: x === state.profile.hospital }, x)));
+  hospSel.addEventListener('change', async () => {
+    await core.setMeta('hospital', hospSel.value);
+    state.profile.hospital = hospSel.value;
+    hospLabel.textContent = hospSel.value;
+    hospSel.classList.remove('show');
+  });
+  const hospBtn = h('button', { class: 'change', type: 'button', 'aria-label': 'Change hospital', onclick: () => openPicker(hospSel) }, 'Change');
+
+  // Save says what is missing until a role is chosen, so the student is never left wondering why nothing happens.
+  const saveBtn = h('button', { class: 'btn save', type: 'button', onclick: () => save() });
+  const showSave = () => {
+    saveBtn.disabled = !role;
+    saveBtn.textContent = role ? 'Save' : 'Choose your role';
+  };
+  const roleGroup = choices(ROLES.map((r) => [r.id, r.label, r.hint]), null, (v) => { role = ROLES.find((r) => r.id === v); showSave(); }, { required: true, wide: true });
+  showSave();
+
+  const ids = detailFieldsFor(proc.id);
+  const form = questions(DETAIL_FIELDS, ids, {});
+  const err = h('p', { class: 'error', role: 'alert' }, '');
+
+  async function save() {
+    if (saving || !role) return;
+    const v = form.values();
+    if (v.error) { err.textContent = v.error; return; }
     saving = true;
     const ms = performance.now() - t0;
     closeSheet();
     const ev = await core.logEntry({
       student: state.profile.student, hospital: state.profile.hospital,
-      procedure: proc.id, role: r.id, performed_on: date, ms_to_log: ms, online: state.online, details,
+      procedure: proc.id, role: role.id, performed_on: date, ms_to_log: ms, online: state.online, details: v.answers,
     });
     await refresh();
     scheduleSync();
     const p = core.progress(state.entries)[proc.id] || { performed: 0, total: 0 };
     const target = TARGETS[proc.id];
-    toast(`Saved · ${r.label}`, {
+    toast(`Saved · ${role.label}`, {
       sub: target ? `${proc.name}: ${p.performed} of ${target} performed` : `${proc.name}: ${p.total} logged`,
       action: {
         label: 'Undo',
@@ -409,64 +438,45 @@ function openRoleSheet(proc) {
         },
       },
     });
-  };
+  }
 
-  // A procedure with detail questions goes on to a second step; one without saves at the role tap.
-  const roleBtns = ROLES.map((r) => h('button', {
-    class: `role role-${r.id}`, type: 'button',
-    onclick: () => (detailFieldsFor(proc.id).length ? openDetailsStep(proc, r, save, sheet) : save(r, null)),
-  }, h('strong', {}, r.label), h('span', {}, r.hint)));
-
-  // The hospital is stored with every entry. It is the one chosen on this tablet; it can be changed right here.
-  const hospLabel = h('strong', {}, state.profile.hospital);
-  const hospSel = h('select', { 'aria-label': 'Hospital', class: 'dinput picker' }, HOSPITALS.map((x) => h('option', { value: x, selected: x === state.profile.hospital }, x)));
-  hospSel.addEventListener('change', async () => {
-    await core.setMeta('hospital', hospSel.value);
-    state.profile.hospital = hospSel.value;
-    hospLabel.textContent = hospSel.value;
-    hospSel.classList.remove('show');
-  });
-  const hospBtn = h('button', { class: 'change', type: 'button', 'aria-label': 'Change hospital', onclick: () => openPicker(hospSel) }, 'Change');
-
-  // Hospital and date are already filled in; most of the time the student only taps a role (and Save, if the
-  // procedure has detail questions). The content is kept so "Back" on the details step can show it again.
-  const asksDetails = detailFieldsFor(proc.id).length > 0;
-  const sheet = [
+  openSheet([
     h('h3', {}, proc.name),
     h('div', { class: 'facts' },
       h('div', { class: 'fact' }, h('span', { class: 'fact-text' }, h('span', {}, 'Hospital'), hospLabel), hospBtn, hospSel),
       h('div', { class: 'fact' }, h('span', { class: 'fact-text' }, h('span', {}, 'Date'), dateLabel), changeBtn, dateInput)),
-    h('p', { class: 'q' }, 'What was your role?'),
-    h('p', { class: 'muted q-hint' }, asksDetails ? 'Tap one.' : 'Tap one to save.'),
-    h('div', { class: 'roles' }, roleBtns),
-    h('button', { class: 'btn ghost wide', type: 'button', onclick: closeSheet }, 'Cancel'),
-  ];
-  openSheet(sheet);
-}
-
-// Second step of logging: the procedure's detail questions. Every question is optional, so Save always works.
-function openDetailsStep(proc, role, save, back) {
-  const form = questions(DETAIL_FIELDS, detailFieldsFor(proc.id), {});
-  const err = h('p', { class: 'error', role: 'alert' }, '');
-  openSheet([
-    h('h3', {}, proc.name),
-    h('p', { class: 'muted' }, `${role.label}. More about the operation, if you know it. You can skip any question.`),
+    h('div', { class: 'qrow', role: 'group', 'aria-label': 'Your role' }, h('span', { class: 'qpart-title' }, 'Your role'), roleGroup),
+    ids.length ? h('div', { class: 'qpart' }, h('span', { class: 'qpart-title' }, 'About the operation'), h('span', { class: 'muted' }, 'Answer what you know')) : null,
     form.el,
     err,
-    h('button', {
-      class: 'btn wide', type: 'button',
-      onclick: () => {
-        const v = form.values();
-        if (v.error) { err.textContent = v.error; return; }
-        save(role, v.answers);
-      },
-    }, 'Save'),
-    h('button', { class: 'btn ghost wide', type: 'button', onclick: () => openSheet(back) }, 'Back'),
+    h('div', { class: 'sheet-foot' },
+      h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Cancel'),
+      saveBtn),
   ]);
 }
 
-// Questions from DETAIL_FIELDS or FOLLOWUP_FIELDS: a row of big buttons for a list (tap again to clear),
-// a number field for a number. `initial` preselects answers. values() returns { answers } or { error }.
+// A set of big buttons where one can be chosen. `options` are [value, label, hint?]. Tapping the chosen one
+// again clears it, unless the answer is required. A chosen button is filled with the main colour.
+function choices(options, initial, onChange, { required = false, wide = false } = {}) {
+  let chosen = initial;
+  const wrap = h('div', { class: 'choices' + (wide ? ' wide' : '') });
+  const paint = () => {
+    for (const b of wrap.children) {
+      const on = b.dataset.value === chosen;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', String(on));
+    }
+  };
+  wrap.append(...options.map(([v, label, hint]) => h('button', {
+    class: 'choice', type: 'button', 'data-value': v,
+    onclick: () => { chosen = chosen === v && !required ? null : v; paint(); onChange(chosen); },
+  }, h('strong', {}, label), hint ? h('span', {}, hint) : null)));
+  paint();
+  return wrap;
+}
+
+// Questions from DETAIL_FIELDS or FOLLOWUP_FIELDS: big buttons for a list (tap again to clear), a number
+// field for a number. `initial` preselects answers. values() returns { answers } or { error }.
 function questions(fields, ids, initial) {
   const chosen = { ...initial };
   const numbers = {};
@@ -481,18 +491,9 @@ function questions(fields, ids, initial) {
         h('label', { class: 'qlabel', for: `q-${id}` }, f.label),
         h('div', { class: 'numrow' }, numbers[id], f.unit ? h('span', { class: 'muted' }, f.unit) : null));
     }
-    const btns = f.options.map(([v, label]) => h('button', {
-      class: 'seg-b' + (chosen[id] === v ? ' on' : ''), type: 'button', 'aria-pressed': String(chosen[id] === v),
-      onclick: (ev) => {
-        chosen[id] = chosen[id] === v ? undefined : v;
-        for (const b of ev.currentTarget.parentNode.children) {
-          const on = b === ev.currentTarget && chosen[id] === v;
-          b.classList.toggle('on', on);
-          b.setAttribute('aria-pressed', String(on));
-        }
-      },
-    }, label));
-    return h('div', { class: 'qrow', role: 'group', 'aria-label': f.label }, h('span', { class: 'qlabel' }, f.label), h('div', { class: 'seg' }, btns));
+    return h('div', { class: 'qrow', role: 'group', 'aria-label': f.label },
+      h('span', { class: 'qlabel' }, f.label),
+      choices(f.options, chosen[id] ?? null, (v) => { chosen[id] = v ?? undefined; }));
   }));
   const values = () => {
     const answers = {};
@@ -661,24 +662,25 @@ function openFollowUp(e) {
     h('p', { class: 'muted' }, 'What do you know now? Tap only what you know. You can add more later.'),
     form.el,
     err,
-    h('button', {
-      class: 'btn wide', type: 'button',
-      onclick: async () => {
-        const v = form.values();
-        if (v.error) { err.textContent = v.error; return; }
-        const changed = Object.fromEntries(Object.entries(v.answers).filter(([id, a]) => e.outcome[id] !== a));
-        if (!Object.keys(changed).length) { err.textContent = 'Nothing new to save. Tap an answer, or Cancel.'; return; }
-        closeSheet();
-        const ev = await core.addFollowUp(e.id, changed);
-        await refresh();
-        scheduleSync();
-        toast('Follow-up saved', {
-          sub: procName(e.procedure),
-          action: { label: 'Undo', fn: async () => { await core.voidEntry(ev.id); await refresh(); scheduleSync(); toast('Undone'); } },
-        });
-      },
-    }, 'Save'),
-    h('button', { class: 'btn ghost wide', type: 'button', onclick: closeSheet }, 'Cancel'),
+    h('div', { class: 'sheet-foot' },
+      h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Cancel'),
+      h('button', {
+        class: 'btn save', type: 'button',
+        onclick: async () => {
+          const v = form.values();
+          if (v.error) { err.textContent = v.error; return; }
+          const changed = Object.fromEntries(Object.entries(v.answers).filter(([id, a]) => e.outcome[id] !== a));
+          if (!Object.keys(changed).length) { err.textContent = 'Nothing new to save. Tap an answer, or Cancel.'; return; }
+          closeSheet();
+          const ev = await core.addFollowUp(e.id, changed);
+          await refresh();
+          scheduleSync();
+          toast('Follow-up saved', {
+            sub: procName(e.procedure),
+            action: { label: 'Undo', fn: async () => { await core.voidEntry(ev.id); await refresh(); scheduleSync(); toast('Undone'); } },
+          });
+        },
+      }, 'Save')),
   ]);
 }
 

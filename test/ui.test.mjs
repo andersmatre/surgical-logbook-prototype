@@ -31,8 +31,8 @@ const $ = (sel, scope = document) => scope.querySelector(sel);
 const $$ = (sel, scope = document) => [...scope.querySelectorAll(sel)];
 const click = async (el, ms) => { assert.ok(el, 'element to click exists'); el.click(); await wait(ms); };
 const byText = (sel, text, scope = document) => $$(sel, scope).find((e) => e.textContent.includes(text));
-// Tap a role, then Save on the details step (every detail question is optional).
-const logAs = async (role, ms) => { await click(byText('.role', role)); await click(byText('.sheet .btn', 'Save'), ms); };
+// Tap a role, then Save (every detail question is optional).
+const logAs = async (role, ms) => { await click(byText('.choice', role)); await click(byText('.sheet .btn', 'Save'), ms); };
 const submit = async (form, ms = 300) => {
   form.dispatchEvent(new window.Event('submit', { cancelable: true, bubbles: true }));
   await wait(ms);
@@ -314,21 +314,26 @@ test('deleting an entry that a supervisor signed in the meantime keeps it, and s
   assert.equal($('.chip'), null, 'no sync button when everything is up to date');
 });
 
-test('details are asked after the role, and a follow-up can be added later from History', async () => {
+test('role and details are on one screen, and a follow-up can be added later from History', async () => {
   window.dispatchEvent(new window.Event('online'));
   await click(byText('.tab', 'Log'));
   await click(byText('.proc', 'Caesarean section'));
-  await click(byText('.role', 'Surgeon, independent'));
-  assert.ok(byText('.qlabel', 'Main reason'), 'a caesarean asks its own questions');
-  await click(byText('.sheet .btn', 'Back'));
-  assert.ok(byText('.role', 'Assisting'), 'Back shows the roles again');
-  await click(byText('.role', 'Surgeon, supervised'));
+  assert.ok(byText('.qlabel', 'Main reason'), 'a caesarean asks its own questions, on the same screen as the role');
+  const save = () => $('.sheet-foot .btn.save');
+  assert.equal(save().textContent, 'Choose your role', 'Save says what is missing');
+  assert.equal(save().disabled, true);
+  await click(byText('.choice', 'Surgeon, independent'));
+  assert.equal(save().textContent, 'Save');
+  await click(byText('.choice', 'Surgeon, independent'));
+  assert.equal(byText('.choice', 'Surgeon, independent').getAttribute('aria-pressed'), 'true', 'a second tap does not clear the role');
+  await click(byText('.choice', 'Surgeon, supervised')); // changed my mind
+  assert.deepEqual($$('.choices.wide .choice.on').map((b) => b.dataset.value), ['supervised'], 'one role at a time');
 
-  await click(byText('.seg-b', 'Emergency'));
-  await click(byText('.seg-b', 'Spinal'));
-  await click(byText('.seg-b', 'General')); // changes the answer
-  await click(byText('.seg-b', 'Planned'));
-  await click(byText('.seg-b', 'Planned')); // a second tap clears it
+  await click(byText('.choice', 'Emergency'));
+  await click(byText('.choice', 'Spinal'));
+  await click(byText('.choice', 'General')); // changes the answer
+  await click(byText('.choice', 'Planned'));
+  await click(byText('.choice', 'Planned')); // a second tap clears it
   $('#q-duration_min').value = '5000';
   await click(byText('.sheet .btn', 'Save'));
   assert.match($('.sheet .error').textContent, /whole number from 1 to 1440/, 'a wrong number is explained, nothing saved');
@@ -345,15 +350,15 @@ test('details are asked after the role, and a follow-up can be added later from 
   assert.deepEqual($$('.sheet .qlabel').map((l) => l.textContent), ['Complication', 'Mother', 'Baby']);
   await click(byText('.sheet .btn', 'Save'));
   assert.match($('.sheet .error').textContent, /Nothing new/);
-  await click(byText('.seg-b', 'Alive')); // the mother
+  await click(byText('.choice', 'Alive')); // the mother
   await click(byText('.sheet .btn', 'Save'), 400);
   assert.match(row().textContent, /Follow-up: Mother: Alive/);
   assert.deepEqual(JSON.parse(stored().get('followup').payload).answers, { mother: 'alive' });
 
   // later: the baby died. The earlier answer is shown and kept; only the new one is sent.
   await click(byText('.link', 'Update', row()));
-  assert.equal(byText('.seg-b.on', 'Alive').getAttribute('aria-pressed'), 'true', 'the earlier answer is preselected');
-  await click(byText('.seg-b', 'Died after birth'));
+  assert.equal(byText('.choice.on', 'Alive').getAttribute('aria-pressed'), 'true', 'the earlier answer is preselected');
+  await click(byText('.choice', 'Died after birth'));
   await click(byText('.sheet .btn', 'Save'), 400);
   assert.match(row().textContent, /Mother: Alive · Baby: Died after birth/);
   assert.deepEqual(JSON.parse(stored().get('followup').payload).answers, { baby: 'died' });

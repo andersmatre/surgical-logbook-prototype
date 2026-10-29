@@ -31,11 +31,11 @@ The context that shaped every decision:
 
 ## 2. Status
 
-Version **0.9.0**. A working prototype, tested automatically and **deployed on Fly.io** (see [11](#11-running-it)), but **not yet used on a Samsung tablet**.
+Version **0.10.0**. A working prototype, tested automatically and **deployed on Fly.io** (see [11](#11-running-it)), but **not yet used on a Samsung tablet**.
 
 Works:
 
-- Student app: login with candidate number and password, forced own password at first login, log a procedure (procedure, role, then optional details such as anaesthesia and operation time, and Save), undo, a follow-up on an entry for 6 weeks after the operation (complications, patient, mother and baby outcome), history (can show only one procedure and/or one role), progress against targets, weekly summary to share on WhatsApp, works offline, installable.
+- Student app: login with candidate number and password, forced own password at first login, log a procedure in one pop-up (tap the procedure; then the role, optional details such as anaesthesia and operation time, and Save), undo, a follow-up on an entry for 6 weeks after the operation (complications, patient, mother and baby outcome), history (can show only one procedure and/or one role), progress against targets, weekly summary to share on WhatsApp, works offline, installable.
 - Sync to the server with automatic retry; log in on any tablet and the history comes back.
 - Supervisor accounts: a supervisor logs in with a staff ID, adds students, sees their entries and signs selected ones. The server verifies every signature.
 - Administrator accounts and screens (no shell needed): overview of every procedure across all students, a matrix per student, user list, add many students at once, new password, disable, log out everywhere, assign supervisors, a log of recent changes. The first administrator is created from environment variables (`ADMIN_ID`, `ADMIN_PASSWORD`, see `DEPLOY.md`).
@@ -88,7 +88,7 @@ To try the student app offline: Chrome DevTools, Network tab, "Offline". To try 
 └────────────────────────────────────────┘
 ```
 
-**Entry flow.** The student taps a procedure and a role, answers the optional detail questions for that procedure and taps Save (a procedure without detail questions saves at the role tap). `core.logEntry` writes an `entry` event to IndexedDB at once (works offline). A moment later `syncCore` (in `app.js`) sends every event the server has not confirmed (at most 200 per request) and pulls everything new. Confirmed ids go in the local `sent` store, which is what the "N to sync" counter is based on.
+**Entry flow.** The student taps a procedure. One pop-up (`openEntrySheet` in `app.js`) shows the hospital and date (filled in, with Change), the role (required: until one is chosen the Save button reads "Choose your role") and the optional detail questions for that procedure. Save stays in view at the bottom. All choices, here and in the follow-up, use the same buttons (`choices()`): white, and filled with the main colour when chosen. `core.logEntry` writes an `entry` event to IndexedDB at once (works offline). A moment later `syncCore` (in `app.js`) sends every event the server has not confirmed (at most 200 per request) and pulls everything new. Confirmed ids go in the local `sent` store, which is what the "N to sync" counter is based on.
 
 **Follow-up flow.** In History, an entry up to `FOLLOWUP_DAYS` (42) after the operation has "Add follow-up". The answers are saved as a `followup` event on top of the entry and synced like any other event. `derive()` merges an entry's follow-ups, the newest answer to each question winning, into `entry.outcome`. Undo is a `void` of the follow-up.
 

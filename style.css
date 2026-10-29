@@ -8,9 +8,6 @@
   --warn-bg: #FAEEDA; --warn-ink: #633806; --ok-bg: #EAF3DE; --ok-ink: #27500A;
   --danger: #A32D2D; --danger-bg: #FCEBEB;
   --danger-hover: #8E2626; --danger-press: #761E1E;
-  /* Role buttons, light to dark shades of the main colour: background (-bg) and text (-ink). */
-  --observing-bg: var(--main-light); --observing-ink: var(--main-dark); --assisting-bg: var(--main-soft); --assisting-ink: var(--main-dark);
-  --supervised-bg: var(--main-mid); --supervised-ink: #fff; --independent-bg: var(--main-dark); --independent-ink: #fff;
   --radius: 14px;
 }
 * { box-sizing: border-box; }
@@ -114,7 +111,7 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 .dinput { display: none; margin: 4px 0 8px; min-height: 48px; padding: 6px 10px; border: 2px solid var(--line); border-radius: 10px; }
 .dinput.show { display: block; }
 
-/* The pop-up after tapping a procedure: hospital and date in a grey box, then the four roles. */
+/* The pop-up after tapping a procedure: hospital and date in a grey box, then the role and the details. */
 .facts { background: var(--bg); border-radius: var(--radius); padding: 4px 16px; margin-bottom: 20px; }
 .fact { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; min-height: 64px; }
 .fact + .fact { border-top: 1px solid var(--line); }
@@ -126,22 +123,20 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 .fact-text span { color: var(--muted); font-size: 15px; }
 .fact-text strong { font-size: 19px; }
 .change { flex: none; min-height: 48px; padding: 8px 18px; border-radius: 999px; border: 2px solid var(--main); background: var(--card); color: var(--main-dark); font-weight: 600; }
-.q { font-weight: 700; font-size: 20px; margin: 0; }
-.q-hint { margin: 0 0 12px; }
-/* One role per row, in order from watching to operating alone. */
-.roles { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 16px; }
-.role {
-  min-height: 72px; text-align: left; border: 0; border-radius: var(--radius); padding: 14px 18px; color: #fff;
-  display: flex; flex-direction: column; justify-content: center; gap: 2px;
+/* Choices (the role, details, follow-up): white buttons in a row that wraps. The chosen one is filled with the main
+   colour, so what is chosen is the only colour in the form. The role buttons (.wide) are two per row, with a hint. */
+.choices { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.choice {
+  flex: 1 1 120px; min-height: 52px; padding: 8px 12px; border: 2px solid var(--line); border-radius: var(--radius); background: #fff;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center;
 }
-.role strong { font-size: 20px; }
-.role span { font-size: 15px; opacity: .95; }
-/* The role buttons go from light to dark (main colour): the more you did yourself, the darker the button.
-   The two light ones have dark text, the two dark ones white text, so all four are easy to read. */
-.role-observing { background: var(--observing-bg); color: var(--observing-ink); }
-.role-assisting { background: var(--assisting-bg); color: var(--assisting-ink); }
-.role-supervised { background: var(--supervised-bg); color: var(--supervised-ink); }
-.role-independent { background: var(--independent-bg); color: var(--independent-ink); }
+.choice strong { font-weight: 600; }
+.choices.wide { display: grid; grid-template-columns: 1fr 1fr; }
+.choices.wide .choice { min-height: 72px; align-items: flex-start; text-align: left; padding: 10px 16px; }
+.choice span { font-size: 15px; color: var(--muted); }
+.choice.on { background: var(--main); border-color: var(--main); color: #fff; }
+.choice.on span { color: #fff; opacity: .9; }
+@media (max-width: 420px) { .choices.wide { grid-template-columns: 1fr; } }
 .search, .pin, select {
   width: 100%; min-height: 52px; padding: 8px 12px; border: 2px solid var(--line); border-radius: 10px; background: #fff; margin: 4px 0 12px;
 }
@@ -210,8 +205,8 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .opt-n { flex: none; min-width: 36px; padding: 2px 10px; border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 15px; text-align: center; }
 .entry { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
 .e-main { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
-/* The role of an entry, as text in one colour. (It comes after .role-observing etc., so it wins over the button colours.) */
-.role-tag { font-size: 14px; font-weight: 600; color: var(--main-dark); background: none; }
+/* The role of an entry, as text in one colour. */
+.role-tag { font-size: 14px; font-weight: 600; color: var(--main-dark); }
 .e-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 4px; color: var(--muted); font-size: 15px; }
 /* "Delete" on the right of the second line. The negative margins keep the big touch target without making the line taller. */
 .e-del { margin: -10px -6px -10px auto; font-size: 16px; }
@@ -224,12 +219,18 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .e-outcome { color: var(--ok-ink); font-weight: 600; }
 .e-fu { margin: -10px -6px -10px auto; font-size: 16px; }
 
-/* Detail and follow-up questions: a label, then big buttons (.seg) or a number field. */
-.questions { margin: 4px 0 8px; }
-.qrow { margin-bottom: 12px; }
+/* Questions (role, details, follow-up): a label, then choices or a number field. The optional details sit under a thin line. */
+.questions { margin: 0 0 4px; }
+.qrow { margin-bottom: 16px; }
 .qlabel { display: block; font-weight: 700; }
+.qpart { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; border-top: 1px solid var(--line); padding-top: 16px; margin: 20px 0 12px; }
+.qpart-title { display: block; font-size: 19px; font-weight: 700; }
 .numrow { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 .num { width: 140px; min-height: 52px; padding: 6px 12px; border: 2px solid var(--line); border-radius: 10px; background: #fff; font-size: 20px; }
+/* Cancel and Save stay in view at the bottom of a long pop-up. Save is the wide one. */
+.sheet-foot { position: sticky; bottom: -24px; display: flex; gap: 12px; margin: 8px -24px -24px; padding: 12px 24px 24px; background: var(--card); border-top: 1px solid var(--line); }
+.sheet-foot .btn { flex: 1; padding-left: 12px; padding-right: 12px; white-space: nowrap; }
+.sheet-foot .btn.save { flex: 2; }
 
 .note-info { background: var(--main-light); color: var(--main-dark); border-radius: 10px; padding: 10px 14px; margin: 0 0 12px; }
 
@@ -295,7 +296,7 @@ h4 { font-size: 17px; margin: 16px 0 6px; }
    Pressing (:active) is what a tablet shows: the button gets darker and sinks a little.
    Hovering only exists with a mouse, so it sits inside (hover: hover) and is never stuck on after a tap.
    Disabled buttons give no feedback. People who ask for less motion get the colour change only. */
-.btn, .chip, .tab, .link, .proc, .role, .srow, .row-btn, .seg-b, .t-act, .change, .filter {
+.btn, .chip, .tab, .link, .proc, .srow, .row-btn, .seg-b, .choice, .t-act, .change, .filter {
   transition: background-color .12s, border-color .12s, color .12s, box-shadow .12s, filter .12s, opacity .12s, transform .08s;
 }
 
@@ -309,14 +310,14 @@ h4 { font-size: 17px; margin: 16px 0 6px; }
   .tab:not(.on):hover { background: var(--bg); }
   .link:hover { background: var(--main-light); border-radius: 8px; }
   .link.danger:hover { background: var(--danger-bg); }
-  .proc:hover, .srow:hover, .row-btn:hover, .seg-b:hover, .filter:hover { border-color: var(--main); box-shadow: 0 2px 8px rgba(0, 0, 0, .08); }
-  .role:hover { filter: brightness(.92); }
+  .proc:hover, .srow:hover, .row-btn:hover, .seg-b:hover, .choice:hover, .filter:hover { border-color: var(--main); box-shadow: 0 2px 8px rgba(0, 0, 0, .08); }
+  .choice.on:hover { background: var(--main-hover); }
   .change:hover { background: var(--main-light); }
   .tbl.matrix tbody tr:hover td { background: var(--main-light); }
 }
 
 /* Press */
-.btn:not(:disabled):active, .chip:active, .proc:active, .role:active, .srow:active, .row-btn:active, .seg-b:active, .filter:active { transform: scale(.97); }
+.btn:not(:disabled):active, .chip:active, .proc:active, .srow:active, .row-btn:active, .seg-b:active, .choice:active, .filter:active { transform: scale(.97); }
 .btn:not(:disabled):active { background: var(--main-dark); }
 .btn.ghost:not(:disabled):active { background: var(--main-press); }
 .btn.danger:not(:disabled):active { background: var(--danger-press); }
@@ -324,13 +325,13 @@ h4 { font-size: 17px; margin: 16px 0 6px; }
 .tab:not(.on):active { background: var(--main-light); }
 .link:active { opacity: .6; }
 .t-act:active { opacity: .6; }
-.proc:active, .srow:active, .row-btn:active, .seg-b:active, .filter:active { background: var(--main-light); border-color: var(--main); }
-.role:active { filter: brightness(.8); }
+.proc:active, .srow:active, .row-btn:active, .seg-b:active, .choice:active, .filter:active { background: var(--main-light); border-color: var(--main); }
+.choice.on:active { background: var(--main-dark); }
 .change:active { background: var(--main-press); transform: scale(.97); }
 
 @media (prefers-reduced-motion: reduce) {
-  .btn, .chip, .tab, .link, .proc, .role, .srow, .row-btn, .seg-b, .t-act, .change, .filter, .advanced summary::after { transition: none; }
+  .btn, .chip, .tab, .link, .proc, .srow, .row-btn, .seg-b, .choice, .t-act, .change, .filter, .advanced summary::after { transition: none; }
   .sheet { animation: none; }
   .change:active { transform: none; }
-  .btn:not(:disabled):active, .chip:active, .proc:active, .role:active, .srow:active, .row-btn:active, .seg-b:active, .filter:active { transform: none; }
+  .btn:not(:disabled):active, .chip:active, .proc:active, .srow:active, .row-btn:active, .seg-b:active, .choice:active, .filter:active { transform: none; }
 }
