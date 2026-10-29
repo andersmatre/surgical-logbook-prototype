@@ -265,13 +265,19 @@ export function metrics(events, meta = {}) {
   };
 }
 
+// The test data a student sends us (often on WhatsApp). It identifies nobody: no candidate number,
+// no supervisor id or name. The sender is known from the message itself.
 export function buildExport(events, meta = {}) {
+  const strip = (e) => {
+    const { student, supervisor, supervisor_name, ...rest } = e;
+    return rest;
+  };
   return {
     app: 'surgical-logbook-prototype',
     version: APP_VERSION,
     exported_at: new Date().toISOString(),
-    profile: meta.profile || null,
+    hospital: (meta.profile && meta.profile.hospital) || null,
     metrics: metrics(events, meta),
-    events,
+    events: events.map(strip),
   };
 }

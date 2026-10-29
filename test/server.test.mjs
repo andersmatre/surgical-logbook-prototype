@@ -546,6 +546,52 @@ test('administrator can reset, disable, enable and log out accounts, but not har
   } finally { await t.s.close(); }
 });
 
+test('administrator can erase an account and its data for good, only after disabling it, never their own', async () => {
+  const t = await start();
+  try {
+    const admin = await adminReady(t);
+    const s1 = await ready(t, 'S001', 'initial-pw-1', 'second-pw-22');
+    const s2 = await ready(t, 'S002', 'initial-pw-2', 'second-pw-33');
+    const supToken = await supervisorReady(t);
+    const [a, b] = [entry(), entry()];
+    await t.call('/api/sync', { token: s1, body: { events: [a], cursor: 0 } });
+    await t.call('/api/sync', { token: s2, body: { events: [b], cursor: 0 } });
+    for (const [c, id] of [['S001', a.id], ['S002', b.id]]) {
+      await sup(t, supToken, 'assign', { candidate: c });
+      assert.equal((await sup(t, supToken, 'sign', { candidate: c, ids: [id] })).body.signed, 1);
+    }
+    const count = (sql, ...p) => t.s.db.prepare(sql).get(...p).n;
+
+    assert.equal((await adm(t, admin, 'delete', { id: 'S001' })).body.error, 'disable_first', 'an active account cannot be deleted');
+    assert.equal((await adm(t, admin, 'delete', { id: 'ADMIN-ONE' })).body.error, 'not_yourself');
+    assert.equal((await adm(t, admin, 'delete', { id: 'NOBODY' })).status, 404);
+
+    // a student: the account, the entries, the signatures on them, sessions and supervisor links all go
+    await adm(t, admin, 'disable', { id: 'S001' });
+    const del = await adm(t, admin, 'delete', { id: 's001' });
+    assert.equal(del.status, 200);
+    assert.equal(del.body.events, 2, 'the entry and its signature');
+    assert.equal(count('SELECT COUNT(*) AS n FROM users WHERE candidate = ?', 'S001'), 0);
+    assert.equal(count('SELECT COUNT(*) AS n FROM events WHERE owner = ?', 'S001'), 0);
+    assert.equal(count('SELECT COUNT(*) AS n FROM assignments WHERE student = ?', 'S001'), 0);
+    assert.equal(count('SELECT COUNT(*) AS n FROM sessions WHERE candidate = ?', 'S001'), 0);
+    assert.equal((await t.call('/api/login', { body: { candidate: 'S001', password: 'second-pw-22' } })).status, 401);
+    assert.ok(!(await adm(t, admin, 'users')).body.users.some((u) => u.id === 'S001'));
+    assert.equal((await sup(t, supToken, 'students')).body.students.length, 1, 'the supervisor now sees only S002');
+
+    // a supervisor: the account goes, the signatures stay in the students' own records
+    await adm(t, admin, 'disable', { id: 'SUP-ANNA' });
+    assert.equal((await adm(t, admin, 'delete', { id: 'SUP-ANNA' })).status, 200);
+    assert.equal(count("SELECT COUNT(*) AS n FROM events WHERE owner = ? AND type = 'sign'", 'S002'), 1);
+    assert.equal(count('SELECT COUNT(*) AS n FROM assignments WHERE supervisor = ?', 'SUP-ANNA'), 0);
+    assert.equal((await t.call('/api/sync', { token: s2, body: { events: [], cursor: 0 } })).status, 200, 'S002 is untouched');
+
+    const log = (await adm(t, admin, 'audit')).body.log.filter((l) => l.action === 'delete');
+    assert.deepEqual(log.map((l) => [l.actor, l.target]), [['ADMIN-ONE', 'SUP-ANNA'], ['ADMIN-ONE', 'S001']]);
+    assert.equal(t.s.db.prepare('PRAGMA secure_delete').get().secure_delete, 1, 'deleted data is overwritten in the file');
+  } finally { await t.s.close(); }
+});
+
 test('administrator assigns supervisors, sees every student, and the audit log records it without passwords', async () => {
   const t = await start();
   try {

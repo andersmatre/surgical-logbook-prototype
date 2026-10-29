@@ -226,7 +226,22 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.equal((await post('/api/login', null, { candidate: 'CC1002', password: newPw })).error, 'bad_credentials');
   await click(byText('.sheet .btn', 'Enable'), 800);
   assert.match($('.sheet').textContent, /Active/);
+  assert.equal(byText('.sheet .link', 'for good'), undefined, 'an active account cannot be deleted');
   await click(byText('.sheet .btn', 'Close'));
+
+  // ---- delete an account for good: only after disabling it, and after a second confirmation
+  await click(byText('.srow', 'CC2003'), 200);
+  await click(byText('.sheet .btn', 'Disable'), 100);
+  await click(byText('.sheet .btn.danger', 'Disable'), 800);
+  await click(byText('.sheet .link', 'for good'), 100);
+  assert.match($('.sheet').textContent, /Delete CC2003 for good\?/);
+  assert.match($('.sheet').textContent, /cannot be undone/);
+  await click(byText('.sheet .btn', 'Cancel'), 100);
+  assert.equal(server.db.prepare("SELECT COUNT(*) AS n FROM users WHERE candidate = 'CC2003'").get().n, 1, 'Cancel deletes nothing');
+  await click(byText('.sheet .link', 'for good'), 100);
+  await click(byText('.sheet .btn.danger', 'Delete for good'), 800);
+  assert.equal(server.db.prepare("SELECT COUNT(*) AS n FROM users WHERE candidate = 'CC2003'").get().n, 0);
+  assert.equal(byText('.srow', 'CC2003'), undefined, 'gone from the user list');
 
   // ---- your own account offers no reset or disable
   await click(byText('.srow', 'ADMIN-ANDERS'), 200);
@@ -239,6 +254,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   await click(byText('.tab', 'Overview'));
   assert.match($('.main').textContent, /ADMIN-ANDERS reset the password of CC1002/);
   assert.match($('.main').textContent, /disabled CC1002/);
+  assert.match($('.main').textContent, /ADMIN-ANDERS deleted CC2003 and its data for good/);
   assert.doesNotMatch($('.main').textContent, new RegExp(newPw), 'no password anywhere on the page');
 
   // ---- More, then log out

@@ -1,7 +1,7 @@
 // config.js — content, not logic. Edit procedure lists, targets and hospitals here.
 // (Supervisors are accounts on the server now, created with `admin.js add-supervisor`.)
 
-export const APP_VERSION = '0.7.2';
+export const APP_VERSION = '0.8.0';
 
 // Where the logbook server lives. '' = the same address the app was loaded from
 // (when the server also serves the app). If the app is hosted elsewhere, for example
@@ -86,6 +86,33 @@ export const HOSPITALS = [
   'Pujehun Government Hospital',
   'Other / testing',
 ];
+
+// The privacy notice ("Your data"), shown at the first login and under More in all three apps.
+// PLACEHOLDER: who is responsible, whom to contact and how long data is kept are not decided yet
+// (PROJECT.md, section 14). While PRIVACY_IS_PLACEHOLDER is true the notice says it is a draft.
+export const PRIVACY_IS_PLACEHOLDER = true;
+export const PRIVACY = {
+  responsible: 'CapaCare (to be confirmed)',
+  contact: 'your CapaCare coordinator',
+  keptFor: 'While you are in the training programme. After that, for as long as CapaCare needs it for the programme (to be decided). Then it is deleted.',
+  // Each part: a heading and one or more short lines in plain words.
+  parts: [
+    ['What is stored', [
+      'Your candidate number or staff ID, and your name if CapaCare added it.',
+      'Your password, scrambled so that nobody can read it, not even CapaCare.',
+      'Students: each procedure you log, with your role, the date, the hospital, and if a supervisor signed it.',
+      'Supervisors: which students you added, and which entries you signed.',
+      'How the app is used: how many seconds logging takes, if you were offline, and how often you tap Undo. This shows us if the app is easy to use.',
+    ]],
+    ['What is never stored', ['Patient names or numbers. Never type them anywhere in the app.']],
+    ['Why', [
+      'So you can keep your logbook, your supervisor can sign it, and CapaCare can follow the training programme.',
+      'Your data is only used for research if an ethics committee has approved it and you have agreed.',
+    ]],
+    ['Who can see it', ['You. The supervisors who added you (students see their names under More). CapaCare administrators. Nobody else.']],
+    ['Where it is kept', ['On your own tablet, and on a server in Stockholm, Sweden (in the EU), run by the company Fly.io.']],
+  ],
+};
 
 export const procName = (id) => (ALL_PROCEDURES.find((p) => p.id === id) || { name: id }).name;
 export const roleLabel = (id) => (ROLES.find((r) => r.id === id) || { label: id }).label;

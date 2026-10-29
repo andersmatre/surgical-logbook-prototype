@@ -253,6 +253,10 @@ textarea {
 .seg-b.on { background: var(--main-light); border-color: var(--main); color: var(--main-dark); }
 .audit { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #efede6; }
 h4 { font-size: 17px; margin: 16px 0 6px; }
+/* The privacy notice ("Your data"): short lines under small headings. */
+.pv-line { margin: 0 0 6px; }
+.pv-close { margin-top: 16px; }
+.setup .pv-link { margin-top: 16px; }
 .block { display: block; }
 .list.tight { margin-top: 8px; }
 

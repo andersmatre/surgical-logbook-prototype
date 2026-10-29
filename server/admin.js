@@ -19,7 +19,7 @@
 import fs from 'node:fs';
 import {
   openDb, addUser, resetPassword, setDisabled, revokeSessions, generatePassword, normCandidate, validCandidate,
-  assign, unassign, renameUser, backupTo, logAudit,
+  assign, unassign, renameUser, backupTo, logAudit, deleteUser,
 } from './lib.js';
 
 const [cmd, ...rest] = process.argv.slice(2);
@@ -49,6 +49,7 @@ function usage() {
     '  admin.js unassign <supervisor> <candidate>',
     '  admin.js rename <supervisor> "<name>"',
     '  admin.js reset <id> | disable <id> | enable <id> | revoke <id>',
+    '  admin.js delete <id>   (erases a disabled account and its data for good)',
     '  admin.js list',
     '  admin.js backup <new-file.db>',
   ].join('\n'));
@@ -99,6 +100,9 @@ try {
     console.log(`${c},${pw}`);
   } else if ((cmd === 'disable' || cmd === 'enable') && args[0]) {
     console.log(`${setDisabled(db, args[0], cmd === 'disable')} ${cmd}d`);
+  } else if (cmd === 'delete' && args[0]) {
+    const n = deleteUser(db, args[0]);
+    console.log(`${normCandidate(args[0])} deleted (${n.events} events, ${n.assignments} assignments)`);
   } else if (cmd === 'revoke' && args[0]) {
     console.log(`${revokeSessions(db, args[0])} session(s) removed`);
   } else if (cmd === 'backup' && args[0]) {

@@ -26,6 +26,7 @@
 //   POST /api/admin/export      { kind: procedures|hospitals|entries, delimiter } -> CSV file
 //   POST /api/admin/backup      -> a copy of the database file
 //   POST /api/admin/reset | disable | enable | revoke   { id }              (not on your own account, except revoke)
+//   POST /api/admin/delete      { id } -> { ok, events, assignments }       (erases a disabled account and its data; not your own)
 //   POST /api/admin/assign | unassign   { supervisor, student }
 //   POST /api/admin/entries     { candidate, cursor } -> { events, cursor, has_more }
 
@@ -39,7 +40,7 @@ import {
   openDb, hashPassword, verifyPassword, sha256, normCandidate, validCandidate, validatePassword, validateEvent,
   insertEvent, isSigned, signEntries, assign, unassign, isAssigned, LookupError,
   addUser, resetPassword, setDisabled, revokeSessions, generatePassword, ROLES, listUsers, adminStats, recentAudit,
-  renameUser, exportCsv, EXPORT_KINDS, backupTo, logAudit,
+  renameUser, exportCsv, EXPORT_KINDS, backupTo, logAudit, deleteUser,
 } from './lib.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -417,6 +418,12 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
       if (action === 'revoke') {
         const t = accountOf(body.id);
         return send(res, 200, { ok: true, sessions: revokeSessions(db, t.candidate, a.candidate) });
+      }
+      if (action === 'delete') {
+        const t = accountOf(body.id);
+        notSelf(t.candidate);
+        if (!t.disabled) throw new HttpError(400, 'disable_first', 'Disable the account first. Then you can delete it.');
+        return send(res, 200, { ok: true, ...deleteUser(db, t.candidate, a.candidate) });
       }
 
       if (action === 'assign' || action === 'unassign') {

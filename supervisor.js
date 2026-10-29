@@ -9,7 +9,7 @@ import { procName, roleLabel } from './config.js';
 import * as core from './core.js';
 import * as api from './api.js';
 import {
-  h, timeAgo, stat, kv, toast, openSheet, closeSheet, passwordForm,
+  h, timeAgo, stat, kv, toast, openSheet, closeSheet, passwordForm, privacyCard,
 } from './ui.js';
 
 const ENDED = Symbol('session ended'); // the server ended the session; app.js shows the login screen
@@ -326,6 +326,7 @@ function moreView() {
         h('button', { class: 'btn ghost', onclick: confirmLogout }, 'Log out'))),
     h('div', { class: 'card' }, h('h3', {}, 'What you can see'),
       h('p', { class: 'muted' }, 'Only the students you added, and only what is needed to check and sign their procedures: procedure, role, date and hospital. You need internet to use the supervisor screens.')),
+    privacyCard(),
     h('div', { class: 'card' }, h('h3', {}, 'About'), kv('Version', ctx.version)));
 }
 

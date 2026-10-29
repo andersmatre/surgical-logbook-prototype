@@ -3,6 +3,7 @@
 // Plain JavaScript, no build step.
 
 import * as api from './api.js';
+import { PRIVACY, PRIVACY_IS_PLACEHOLDER } from './config.js';
 
 // ---- tiny DOM helper -------------------------------------------------------
 
@@ -84,6 +85,28 @@ export function closeSheet() {
   overlay.classList.remove('open');
   overlay.replaceChildren();
 }
+
+// ---- privacy notice ("Your data") -------------------------------------------------------
+// The text lives in config.js. Shown from the first-login screen and from a card under More.
+
+export function openPrivacy() {
+  const section = ([title, lines]) => [h('h4', {}, title), lines.map((l) => h('p', { class: 'pv-line' }, l))];
+  openSheet([
+    h('h3', {}, 'Your data'),
+    PRIVACY_IS_PLACEHOLDER ? h('p', { class: 'note' }, 'Draft: CapaCare still has to confirm parts of this text.') : null,
+    PRIVACY.parts.map(section),
+    section(['How long it is kept', [PRIVACY.keptFor]]),
+    section(['Your rights', [
+      'You can ask to see your data, to have mistakes corrected, or to have your account and your data deleted.',
+      `Ask ${PRIVACY.contact}. Responsible for your data: ${PRIVACY.responsible}.`,
+    ]]),
+    h('button', { class: 'btn ghost wide pv-close', type: 'button', onclick: closeSheet }, 'Close'),
+  ]);
+}
+
+export const privacyCard = () => h('div', { class: 'card' }, h('h3', {}, 'Your data'),
+  h('p', { class: 'muted' }, 'What is stored about you, who can see it, and your rights.'),
+  h('button', { class: 'btn ghost wide', type: 'button', onclick: openPrivacy }, 'How your data is used'));
 
 // ---- password form (forced at first login, or chosen from the More tab) --------------
 

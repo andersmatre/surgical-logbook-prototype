@@ -19,6 +19,7 @@ export function initSchema(db) {
   db.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
+    PRAGMA secure_delete = ON;                   -- deleted data is overwritten in the file, not just marked free
     CREATE TABLE IF NOT EXISTS users (
       candidate     TEXT PRIMARY KEY,           -- account id: the candidate number (students) or a staff ID (supervisors)
       pw_hash       TEXT NOT NULL,
@@ -196,6 +197,33 @@ export function revokeSessions(db, candidate, actor = 'cli') {
   const n = db.prepare('DELETE FROM sessions WHERE candidate = ?').run(c).changes;
   logAudit(db, actor, 'revoke_sessions', c, `${n}`);
   return n;
+}
+
+// Erases an account for good (GDPR: the right to erasure). The only time events are removed: everything
+// the account owns goes, in one transaction. A student's entries, voids and the signatures on them are in
+// the student's own stream, so they go too. A supervisor's signatures stay in the students' streams: they
+// are part of those students' training records. The account must be disabled first, so nobody deletes
+// by accident. With secure_delete on (initSchema), SQLite overwrites the removed data in the file.
+// Backups taken before stay as they are.
+export function deleteUser(db, candidate, actor = 'cli') {
+  const c = normCandidate(candidate);
+  const u = db.prepare('SELECT role, disabled FROM users WHERE candidate = ?').get(c);
+  if (!u) throw new LookupError(`No such account: ${c}`);
+  if (!u.disabled) throw new Error(`Disable ${c} before deleting it.`);
+  const counts = {};
+  db.exec('BEGIN');
+  try {
+    counts.events = db.prepare('DELETE FROM events WHERE owner = ?').run(c).changes;
+    db.prepare('DELETE FROM sessions WHERE candidate = ?').run(c);
+    counts.assignments = db.prepare('DELETE FROM assignments WHERE supervisor = ? OR student = ?').run(c, c).changes;
+    db.prepare('DELETE FROM users WHERE candidate = ?').run(c);
+    logAudit(db, actor, 'delete', c, `${u.role}, ${counts.events} events`);
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  return counts;
 }
 
 export function renameUser(db, candidate, name, actor = 'cli') {

@@ -31,7 +31,7 @@ The context that shaped every decision:
 
 ## 2. Status
 
-Version **0.7.2**. A working prototype, tested automatically and **deployed on Fly.io** (see [11](#11-running-it)), but **not yet used on a Samsung tablet**.
+Version **0.8.0**. A working prototype, tested automatically and **deployed on Fly.io** (see [11](#11-running-it)), but **not yet used on a Samsung tablet**.
 
 Works:
 
@@ -42,8 +42,9 @@ Works:
 - Students can have a name next to the candidate number (administrators set it; the student, their supervisors and administrators see it).
 - The hospital is stored in every entry. The student sees it when logging (and can change it there) and in the history; administrators get a hospital table and CSV downloads (procedures per student, per hospital, every entry).
 - Administrators download a complete database backup from the app and are reminded when none has been taken for a week.
-- Admin from the command line as a fallback: create accounts, assign, reset, disable, revoke, list, backup.
-- 56 automated tests, including whole-flow tests of both apps in a simulated browser against a real server.
+- Admin from the command line as a fallback: create accounts, assign, reset, disable, revoke, delete, list, backup.
+- Privacy: a notice ("Your data") on the first-login screen and under More in all three apps, with what is stored, why, who sees it, where, how long and the person's rights. Its text is in `config.js` and is still a draft (`PRIVACY_IS_PLACEHOLDER`). Administrators can erase a disabled account and all its data for good. The "Export test data" file identifies nobody.
+- 57 automated tests, including whole-flow tests of both apps in a simulated browser against a real server.
 - A development server with live reload and demo data for front-end work (`npm run dev`, see [3](#3-get-it-running) and [10.9](#109-front-end-work-with-the-dev-server)). It is a tool for the developer, not part of the app.
 
 Placeholders you must replace before real use: the target numbers and the "more procedures" list in `config.js`; the demo hospital list should be checked.
@@ -56,7 +57,7 @@ Needs **Node 22.13 or newer**. Nothing else: the server has no runtime dependenc
 
 ```
 npm install                                   # test tools only
-npm test                                      # 56 tests, about 1 minute
+npm test                                      # 57 tests, about 1 minute
 
 npm run admin -- add-admin ADMIN-ANDERS --name "Anders"            # prints an initial password; then do everything else in the app
 npm run admin -- add-supervisor SUP-ANNA --name "Dr Anna Kamara"   # prints an initial password
@@ -99,7 +100,7 @@ To try the student app offline: Chrome DevTools, Network tab, "Offline". To try 
 
 Read these before changing anything. Most bugs in this kind of system come from breaking one.
 
-1. **The event log is append-only.** Entries are never edited or deleted. A mistake is a `void` event on top; a signature is a `sign` event on top. The current state (`derive()` in `core.js`) is computed from the log. That is what makes offline use and sync conflict-free: two tablets can never overwrite each other, they only add events. If you feel the need for "update entry", add a new event type instead.
+1. **The event log is append-only.** Entries are never edited or deleted. A mistake is a `void` event on top; a signature is a `sign` event on top. The current state (`derive()` in `core.js`) is computed from the log. That is what makes offline use and sync conflict-free: two tablets can never overwrite each other, they only add events. If you feel the need for "update entry", add a new event type instead. **The one exception** is erasing a person on request (GDPR): an administrator can delete a whole account, only after disabling it, and `deleteUser` in `server/lib.js` then removes everything that account owns. Never use it to change or remove single entries.
 2. **Event ids are unique and the server is idempotent.** Ids are UUIDs made on the device. The server stores `(owner, id)` once (`INSERT OR IGNORE`), so sending the same event twice is harmless. This is why retrying is always safe.
 3. **Never trust the client.** `validateEvent` in `server/lib.js` copies only whitelisted fields and sets the owner to the logged-in account itself. A new field that is not added there is **silently dropped**, not rejected.
 4. **Students cannot create signatures.** `sign` events from a student's sync are refused (`sign_not_allowed`). Only `/api/sup/sign` creates them, after checking the assignment.
@@ -191,6 +192,7 @@ All calls are `POST` with a JSON body, except `GET /api/health`. Authenticated c
 | `POST /api/admin/reset` | admin, not own account | `id` | `id`, `password` (shown once) |
 | `POST /api/admin/disable` / `enable` | admin, disable not own account | `id` | `{ok}` |
 | `POST /api/admin/revoke` | admin | `id` | `{ok}` |
+| `POST /api/admin/delete` | admin, not own account, account disabled | `id` | `{ok}`, `events`, `assignments` (how many were removed) |
 | `POST /api/admin/rename` | admin | `id`, `name` | `{ok}` |
 | `POST /api/admin/export` | admin | `kind` (`procedures`, `hospitals`, `entries`), `delimiter` (`,` or `;`) | a CSV file (UTF-8 with byte order mark; cells starting with `= + - @` are prefixed so spreadsheets do not run them) |
 | `POST /api/admin/backup` | admin | | the database file (a consistent copy) |
@@ -218,7 +220,9 @@ What is *not* protected, honestly:
 - A signature means "the logged-in supervisor account asked the server to sign this". It is not cryptographic proof, and a supervisor who leaves a tablet unlocked can be signed in. The confirm dialog reduces accidents only.
 - Any supervisor can add any student without the student's approval (the student can see it, and an admin can remove it). Whether that is acceptable is a question for CapaCare ([14](#14-open-questions-for-capacare)).
 - Every supervisor can list all candidate numbers (to pick students to add).
-- "Delete" is a soft delete: voided entries stay in the database. A real erasure request needs a manual database operation.
+- A student's "Delete" is a soft delete: voided entries stay in the database. To erase a person, an administrator disables the account and then deletes it for good (Users tab, or `admin.js delete`). That removes the account, its sessions, its supervisor links and, for a student, every event in their stream including signatures. A supervisor's signatures stay in the students' records, with the supervisor's id and name. SQLite runs with `secure_delete`, so removed data is overwritten in the file. **Backups taken earlier still contain it**, and so do entries still on the student's tablet until they log out there. The audit log keeps the id of the deleted account (who deleted whom, and when).
+- The privacy notice (`PRIVACY` in `config.js`) is a draft: who is responsible, the contact and how long data is kept must be decided ([14](#14-open-questions-for-capacare)). Then set `PRIVACY_IS_PLACEHOLDER` to false.
+- The student's "Export test data" file holds no candidate number, supervisor id or name (it is often sent on WhatsApp). The sender is still known from the message.
 - Backups contain everything (names, entries, password hashes) and must be protected as much as the live database. An administrator can download one from the app; that download is written to the audit log.
 - Student names are personal data about staff-in-training. They are shown to administrators, to the student themselves and to the supervisors who can find or have added the student. They appear in the CSV files. Decide with CapaCare whether names are needed in research exports; the "procedures per hospital" file contains no names.
 - The audit log records account changes (create, reset, disable, enable, log out, rename, assign, unassign) with who did it and when; it never holds passwords. It does not record who *read* data.
@@ -294,6 +298,7 @@ rename SUP-ANNA "Dr Anna Kamara"
 reset CC1234          forgotten password: new initial password, logged out everywhere
 disable CC1234 | enable CC1234     leaving the programme: blocks login, keeps the data
 revoke CC1234         lost or stolen tablet: logs out everywhere, password stays
+delete CC1234         erase a disabled account and all its data for good (a request to be forgotten)
 list
 backup /data/backups/logbook-2026-11-01.db
 ```
@@ -369,9 +374,9 @@ Hosting, updating, backups, restoring and costs are in **`DEPLOY.md`**. The curr
 - **Deployment only partly checked.** It runs on Fly.io (see `DEPLOY.md`, "Current deployment"). The rest of the `DEPLOY.md` checklist (backup and restore, offline mode, second device) has not been recorded as done.
 - **Supervisors need internet to sign**, and see nothing offline.
 - **No password reset without an administrator**, no two-factor login, no per-address rate limiting; the login lock is in memory.
-- **Administrators cannot delete accounts**, only disable them (data stays). An administrator cannot reset or disable their own account; another administrator must.
+- **Deleting an account is two steps** (disable, then delete for good) and cannot be undone. An administrator cannot reset, disable or delete their own account; another administrator must.
 - **No research export yet.** The data is in the `events` table; a pseudonymised export (candidate number replaced by a code) still has to be built and approved.
-- **Soft deletes only**; erasure is manual.
+- **No automatic retention.** Nothing is deleted after a set time; erasure is done by an administrator, account by account.
 - **English only.**
 - **Whole history is sent to a new tablet.** Fine for hundreds or a few thousand entries per student; revisit beyond that.
 - **Accessibility** has not been checked beyond large touch targets and labels.

@@ -97,11 +97,14 @@ test('export contains events and metrics, and wipeAll removes everything', async
   await core.setMeta('profile', { student: 'S01', hospital: 'Masanga Hospital' });
   await core.logEntry({ ...base, procedure: 'cs', role: 'observing', ms_to_log: 1 });
   const events = await core.allEvents();
-  const out = core.buildExport(events, { profile: await core.getMeta('profile') });
-  assert.equal(out.events.length, 1);
-  assert.equal(out.profile.student, 'S01');
+  const signed = [...events, { id: 'sg1', type: 'sign', target: events[0].id, supervisor: 'SUP-A', supervisor_name: 'Dr A' }];
+  const out = core.buildExport(signed, { profile: await core.getMeta('profile') });
+  assert.equal(out.events.length, 2);
+  assert.equal(out.hospital, 'Masanga Hospital');
   assert.equal(out.metrics.entries_active, 1);
-  JSON.stringify(out); // must be serialisable
+  const text = JSON.stringify(out); // must be serialisable
+  for (const id of ['S01', 'SUP-A', 'Dr A']) assert.ok(!text.includes(id), `the export identifies nobody (found ${id})`);
+  assert.equal(out.events[0].procedure, 'cs', 'what was logged is still there');
 
   await core.wipeAll();
   assert.equal((await core.allEvents()).length, 0);

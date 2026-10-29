@@ -70,8 +70,15 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   $('#pw').value = 'initial-pw-1';
   await submit($('.setup-form'), 500);
 
-  // ---- must choose own password
+  // ---- must choose own password; the privacy notice can be read right there
   assert.match($('h1').textContent, /Choose your own password/);
+  await click(byText('.setup .btn', 'How your data is used'));
+  assert.match($('.sheet h3').textContent, /Your data/);
+  assert.match($('.sheet').textContent, /Patient names or numbers/);
+  assert.match($('.sheet').textContent, /Who can see it/);
+  assert.match($('.sheet').textContent, /have your account and your data deleted/);
+  await click(byText('.sheet .btn', 'Close'));
+  assert.equal($('.sheet'), null);
   $('#oldpw').value = 'initial-pw-1';
   $('#newpw').value = 'short';
   $('#reppw').value = 'short';
@@ -166,6 +173,9 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   await click(byText('.tab', 'More'));
   assert.match(document.body.textContent, /Your supervisors/);
   assert.match(document.body.textContent, /Dr Anna Kamara/);
+  await click(byText('.card .btn', 'How your data is used'));
+  assert.match($('.sheet h3').textContent, /Your data/, 'the privacy notice is also under More');
+  await click(byText('.sheet .btn', 'Close'));
 
   // ---- the hospital is a row like candidate number and name, and can still be changed from there
   assert.ok(byText('.kv', 'Hospital'), 'the hospital is shown as a row in the account card');
@@ -179,8 +189,8 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   assert.match($('.who').textContent, /Kenema Government Hospital/);
   assert.ok(!$('select[aria-label="Hospital"]').classList.contains('show'), 'the list closes after choosing');
 
-  // ---- the More tab: account, supervisors, then the rarely needed things folded away under "Advanced"
-  assert.deepEqual($$('section .card').map((c) => c.querySelector('h3, summary strong').textContent), ['Account', 'Your supervisors', 'Advanced']);
+  // ---- the More tab: account, supervisors, your data, then the rarely needed things folded away under "Advanced"
+  assert.deepEqual($$('section .card').map((c) => c.querySelector('h3, summary strong').textContent), ['Account', 'Your supervisors', 'Your data', 'Advanced']);
   assert.ok(!$('details.advanced').open, 'Advanced is folded when the tab is opened');
   assert.ok(byText('details.advanced .btn', 'Sync now') && byText('details.advanced', 'Version'), 'sync, export and app details are inside it');
   $('details.advanced').open = true;

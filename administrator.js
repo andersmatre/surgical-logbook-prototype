@@ -7,7 +7,7 @@ import { PROCEDURES_TOP, procName, roleLabel } from './config.js';
 import * as core from './core.js';
 import * as api from './api.js';
 import {
-  h, timeAgo, stat, kv, toast, openSheet, closeSheet, saveBlob,
+  h, timeAgo, stat, kv, toast, openSheet, closeSheet, saveBlob, privacyCard,
 } from './ui.js';
 
 const ENDED = Symbol('session ended'); // the server ended the session; app.js shows the login screen
@@ -191,6 +191,7 @@ const AUDIT_TEXT = {
   disable: (e) => `disabled ${e.target}`,
   enable: (e) => `enabled ${e.target}`,
   revoke_sessions: (e) => `logged ${e.target} out everywhere`,
+  delete: (e) => `deleted ${e.target} and its data for good`,
   rename: (e) => `changed the name of ${e.target}`,
   assign: (e) => `added ${e.target} to the students of ${e.detail}`,
   unassign: (e) => `removed ${e.target} from the students of ${e.detail}`,
@@ -333,7 +334,23 @@ function openUser(id) {
   parts.push(h('div', { class: 'row' },
     h('button', { class: 'btn ghost', type: 'button', onclick: () => act(u.id, (t) => api.adminRevoke(t, u.id), 'Logged out everywhere') }, 'Log out everywhere'),
     h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Close')));
+  // Erasing is only offered for a disabled account: two separate steps, so nobody deletes by accident.
+  if (u.disabled && !me) parts.push(h('button', { class: 'link danger', type: 'button', onclick: () => confirmDelete(u) }, 'Delete account and data for good'));
   openSheet(parts);
+}
+
+function confirmDelete(u) {
+  const what = u.role === 'student'
+    ? `Everything about ${u.id} is erased from the server: the account, all ${u.entries} entries and the signatures on them.`
+    : `The account ${u.id} is erased from the server. Signatures this person made stay in the students' logbooks, with the name.`;
+  openSheet([
+    h('h3', {}, `Delete ${u.id} for good?`),
+    h('p', {}, what),
+    h('p', { class: 'note' }, 'This cannot be undone. Use it when a person asks for their data to be deleted, or has left and their data is no longer needed. Backups taken earlier still contain the data.'),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn danger', type: 'button', onclick: () => act(u.id, (t) => api.adminDelete(t, u.id), `${u.id} deleted`, { reopen: false }).then(closeSheet) }, 'Delete for good'),
+      h('button', { class: 'btn ghost', type: 'button', onclick: () => openUser(u.id) }, 'Cancel')),
+  ]);
 }
 
 function openRename(u) {
@@ -508,6 +525,9 @@ function moreView() {
     backupCard(),
     h('div', { class: 'card' }, h('h3', {}, 'What an administrator can do'),
       h('p', { class: 'muted' }, 'See all students and their procedures, add accounts, give new passwords, disable accounts and choose which supervisor sees which student. You cannot sign procedures. Every change is listed under "Recent changes" on the Overview tab, with who made it. Initial passwords are shown once and never stored.')),
+    h('div', { class: 'card' }, h('h3', {}, 'When someone asks to see or delete their data'),
+      h('p', { class: 'muted' }, 'To show a student their data: "See entries" on their account (Users tab). To delete it: disable the account, then "Delete account and data for good". Keep a note of the request and the date outside the app.')),
+    privacyCard(),
     h('div', { class: 'card' }, h('h3', {}, 'About'), kv('Version', ctx.version), kv('Server', api.serverLabel())));
 }
 

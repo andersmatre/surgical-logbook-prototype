@@ -8,7 +8,7 @@ Read `PROJECT.md` first (what this is, the rules, where things are, how to make 
 - If you changed an app file (anything the browser loads), release it: bump the version in `config.js`, `package.json`, `CACHE` in `sw.js` **and** the `Version **x.y.z**` line in section 2 of `PROJECT.md`; a new app file must also be added to `sw.js` ASSETS, `server/app.js` STATIC and the `Dockerfile`. `test/files.test.mjs` checks this.
 
 ## Rules that must not be broken
-- The event log is append-only. Never add "edit entry". Mistakes are `void` events, signatures are `sign` events.
+- The event log is append-only. Never add "edit entry". Mistakes are `void` events, signatures are `sign` events. The only exception is `deleteUser` (an administrator erasing a whole disabled account on request, GDPR); never use it for single entries.
 - The server never trusts the client: owner is stamped by the server and `validateEvent` whitelists fields (a new field must be added there or it is silently dropped). Only the server creates `sign` events.
 - No patient identifiers and no free text, in the UI or in events. Use fixed lists or numbers.
 - Never rename, reuse or delete a procedure id or role id.

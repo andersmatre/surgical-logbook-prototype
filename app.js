@@ -10,7 +10,7 @@ import {
 import * as core from './core.js';
 import * as api from './api.js';
 import {
-  h, timeAgo, stat, kv, initUi, toast, hideToast, openSheet, closeSheet, passwordForm,
+  h, timeAgo, stat, kv, initUi, toast, hideToast, openSheet, closeSheet, passwordForm, openPrivacy, privacyCard,
 } from './ui.js';
 import { mountSupervisor } from './supervisor.js';
 import { mountAdministrator } from './administrator.js';
@@ -300,7 +300,9 @@ function forcedPasswordScreen() {
   return h('div', { class: 'setup' },
     h('h1', {}, 'Choose your own password'),
     h('p', { class: 'muted' }, `Welcome, ${state.session.candidate}. The password you were given is only for the first login. Choose a password that only you know, and do not share it with anyone.`),
-    form);
+    form,
+    // Everyone (students, supervisors, administrators) passes this screen once: tell them what is stored.
+    h('button', { class: 'btn ghost wide pv-link', type: 'button', onclick: openPrivacy }, 'How your data is used'));
 }
 
 function hospitalScreen() {
@@ -602,6 +604,7 @@ function moreTab() {
         h('button', { class: 'btn ghost', onclick: openChangePassword }, 'Change password'),
         h('button', { class: 'btn ghost', onclick: openLogout }, 'Log out'))),
     supervisorsCard(),
+    privacyCard(),
     // The things a student rarely needs are folded away, so the first screen stays short and simple.
     h('details', { class: 'card advanced', open: advancedOpen, ontoggle: (ev) => { advancedOpen = ev.target.open; } },
       h('summary', {}, h('span', { class: 'fold-title' }, h('strong', {}, 'Advanced'), h('span', { class: 'muted small' }, 'Sync now, export, app details'))),
@@ -679,7 +682,7 @@ async function doLogout() {
 
 async function exportData() {
   const payload = core.buildExport(state.events, { ...state.meta, profile: state.profile });
-  const name = `logbook-${state.profile.student.replace(/[^A-Z0-9_-]/g, '_')}-${core.localDateISO()}.json`;
+  const name = `logbook-test-data-${core.localDateISO()}.json`; // no candidate number: the file identifies nobody
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   try {
     const file = new File([blob], name, { type: 'application/json' });

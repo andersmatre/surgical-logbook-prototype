@@ -101,6 +101,7 @@ export const adminBackup = (token) => download('/api/admin/backup', { token });
 export const adminReset = (token, id) => call('/api/admin/reset', { token, body: { id } });
 export const adminSetDisabled = (token, id, disabled) => call(`/api/admin/${disabled ? 'disable' : 'enable'}`, { token, body: { id } });
 export const adminRevoke = (token, id) => call('/api/admin/revoke', { token, body: { id } });
+export const adminDelete = (token, id) => call('/api/admin/delete', { token, body: { id } });
 export const adminAssign = (token, supervisor, student) => call('/api/admin/assign', { token, body: { supervisor, student } });
 export const adminUnassign = (token, supervisor, student) => call('/api/admin/unassign', { token, body: { supervisor, student } });
 export const adminEntries = (token, candidate, cursor) => call('/api/admin/entries', { token, body: { candidate, cursor } });
