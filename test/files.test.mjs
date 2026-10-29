@@ -45,6 +45,13 @@ test('the version is the same in config.js, package.json, the service worker cac
   assert.ok(read('PROJECT.md').includes(`Version **${v}**`), 'update the "Version **x.y.z**" line in section 2 of PROJECT.md together with APP_VERSION');
 });
 
+test('no class names that ad blockers hide (they did hide "adv-text" on the live site)', () => {
+  const css = read('style.css');
+  const names = new Set([...css.matchAll(/\.([a-zA-Z][\w-]*)/g)].map((m) => m[1]));
+  const adLike = [...names].filter((n) => /^(ad|ads|adv|advert|sponsor|promo)(-|$)/i.test(n));
+  assert.deepEqual(adLike, [], 'rename these classes in style.css and the scripts');
+});
+
 test('the service worker fills a new cache with fresh files, never with copies from the browser cache', () => {
   assert.match(read('sw.js'), /cache: 'reload'/, 'otherwise a new version can be stored with old files mixed in');
 });

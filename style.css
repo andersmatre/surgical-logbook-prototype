@@ -180,8 +180,9 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 }
 .advanced[open] summary { margin-bottom: 8px; }
 .advanced[open] summary::after { transform: translateY(3px) rotate(-135deg); }
-.adv-text { display: flex; flex-direction: column; }
-.adv-text strong { font-size: 20px; }
+/* Not "adv-…": ad blockers hide elements with names like that (it happened to this title on the live site). */
+.fold-title { display: flex; flex-direction: column; }
+.fold-title strong { font-size: 20px; }
 .advanced h3 { margin-top: 16px; }
 .advanced summary:active { background: var(--main-light); }
 .summary { background: #f7f6f2; padding: 12px; border-radius: 10px; white-space: pre-wrap; font: 15px/1.5 ui-monospace, Menlo, monospace; margin: 0 0 8px; }

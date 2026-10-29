@@ -31,7 +31,7 @@ The context that shaped every decision:
 
 ## 2. Status
 
-Version **0.7.1**. A working prototype, tested automatically and **deployed on Fly.io** (see [11](#11-running-it)), but **not yet used on a Samsung tablet**.
+Version **0.7.2**. A working prototype, tested automatically and **deployed on Fly.io** (see [11](#11-running-it)), but **not yet used on a Samsung tablet**.
 
 Works:
 
@@ -43,7 +43,7 @@ Works:
 - The hospital is stored in every entry. The student sees it when logging (and can change it there) and in the history; administrators get a hospital table and CSV downloads (procedures per student, per hospital, every entry).
 - Administrators download a complete database backup from the app and are reminded when none has been taken for a week.
 - Admin from the command line as a fallback: create accounts, assign, reset, disable, revoke, list, backup.
-- 55 automated tests, including whole-flow tests of both apps in a simulated browser against a real server.
+- 56 automated tests, including whole-flow tests of both apps in a simulated browser against a real server.
 - A development server with live reload and demo data for front-end work (`npm run dev`, see [3](#3-get-it-running) and [10.9](#109-front-end-work-with-the-dev-server)). It is a tool for the developer, not part of the app.
 
 Placeholders you must replace before real use: the target numbers and the "more procedures" list in `config.js`; the demo hospital list should be checked.
@@ -56,7 +56,7 @@ Needs **Node 22.13 or newer**. Nothing else: the server has no runtime dependenc
 
 ```
 npm install                                   # test tools only
-npm test                                      # 55 tests, about 1 minute
+npm test                                      # 56 tests, about 1 minute
 
 npm run admin -- add-admin ADMIN-ANDERS --name "Anders"            # prints an initial password; then do everything else in the app
 npm run admin -- add-supervisor SUP-ANNA --name "Dr Anna Kamara"   # prints an initial password
@@ -275,7 +275,7 @@ In `server/app.js` add a branch in `api()`. Use `authenticate(req)` or `requireS
 
 ### 10.7 Add a screen
 
-Student: add to `TABS` and `tabContent()` in `app.js`. Supervisor: add to the `tabs` array in `nav()` and to `body()` in `supervisor.js`. Use classes from `style.css`; keep touch targets at least 44 px. The tab bar sits at the top, under the header (both stay in view while scrolling, `.sticky-top`); all tabs are equally wide. Do not add `viewport-fit=cover` to `index.html`: on Android Chrome it draws the page under the system gesture bar and leaves an empty white strip at the bottom (a test checks this). Strings are written inline in English; there is no translation layer yet (adding one means extracting the strings first).
+Student: add to `TABS` and `tabContent()` in `app.js`. Supervisor: add to the `tabs` array in `nav()` and to `body()` in `supervisor.js`. Use classes from `style.css`; keep touch targets at least 44 px. The tab bar sits at the top, under the header (both stay in view while scrolling, `.sticky-top`); all tabs are equally wide. Do not add `viewport-fit=cover` to `index.html`: on Android Chrome it draws the page under the system gesture bar and leaves an empty white strip at the bottom (a test checks this). Strings are written inline in English; there is no translation layer yet (adding one means extracting the strings first). Do not give elements class names that look like advertising (`ad`, `adv-…`, `ads`, `sponsor`, `promo`): ad blockers hide them, but usually not on `localhost`, so it only shows up on the live site (this happened to the "Advanced" title, class `adv-text`, in 0.7.1).
 
 ### 10.8 Manage accounts (administrator)
 

@@ -604,7 +604,7 @@ function moreTab() {
     supervisorsCard(),
     // The things a student rarely needs are folded away, so the first screen stays short and simple.
     h('details', { class: 'card advanced', open: advancedOpen, ontoggle: (ev) => { advancedOpen = ev.target.open; } },
-      h('summary', {}, h('span', { class: 'adv-text' }, h('strong', {}, 'Advanced'), h('span', { class: 'muted small' }, 'Sync now, export, app details'))),
+      h('summary', {}, h('span', { class: 'fold-title' }, h('strong', {}, 'Advanced'), h('span', { class: 'muted small' }, 'Sync now, export, app details'))),
       h('h3', {}, 'Data on this tablet'),
       kv('Entries', m.entries_active),
       kv('Waiting to be sent', n),
