@@ -1,14 +1,16 @@
 // sw.js — caches the app shell so the logbook opens and works with no internet.
 // To ship an update: change CACHE (e.g. bump the version) and redeploy.
 
-const CACHE = 'logbook-v0.7.0';
+const CACHE = 'logbook-v0.7.1';
 const ASSETS = [
   './', './index.html', './app.js', './core.js', './config.js', './api.js', './ui.js', './supervisor.js', './administrator.js',
   './style.css', './manifest.webmanifest', './icon-192.png', './icon-512.png',
 ];
 
+// cache: 'reload' fetches every file fresh from the server. Without it the browser may hand over a copy it
+// still holds from before the update (the server allows 5 minutes), and the new cache gets old and new files mixed.
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS.map((a) => new Request(a, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {

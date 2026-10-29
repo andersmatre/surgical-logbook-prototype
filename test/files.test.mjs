@@ -44,3 +44,7 @@ test('the version is the same in config.js, package.json, the service worker cac
   assert.ok(read('sw.js').includes(`'logbook-v${v}'`), 'bump CACHE in sw.js together with APP_VERSION');
   assert.ok(read('PROJECT.md').includes(`Version **${v}**`), 'update the "Version **x.y.z**" line in section 2 of PROJECT.md together with APP_VERSION');
 });
+
+test('the service worker fills a new cache with fresh files, never with copies from the browser cache', () => {
+  assert.match(read('sw.js'), /cache: 'reload'/, 'otherwise a new version can be stored with old files mixed in');
+});
