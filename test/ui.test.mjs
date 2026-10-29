@@ -31,6 +31,8 @@ const $ = (sel, scope = document) => scope.querySelector(sel);
 const $$ = (sel, scope = document) => [...scope.querySelectorAll(sel)];
 const click = async (el, ms) => { assert.ok(el, 'element to click exists'); el.click(); await wait(ms); };
 const byText = (sel, text, scope = document) => $$(sel, scope).find((e) => e.textContent.includes(text));
+// Tap a role, then Save on the details step (every detail question is optional).
+const logAs = async (role, ms) => { await click(byText('.role', role)); await click(byText('.sheet .btn', 'Save'), ms); };
 const submit = async (form, ms = 300) => {
   form.dispatchEvent(new window.Event('submit', { cancelable: true, bubbles: true }));
   await wait(ms);
@@ -107,9 +109,9 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
 
   // ---- log two entries; they are sent automatically
   await click(byText('.proc', 'Caesarean section'));
-  await click(byText('.role', 'Surgeon, independent'));
+  await logAs('Surgeon, independent');
   await click(byText('.proc', 'Appendectomy'));
-  await click(byText('.role', 'Observing'), 400);
+  await logAs('Observing', 400);
   assert.equal(serverEvents(), 2);
   assert.equal($('.chip'), null, 'no sync button when everything is up to date');
   assert.doesNotMatch(document.body.textContent, /null|undefined/, 'no stray "null" on screen');
@@ -125,7 +127,7 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   $('.sheet select').dispatchEvent(new window.Event('change'));
   await wait(100);
   assert.equal($('.sheet .fact strong').textContent, 'Bo Government Hospital');
-  await click(byText('.role', 'Assisting'), 200);
+  await logAs('Assisting', 200);
   assert.match($('.who').textContent, /Bo Government Hospital/, 'the tablet now works at the new hospital');
   assert.equal(serverEvents(), 2, 'nothing sent while offline');
   assert.equal($('.chip').textContent, 'Offline · 1 waiting');
@@ -260,7 +262,7 @@ test('logging out with unsent entries warns and offers to lose them', async () =
   window.dispatchEvent(new window.Event('offline'));
   await click(byText('.tab', 'Log'));
   await click(byText('.proc', 'Inguinal hernia repair'));
-  await click(byText('.role', 'Surgeon, supervised'), 200);
+  await logAs('Surgeon, supervised', 200);
   await click(byText('.tab', 'More'));
   await click(byText('.btn', 'Log out'), 200);
   assert.match($('.sheet').textContent, /NOT been sent/);
@@ -277,7 +279,7 @@ test('a session ended by the server returns to login and keeps the local entries
   server.db.prepare('DELETE FROM sessions').run(); // e.g. the account was disabled, or the password changed elsewhere
   await click(byText('.tab', 'Log'));
   await click(byText('.proc', 'Umbilical hernia repair'));
-  await click(byText('.role', 'Observing'), 500);
+  await logAs('Observing', 500);
   assert.ok($('#cand'), 'back at the login screen');
   assert.match(document.body.textContent, /session has ended/);
   assert.equal(serverEvents(), before);
@@ -294,7 +296,7 @@ test('deleting an entry that a supervisor signed in the meantime keeps it, and s
   window.dispatchEvent(new window.Event('online'));
   await click(byText('.tab', 'Log'));
   await click(byText('.proc', 'Strangulated hernia repair'));
-  await click(byText('.role', 'Surgeon, supervised'), 400); // saved and sent
+  await logAs('Surgeon, supervised', 400); // saved and sent
   const id = server.db.prepare("SELECT id FROM events WHERE owner = 'CC1234' AND type = 'entry' AND payload LIKE '%strang_hernia%'").get().id;
 
   // the supervisor signs it; this tablet has not synced since, so it still shows "Not signed"
@@ -310,4 +312,50 @@ test('deleting an entry that a supervisor signed in the meantime keeps it, and s
   assert.ok(row(), 'the entry is still there');
   assert.match(row().textContent, /Signed · Dr Anna Kamara/);
   assert.equal($('.chip'), null, 'no sync button when everything is up to date');
+});
+
+test('details are asked after the role, and a follow-up can be added later from History', async () => {
+  window.dispatchEvent(new window.Event('online'));
+  await click(byText('.tab', 'Log'));
+  await click(byText('.proc', 'Caesarean section'));
+  await click(byText('.role', 'Surgeon, independent'));
+  assert.ok(byText('.qlabel', 'Main reason'), 'a caesarean asks its own questions');
+  await click(byText('.sheet .btn', 'Back'));
+  assert.ok(byText('.role', 'Assisting'), 'Back shows the roles again');
+  await click(byText('.role', 'Surgeon, supervised'));
+
+  await click(byText('.seg-b', 'Emergency'));
+  await click(byText('.seg-b', 'Spinal'));
+  await click(byText('.seg-b', 'General')); // changes the answer
+  await click(byText('.seg-b', 'Planned'));
+  await click(byText('.seg-b', 'Planned')); // a second tap clears it
+  $('#q-duration_min').value = '5000';
+  await click(byText('.sheet .btn', 'Save'));
+  assert.match($('.sheet .error').textContent, /whole number from 1 to 1440/, 'a wrong number is explained, nothing saved');
+  $('#q-duration_min').value = '50';
+  await click(byText('.sheet .btn', 'Save'), 400);
+  const stored = () => server.db.prepare("SELECT payload FROM events WHERE owner = 'CC1234' AND type = ? ORDER BY seq DESC LIMIT 1");
+  assert.deepEqual(JSON.parse(stored().get('entry').payload).details, { anaesthesia: 'general', duration_min: 50 });
+
+  await click(byText('.tab', 'History'));
+  const row = () => $('.entry'); // the newest entry is on top
+  assert.match(row().textContent, /Anaesthesia: General · Operation time: 50 minutes/);
+  assert.match(row().textContent, /No follow-up yet/);
+  await click(byText('.link', 'Add follow-up', row()));
+  assert.deepEqual($$('.sheet .qlabel').map((l) => l.textContent), ['Complication', 'Mother', 'Baby']);
+  await click(byText('.sheet .btn', 'Save'));
+  assert.match($('.sheet .error').textContent, /Nothing new/);
+  await click(byText('.seg-b', 'Alive')); // the mother
+  await click(byText('.sheet .btn', 'Save'), 400);
+  assert.match(row().textContent, /Follow-up: Mother: Alive/);
+  assert.deepEqual(JSON.parse(stored().get('followup').payload).answers, { mother: 'alive' });
+
+  // later: the baby died. The earlier answer is shown and kept; only the new one is sent.
+  await click(byText('.link', 'Update', row()));
+  assert.equal(byText('.seg-b.on', 'Alive').getAttribute('aria-pressed'), 'true', 'the earlier answer is preselected');
+  await click(byText('.seg-b', 'Died after birth'));
+  await click(byText('.sheet .btn', 'Save'), 400);
+  assert.match(row().textContent, /Mother: Alive · Baby: Died after birth/);
+  assert.deepEqual(JSON.parse(stored().get('followup').payload).answers, { baby: 'died' });
+  assert.equal($('.chip'), null, 'everything was sent');
 });

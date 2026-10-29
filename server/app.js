@@ -172,7 +172,7 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
 
   // Supervisors get what they need to judge and sign an entry, not the app-usage measurements.
   const supervisorView = (e) => (e.type === 'entry'
-    ? { id: e.id, type: e.type, ts: e.ts, hospital: e.hospital, procedure: e.procedure, role: e.role, performed_on: e.performed_on, entered_on: e.entered_on }
+    ? { id: e.id, type: e.type, ts: e.ts, hospital: e.hospital, procedure: e.procedure, role: e.role, performed_on: e.performed_on, entered_on: e.entered_on, details: e.details }
     : e);
 
   // The events of one student after `cursor`, one page at a time.

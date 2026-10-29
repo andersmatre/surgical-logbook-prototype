@@ -5,7 +5,7 @@
 
 import {
   PROCEDURES_TOP, PROCEDURES_OTHER, ALL_PROCEDURES, ROLES, TARGETS, TARGETS_ARE_PLACEHOLDER,
-  HOSPITALS, APP_VERSION, procName, roleDone,
+  HOSPITALS, APP_VERSION, DETAIL_FIELDS, FOLLOWUP_FIELDS, procName, roleDone, detailFieldsFor, followupFieldsFor,
 } from './config.js';
 import * as core from './core.js';
 import * as api from './api.js';
@@ -383,35 +383,38 @@ function openRoleSheet(proc) {
   });
   const changeBtn = h('button', { class: 'change', type: 'button', 'aria-label': 'Change date', onclick: () => openPicker(dateInput) }, 'Change');
 
+  const save = async (r, details) => {
+    if (saving) return;
+    saving = true;
+    const ms = performance.now() - t0;
+    closeSheet();
+    const ev = await core.logEntry({
+      student: state.profile.student, hospital: state.profile.hospital,
+      procedure: proc.id, role: r.id, performed_on: date, ms_to_log: ms, online: state.online, details,
+    });
+    await refresh();
+    scheduleSync();
+    const p = core.progress(state.entries)[proc.id] || { performed: 0, total: 0 };
+    const target = TARGETS[proc.id];
+    toast(`Saved · ${r.label}`, {
+      sub: target ? `${proc.name}: ${p.performed} of ${target} performed` : `${proc.name}: ${p.total} logged`,
+      action: {
+        label: 'Undo',
+        fn: async () => {
+          await core.voidEntry(ev.id);
+          await core.setMeta('undo_count', (state.meta.undo_count || 0) + 1);
+          await refresh();
+          scheduleSync();
+          toast('Undone');
+        },
+      },
+    });
+  };
+
+  // A procedure with detail questions goes on to a second step; one without saves at the role tap.
   const roleBtns = ROLES.map((r) => h('button', {
     class: `role role-${r.id}`, type: 'button',
-    onclick: async () => {
-      if (saving) return;
-      saving = true;
-      const ms = performance.now() - t0;
-      closeSheet();
-      const ev = await core.logEntry({
-        student: state.profile.student, hospital: state.profile.hospital,
-        procedure: proc.id, role: r.id, performed_on: date, ms_to_log: ms, online: state.online,
-      });
-      await refresh();
-      scheduleSync();
-      const p = core.progress(state.entries)[proc.id] || { performed: 0, total: 0 };
-      const target = TARGETS[proc.id];
-      toast(`Saved · ${r.label}`, {
-        sub: target ? `${proc.name}: ${p.performed} of ${target} performed` : `${proc.name}: ${p.total} logged`,
-        action: {
-          label: 'Undo',
-          fn: async () => {
-            await core.voidEntry(ev.id);
-            await core.setMeta('undo_count', (state.meta.undo_count || 0) + 1);
-            await refresh();
-            scheduleSync();
-            toast('Undone');
-          },
-        },
-      });
-    },
+    onclick: () => (detailFieldsFor(proc.id).length ? openDetailsStep(proc, r, save, sheet) : save(r, null)),
   }, h('strong', {}, r.label), h('span', {}, r.hint)));
 
   // The hospital is stored with every entry. It is the one chosen on this tablet; it can be changed right here.
@@ -425,17 +428,87 @@ function openRoleSheet(proc) {
   });
   const hospBtn = h('button', { class: 'change', type: 'button', 'aria-label': 'Change hospital', onclick: () => openPicker(hospSel) }, 'Change');
 
-  // Hospital and date are already filled in; most of the time the student only taps a role, which saves at once.
-  openSheet([
+  // Hospital and date are already filled in; most of the time the student only taps a role (and Save, if the
+  // procedure has detail questions). The content is kept so "Back" on the details step can show it again.
+  const asksDetails = detailFieldsFor(proc.id).length > 0;
+  const sheet = [
     h('h3', {}, proc.name),
     h('div', { class: 'facts' },
       h('div', { class: 'fact' }, h('span', { class: 'fact-text' }, h('span', {}, 'Hospital'), hospLabel), hospBtn, hospSel),
       h('div', { class: 'fact' }, h('span', { class: 'fact-text' }, h('span', {}, 'Date'), dateLabel), changeBtn, dateInput)),
     h('p', { class: 'q' }, 'What was your role?'),
-    h('p', { class: 'muted q-hint' }, 'Tap one to save.'),
+    h('p', { class: 'muted q-hint' }, asksDetails ? 'Tap one.' : 'Tap one to save.'),
     h('div', { class: 'roles' }, roleBtns),
     h('button', { class: 'btn ghost wide', type: 'button', onclick: closeSheet }, 'Cancel'),
+  ];
+  openSheet(sheet);
+}
+
+// Second step of logging: the procedure's detail questions. Every question is optional, so Save always works.
+function openDetailsStep(proc, role, save, back) {
+  const form = questions(DETAIL_FIELDS, detailFieldsFor(proc.id), {});
+  const err = h('p', { class: 'error', role: 'alert' }, '');
+  openSheet([
+    h('h3', {}, proc.name),
+    h('p', { class: 'muted' }, `${role.label}. More about the operation, if you know it. You can skip any question.`),
+    form.el,
+    err,
+    h('button', {
+      class: 'btn wide', type: 'button',
+      onclick: () => {
+        const v = form.values();
+        if (v.error) { err.textContent = v.error; return; }
+        save(role, v.answers);
+      },
+    }, 'Save'),
+    h('button', { class: 'btn ghost wide', type: 'button', onclick: () => openSheet(back) }, 'Back'),
   ]);
+}
+
+// Questions from DETAIL_FIELDS or FOLLOWUP_FIELDS: a row of big buttons for a list (tap again to clear),
+// a number field for a number. `initial` preselects answers. values() returns { answers } or { error }.
+function questions(fields, ids, initial) {
+  const chosen = { ...initial };
+  const numbers = {};
+  const el = h('div', { class: 'questions' }, ids.map((id) => {
+    const f = fields[id];
+    if (f.number) {
+      numbers[id] = h('input', {
+        type: 'number', inputmode: 'numeric', min: String(f.number.min), max: String(f.number.max), step: '1',
+        class: 'num', id: `q-${id}`, value: chosen[id] != null ? String(chosen[id]) : '',
+      });
+      return h('div', { class: 'qrow' },
+        h('label', { class: 'qlabel', for: `q-${id}` }, f.label),
+        h('div', { class: 'numrow' }, numbers[id], f.unit ? h('span', { class: 'muted' }, f.unit) : null));
+    }
+    const btns = f.options.map(([v, label]) => h('button', {
+      class: 'seg-b' + (chosen[id] === v ? ' on' : ''), type: 'button', 'aria-pressed': String(chosen[id] === v),
+      onclick: (ev) => {
+        chosen[id] = chosen[id] === v ? undefined : v;
+        for (const b of ev.currentTarget.parentNode.children) {
+          const on = b === ev.currentTarget && chosen[id] === v;
+          b.classList.toggle('on', on);
+          b.setAttribute('aria-pressed', String(on));
+        }
+      },
+    }, label));
+    return h('div', { class: 'qrow', role: 'group', 'aria-label': f.label }, h('span', { class: 'qlabel' }, f.label), h('div', { class: 'seg' }, btns));
+  }));
+  const values = () => {
+    const answers = {};
+    for (const id of ids) {
+      const f = fields[id];
+      if (f.number) {
+        const raw = numbers[id].value.trim();
+        if (!raw) continue;
+        const n = Number(raw);
+        if (!Number.isInteger(n) || n < f.number.min || n > f.number.max) return { error: `${f.label}: enter a whole number from ${f.number.min} to ${f.number.max}.` };
+        answers[id] = n;
+      } else if (chosen[id] != null) answers[id] = chosen[id];
+    }
+    return { answers };
+  };
+  return { el, values };
 }
 
 // ---- Progress tab ----------------------------------------------------------
@@ -556,6 +629,9 @@ function openRoleFilter() {
 
 function entryRow(e) {
   const late = e.performed_on !== e.entered_on;
+  const details = core.answersText(DETAIL_FIELDS, e.details);
+  const outcome = core.answersText(FOLLOWUP_FIELDS, e.outcome);
+  const canFollowUp = core.followUpOpen(e);
   return h('li', { class: 'entry' },
     h('div', { class: 'e-main' }, h('strong', {}, procName(e.procedure)), h('span', { class: `role-tag role-${e.role}` }, roleDone(e.role))),
     h('div', { class: 'e-meta' },
@@ -563,7 +639,47 @@ function entryRow(e) {
       late ? h('span', { class: 'tag' }, 'late entry') : null,
       e.sign ? h('span', { class: 'tag ok' }, `Signed · ${e.sign.supervisor_name || e.sign.supervisor}`) : h('span', { class: 'tag warn' }, 'Not signed'),
       // Bottom right, under the role, so an unsigned entry is no taller than a signed one.
-      e.sign ? null : h('button', { class: 'link danger e-del', onclick: () => confirmDelete(e) }, 'Delete')));
+      e.sign ? null : h('button', { class: 'link danger e-del', onclick: () => confirmDelete(e) }, 'Delete')),
+    details ? h('div', { class: 'e-extra' }, details) : null,
+    outcome || canFollowUp
+      ? h('div', { class: 'e-follow' },
+        h('span', { class: outcome ? 'e-outcome' : 'muted' }, outcome ? `Follow-up: ${outcome}` : 'No follow-up yet'),
+        canFollowUp ? h('button', { class: 'link e-fu', onclick: () => openFollowUp(e) }, outcome ? 'Update' : 'Add follow-up') : null)
+      : null);
+}
+
+// What happened to the patient afterwards, up to FOLLOWUP_DAYS after the operation. Saved as a new
+// 'followup' event; the entry itself never changes. Current answers are preselected.
+function openFollowUp(e) {
+  const ids = followupFieldsFor(e.procedure);
+  const form = questions(FOLLOWUP_FIELDS, ids, e.outcome);
+  const err = h('p', { class: 'error', role: 'alert' }, '');
+  const days = core.daysBetween(e.performed_on, core.localDateISO());
+  openSheet([
+    h('h3', {}, 'Follow-up'),
+    h('p', {}, h('strong', {}, procName(e.procedure)), ` · ${core.fmtDate(e.performed_on)} (${days === 0 ? 'today' : days === 1 ? '1 day ago' : `${days} days ago`})`),
+    h('p', { class: 'muted' }, 'What do you know now? Tap only what you know. You can add more later.'),
+    form.el,
+    err,
+    h('button', {
+      class: 'btn wide', type: 'button',
+      onclick: async () => {
+        const v = form.values();
+        if (v.error) { err.textContent = v.error; return; }
+        const changed = Object.fromEntries(Object.entries(v.answers).filter(([id, a]) => e.outcome[id] !== a));
+        if (!Object.keys(changed).length) { err.textContent = 'Nothing new to save. Tap an answer, or Cancel.'; return; }
+        closeSheet();
+        const ev = await core.addFollowUp(e.id, changed);
+        await refresh();
+        scheduleSync();
+        toast('Follow-up saved', {
+          sub: procName(e.procedure),
+          action: { label: 'Undo', fn: async () => { await core.voidEntry(ev.id); await refresh(); scheduleSync(); toast('Undone'); } },
+        });
+      },
+    }, 'Save'),
+    h('button', { class: 'btn ghost wide', type: 'button', onclick: closeSheet }, 'Cancel'),
+  ]);
 }
 
 function confirmDelete(e) {

@@ -754,13 +754,14 @@ test('CSV exports: counts per student, per hospital and every entry; safe for sp
     };
 
     const entries = await get('entries');
-    assert.equal(entries[0], 'candidate,name,entry_id,performed_on,entered_on,hospital,procedure_id,procedure,role,performed,signed,signed_by,signed_at');
+    assert.equal(entries[0], 'candidate,name,entry_id,performed_on,entered_on,hospital,procedure_id,procedure,role,performed,signed,signed_by,signed_at,'
+      + 'urgency,anaesthesia,duration_min,side,mesh,cs_indication,followup_complication,followup_patient,followup_mother,followup_baby,followup_on');
     assert.equal(entries.length, 4, 'header and three live entries; the deleted one is left out');
     const first = entries.find((l) => l.includes(e1.id));
     assert.match(first, /^S001,"'=HYPERLINK\(""x""\)",/, 'a name starting with = cannot become a formula');
     assert.match(first, /Masanga Hospital,cs,Caesarean section,Surgeon, independent|Masanga Hospital,cs,Caesarean section,"Surgeon, independent"/);
     assert.match(first, /,yes,yes,SUP-ANNA,\d{4}-/, 'performed, signed, who signed');
-    assert.match(entries.find((l) => l.includes(e2.id)), /,Observing,no,no,,$/);
+    assert.match(entries.find((l) => l.includes(e2.id)), /,Observing,no,no,{13}$/, 'not signed, no details, no follow-up');
     assert.match(entries.find((l) => l.includes(e3.id)), /^S002,"Doe, Jane",/, 'commas in a name are quoted');
 
     const procs = await get('procedures');
@@ -821,5 +822,61 @@ test('sessions last a year of use, and a logged-out user is told why', async () 
     revokeSessions(t.s.db, 'S001');
     const unknown = await t.call('/api/sync', { token: again, body: { events: [], cursor: 0 } });
     assert.match(unknown.body.message, /ended on the server/);
+  } finally { await t.s.close(); }
+});
+
+test('details and follow-ups: only known questions and allowed answers are stored; supervisors and the CSV see them', async () => {
+  const t = await start();
+  try {
+    const admin = await adminReady(t);
+    const student = await ready(t, 'S001', 'initial-pw-1', 'second-pw-22');
+    const supToken = await supervisorReady(t);
+    await sup(t, supToken, 'assign', { candidate: 'S001' });
+
+    const e1 = entry({ details: { urgency: 'emergency', anaesthesia: 'spinal', duration_min: 45, cs_indication: 'obstructed', note: 'free text', side: 'up', mesh: 'Yes' } });
+    const e2 = entry({ procedure: 'appendectomy', details: { duration_min: 0 } });
+    const e3 = entry({ procedure: 'laparotomy', details: 'spinal' });
+    const fu = (target, answers, over = {}) => ({
+      id: `44444444-0000-4000-8000-${String(++n).padStart(12, '0')}`, type: 'followup', ts: new Date().toISOString(),
+      target, known_on: '2026-10-25', answers, ...over,
+    });
+    const f1 = fu(e1.id, { mother: 'alive', baby: 'stillbirth', complication: 'none' }, { ts: '2026-10-25T10:00:00.000Z' });
+    const f2 = fu(e1.id, { complication: 'wound_infection', patient: 'the name' }, { ts: '2026-10-30T10:00:00.000Z', known_on: '2026-10-30' });
+    const fBadAnswers = fu(e1.id, { comment: 'free text' });
+    const fBadTarget = fu('x', { complication: 'none' });
+    const fBadDate = fu(e1.id, { complication: 'none' }, { known_on: 'yesterday' });
+    const fGone = fu(e2.id, { patient: 'died' });
+    const undoGone = { id: '55555555-0000-4000-8000-000000000001', type: 'void', ts: new Date().toISOString(), target: fGone.id };
+
+    const r = await t.call('/api/sync', { token: student, body: { events: [e1, e2, e3, f1, f2, fBadAnswers, fBadTarget, fBadDate, fGone, undoGone], cursor: 0 } });
+    assert.deepEqual(r.body.rejected.map((x) => x.reason), ['bad answers', 'bad target', 'bad date']);
+    const stored = (id) => r.body.events.find((e) => e.id === id);
+    assert.deepEqual(stored(e1.id).details, { urgency: 'emergency', anaesthesia: 'spinal', duration_min: 45, cs_indication: 'obstructed' },
+      'unknown questions and answers that are not on the list are dropped');
+    assert.equal(stored(e2.id).details, undefined, 'a number out of range is dropped; the entry itself is kept');
+    assert.equal(stored(e3.id).details, undefined);
+    assert.deepEqual(stored(f2.id).answers, { complication: 'wound_infection' });
+
+    // a follow-up is not a change: a signed entry still takes follow-ups
+    await sup(t, supToken, 'sign', { candidate: 'S001', ids: [e1.id] });
+    const late = fu(e1.id, { mother: 'died' }, { ts: '2026-11-02T10:00:00.000Z', known_on: '2026-11-02' });
+    assert.deepEqual((await t.call('/api/sync', { token: student, body: { events: [late], cursor: 0 } })).body.accepted, [late.id]);
+
+    const view = (await sup(t, supToken, 'entries', { candidate: 'S001', cursor: 0 })).body.events;
+    assert.equal(view.find((e) => e.id === e1.id).details.anaesthesia, 'spinal', 'supervisors see the details');
+    assert.ok(view.find((e) => e.id === late.id), 'and the follow-ups');
+
+    const res = await raw(t, admin, 'export', { kind: 'entries', delimiter: ';' }); // ';' because a role name has a comma
+    const lines = res.buf.toString('utf8').slice(1).split('\r\n').filter(Boolean);
+    const head = lines[0].split(';');
+    const row = (id) => { const cells = lines.find((l) => l.includes(id)).split(';'); return (col) => cells[head.indexOf(col)]; };
+    const one = row(e1.id);
+    assert.equal(one('anaesthesia'), 'spinal');
+    assert.equal(one('duration_min'), '45');
+    assert.equal(one('followup_complication'), 'wound_infection', 'the newest answer wins');
+    assert.equal(one('followup_mother'), 'died');
+    assert.equal(one('followup_baby'), 'stillbirth', 'an answer not given again is kept');
+    assert.equal(one('followup_on'), '2026-11-02');
+    assert.equal(row(e2.id)('followup_patient'), '', 'an undone follow-up is left out');
   } finally { await t.s.close(); }
 });

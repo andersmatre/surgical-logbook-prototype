@@ -5,7 +5,7 @@
 // from the log. This is what makes later server sync conflict-free: sync just
 // means "upload events the server has not seen".
 
-import { TARGETS, TARGETS_ARE_PLACEHOLDER, procName } from './config.js';
+import { TARGETS, TARGETS_ARE_PLACEHOLDER, FOLLOWUP_DAYS, procName, answerLabel } from './config.js';
 import { APP_VERSION } from './config.js';
 
 const DB_VERSION = 2;
@@ -117,10 +117,19 @@ export async function logEntry(f) {
     role: f.role,
     performed_on: f.performed_on || localDateISO(now),
     entered_on: localDateISO(now),
-    ms_to_log: Math.round(f.ms_to_log || 0), // procedure tap -> role tap
+    ms_to_log: Math.round(f.ms_to_log || 0), // procedure tap -> saved (the role tap, or Save after the details)
     online: !!f.online,
     schema: 1,
+    // Answers to the procedure's detail questions (DETAIL_FIELDS in config.js). Left out when none were given.
+    ...(f.details && Object.keys(f.details).length ? { details: f.details } : {}),
   });
+}
+
+// What became of the patient, added later (FOLLOWUP_FIELDS in config.js). A new event on top of the entry,
+// never a change to it. `known_on` is the day the student learnt it.
+export async function addFollowUp(targetId, answers) {
+  const now = new Date();
+  return addEvent({ id: newId(), type: 'followup', ts: now.toISOString(), target: targetId, known_on: localDateISO(now), answers });
 }
 
 export async function voidEntry(targetId) {
@@ -142,17 +151,40 @@ export async function dropEvent(id) {
 
 // ---- derived state --------------------------------------------------------
 
+// Each live entry gets `sign` (or null), `followups` (oldest first) and `outcome`: the follow-up answers
+// merged, a newer answer to the same question replacing an older one. A void can also undo a follow-up.
 export function derive(events) {
   const voided = new Set();
   const signs = new Map();
+  const followups = new Map();
   for (const e of events) {
     if (e.type === 'void') voided.add(e.target);
     if (e.type === 'sign' && !signs.has(e.target)) signs.set(e.target, e);
   }
+  for (const e of events) {
+    if (e.type !== 'followup' || voided.has(e.id)) continue;
+    if (!followups.has(e.target)) followups.set(e.target, []);
+    followups.get(e.target).push(e);
+  }
   return events
     .filter((e) => e.type === 'entry' && !voided.has(e.id))
-    .map((e) => ({ ...e, sign: signs.get(e.id) || null }))
+    .map((e) => {
+      const fu = (followups.get(e.id) || []).sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
+      return { ...e, sign: signs.get(e.id) || null, followups: fu, outcome: Object.assign({}, ...fu.map((f) => f.answers || {})) };
+    })
     .sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0));
+}
+
+// Whole days from one date ('YYYY-MM-DD') to another.
+export const daysBetween = (from, to) => Math.round((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / 86400000);
+
+// A follow-up can be added up to FOLLOWUP_DAYS after the operation.
+export const followUpOpen = (entry, today = localDateISO()) => daysBetween(entry.performed_on, today) <= FOLLOWUP_DAYS;
+
+// Answers as one line of text, in the order of the fields: 'Anaesthesia: Spinal · Operation time: 45 minutes'.
+export function answersText(fields, answers) {
+  return Object.keys(fields).filter((id) => answers && answers[id] != null)
+    .map((id) => `${fields[id].label}: ${answerLabel(fields, id, answers[id])}`).join(' · ');
 }
 
 export function progress(entries) {
@@ -258,6 +290,8 @@ export function metrics(events, meta = {}) {
     median_ms_procedure_tap_to_saved: median(all.map((e) => e.ms_to_log).filter((n) => n > 0)),
     entries_logged_offline: all.filter((e) => !e.online).length,
     late_entries: all.filter((e) => e.performed_on !== e.entered_on).length,
+    entries_with_details: all.filter((e) => e.details).length,
+    followups: events.filter((e) => e.type === 'followup').length,
     days_with_entries: new Set(all.map((e) => e.entered_on)).size,
     undo_count: meta.undo_count || 0,
     app_opens: meta.open_count || 0,

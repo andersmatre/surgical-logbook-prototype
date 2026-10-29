@@ -19,12 +19,13 @@ You need internet for the first login on a tablet. After that the logbook also w
 
 Please try these in order. Do not ask anyone for help. If you get stuck, note where.
 
-1. Log the last procedure you did. (Log tab: tap the procedure, then tap your role.)
+1. Log the last procedure you did. (Log tab: tap the procedure, tap your role, answer the questions you know, tap Save.)
 2. Log two more procedures, one of them from "More procedures".
 3. Make a mistake on purpose and undo it.
 4. Switch on airplane mode. Log two procedures. Switch airplane mode off. Watch the top right: while entries wait it shows "Offline" or "N to sync"; after a short time the button disappears, which means everything is sent.
 5. Open "Progress" and look at your numbers. Send the weekly summary to yourself on WhatsApp.
-6. Ask your supervisor to add your candidate number in their app and sign your entries. Your entries must be synced first (no sync button is shown at the top right). Then open the More tab, open "Advanced" and tap "Sync now": the signatures appear in the History tab, and your supervisor's name appears under More, "Your supervisors".
+6. Open "History" and add a follow-up to one of your operations: what happened to the patient afterwards.
+7. Ask your supervisor to add your candidate number in their app and sign your entries. Your entries must be synced first (no sync button is shown at the top right). Then open the More tab, open "Advanced" and tap "Sync now": the signatures appear in the History tab, and your supervisor's name appears under More, "Your supervisors".
 
 ## Use it for real for one to two weeks
 

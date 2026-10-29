@@ -3,7 +3,7 @@
 // Plain JavaScript, no build step. Needs internet; nothing is stored on the tablet.
 // app.js decides when to show this (the logged-in account has the role "admin").
 
-import { PROCEDURES_TOP, procName, roleLabel } from './config.js';
+import { PROCEDURES_TOP, DETAIL_FIELDS, FOLLOWUP_FIELDS, procName, roleLabel } from './config.js';
 import * as core from './core.js';
 import * as api from './api.js';
 import {
@@ -230,7 +230,9 @@ async function openEntries(candidate) {
         ? h('ul', { class: 'list tight' }, shown.map((e) => h('li', { class: 'entry' },
           h('div', { class: 'e-main' }, h('strong', {}, procName(e.procedure)), h('span', { class: `role-tag role-${e.role}` }, roleLabel(e.role))),
           h('div', { class: 'e-meta' }, h('span', {}, core.fmtDate(e.performed_on)), h('span', {}, e.hospital),
-            e.sign ? h('span', { class: 'tag ok' }, `Signed · ${e.sign.supervisor_name || e.sign.supervisor}`) : h('span', { class: 'tag warn' }, 'Not signed')))))
+            e.sign ? h('span', { class: 'tag ok' }, `Signed · ${e.sign.supervisor_name || e.sign.supervisor}`) : h('span', { class: 'tag warn' }, 'Not signed')),
+          e.details ? h('div', { class: 'e-extra' }, core.answersText(DETAIL_FIELDS, e.details)) : null,
+          e.followups.length ? h('div', { class: 'e-extra' }, `Follow-up: ${core.answersText(FOLLOWUP_FIELDS, e.outcome)}`) : null)))
         : h('p', { class: 'muted' }, 'Nothing logged yet.'),
       entries.length > shown.length ? h('p', { class: 'muted small' }, `Showing the newest ${shown.length}.`) : null,
       h('button', { class: 'btn ghost wide', type: 'button', onclick: closeSheet }, 'Close'),

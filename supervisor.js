@@ -5,7 +5,7 @@
 // students and their entries are fetched from the server each time, and signing is checked by the server.
 // app.js decides when to show this (the logged-in account has the role "supervisor").
 
-import { procName, roleLabel } from './config.js';
+import { DETAIL_FIELDS, FOLLOWUP_FIELDS, procName, roleLabel } from './config.js';
 import * as core from './core.js';
 import * as api from './api.js';
 import {
@@ -178,6 +178,16 @@ function entryLine(e) {
   return [h('strong', {}, procName(e.procedure)), ` · ${roleLabel(e.role)} · ${core.fmtDate(e.performed_on)}`];
 }
 
+// The details given when logging, and the newest follow-up answers, one small line each.
+function extraLines(e) {
+  const details = core.answersText(DETAIL_FIELDS, e.details);
+  const outcome = core.answersText(FOLLOWUP_FIELDS, e.outcome);
+  return [
+    details ? h('span', { class: 'muted small block' }, details) : null,
+    outcome ? h('span', { class: 'muted small block' }, `Follow-up: ${outcome}`) : null,
+  ];
+}
+
 function detailView() {
   const d = sv.detail;
   const back = h('button', {
@@ -199,7 +209,7 @@ function detailView() {
     box.addEventListener('change', () => { if (box.checked) d.selected.add(e.id); else d.selected.delete(e.id); updateBtn(); });
     return h('label', { class: 'check' }, box,
       h('span', {}, entryLine(e), e.performed_on !== e.entered_on ? h('span', { class: 'tag' }, 'late entry') : null,
-        h('span', { class: 'muted small block' }, e.hospital)));
+        h('span', { class: 'muted small block' }, e.hospital), extraLines(e)));
   });
   updateBtn();
 
@@ -218,7 +228,7 @@ function detailView() {
     signed.length ? h('div', { class: 'card' },
       h('h3', {}, 'Signed'),
       h('ul', { class: 'list tight' }, signed.map((e) => h('li', { class: 'entry' },
-        h('div', { class: 'e-main' }, h('span', {}, entryLine(e))),
+        h('div', { class: 'e-main' }, h('span', {}, entryLine(e), extraLines(e))),
         h('div', { class: 'e-meta' }, h('span', { class: 'tag ok' }, `Signed · ${e.sign.supervisor_name || e.sign.supervisor}`)))))) : null,
     h('button', { class: 'link danger', onclick: () => confirmRemove(d.candidate) }, 'Remove from my students'));
 }

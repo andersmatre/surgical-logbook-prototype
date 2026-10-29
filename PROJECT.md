@@ -31,11 +31,11 @@ The context that shaped every decision:
 
 ## 2. Status
 
-Version **0.8.0**. A working prototype, tested automatically and **deployed on Fly.io** (see [11](#11-running-it)), but **not yet used on a Samsung tablet**.
+Version **0.9.0**. A working prototype, tested automatically and **deployed on Fly.io** (see [11](#11-running-it)), but **not yet used on a Samsung tablet**.
 
 Works:
 
-- Student app: login with candidate number and password, forced own password at first login, log a procedure in two taps (procedure, then role), undo, history (can show only one procedure and/or one role), progress against targets, weekly summary to share on WhatsApp, works offline, installable.
+- Student app: login with candidate number and password, forced own password at first login, log a procedure (procedure, role, then optional details such as anaesthesia and operation time, and Save), undo, a follow-up on an entry for 6 weeks after the operation (complications, patient, mother and baby outcome), history (can show only one procedure and/or one role), progress against targets, weekly summary to share on WhatsApp, works offline, installable.
 - Sync to the server with automatic retry; log in on any tablet and the history comes back.
 - Supervisor accounts: a supervisor logs in with a staff ID, adds students, sees their entries and signs selected ones. The server verifies every signature.
 - Administrator accounts and screens (no shell needed): overview of every procedure across all students, a matrix per student, user list, add many students at once, new password, disable, log out everywhere, assign supervisors, a log of recent changes. The first administrator is created from environment variables (`ADMIN_ID`, `ADMIN_PASSWORD`, see `DEPLOY.md`).
@@ -44,10 +44,10 @@ Works:
 - Administrators download a complete database backup from the app and are reminded when none has been taken for a week.
 - Admin from the command line as a fallback: create accounts, assign, reset, disable, revoke, delete, list, backup.
 - Privacy: a notice ("Your data") on the first-login screen and under More in all three apps, with what is stored, why, who sees it, where, how long and the person's rights. Its text is in `config.js` and is still a draft (`PRIVACY_IS_PLACEHOLDER`). Administrators can erase a disabled account and all its data for good. The "Export test data" file identifies nobody.
-- 57 automated tests, including whole-flow tests of both apps in a simulated browser against a real server.
+- 60 automated tests, including whole-flow tests of both apps in a simulated browser against a real server.
 - A development server with live reload and demo data for front-end work (`npm run dev`, see [3](#3-get-it-running) and [10.9](#109-front-end-work-with-the-dev-server)). It is a tool for the developer, not part of the app.
 
-Placeholders you must replace before real use: the target numbers and the "more procedures" list in `config.js`; the demo hospital list should be checked.
+Placeholders you must replace before real use: the target numbers, the "more procedures" list and the detail and follow-up questions (`DETAIL_FIELDS`, `FOLLOWUP_FIELDS`, a first guess) in `config.js`; the demo hospital list should be checked.
 
 Not done: trying it on a real Samsung tablet, research export, offline signing for supervisors, ethics and data-protection approval. See [13](#13-known-limits) and [15](#15-next-steps).
 
@@ -57,7 +57,7 @@ Needs **Node 22.13 or newer**. Nothing else: the server has no runtime dependenc
 
 ```
 npm install                                   # test tools only
-npm test                                      # 57 tests, about 1 minute
+npm test                                      # 60 tests, about 1 minute
 
 npm run admin -- add-admin ADMIN-ANDERS --name "Anders"            # prints an initial password; then do everything else in the app
 npm run admin -- add-supervisor SUP-ANNA --name "Dr Anna Kamara"   # prints an initial password
@@ -88,7 +88,9 @@ To try the student app offline: Chrome DevTools, Network tab, "Offline". To try 
 └────────────────────────────────────────┘
 ```
 
-**Entry flow.** The student taps a procedure and a role. `core.logEntry` writes an `entry` event to IndexedDB at once (works offline). A moment later `syncCore` (in `app.js`) sends every event the server has not confirmed (at most 200 per request) and pulls everything new. Confirmed ids go in the local `sent` store, which is what the "N to sync" counter is based on.
+**Entry flow.** The student taps a procedure and a role, answers the optional detail questions for that procedure and taps Save (a procedure without detail questions saves at the role tap). `core.logEntry` writes an `entry` event to IndexedDB at once (works offline). A moment later `syncCore` (in `app.js`) sends every event the server has not confirmed (at most 200 per request) and pulls everything new. Confirmed ids go in the local `sent` store, which is what the "N to sync" counter is based on.
+
+**Follow-up flow.** In History, an entry up to `FOLLOWUP_DAYS` (42) after the operation has "Add follow-up". The answers are saved as a `followup` event on top of the entry and synced like any other event. `derive()` merges an entry's follow-ups, the newest answer to each question winning, into `entry.outcome`. Undo is a `void` of the follow-up.
 
 **Signing flow.** The supervisor opens a student, ticks entries, confirms. `POST /api/sup/sign` makes the server check that the supervisor is assigned to that student and that each entry exists, is not deleted and is not already signed. For each one it writes a `sign` event into the *student's* event stream. The student's tablet receives it with its next sync, like any other event.
 
@@ -155,8 +157,9 @@ Every fact is an event. All have `id`, `type`, `ts` (device clock, ISO time).
 
 | Type | Made by | Extra fields |
 |---|---|---|
-| `entry` | student tablet | `student`, `hospital`, `procedure`, `role` (`observing`, `assisting`, `supervised`, `independent`), `performed_on` (date the student says), `entered_on` (date it was logged), `ms_to_log` (how long logging took, a usability measurement), `online`, `schema` (1) |
-| `void` | student tablet | `target` (an entry id). "Delete". |
+| `entry` | student tablet | `student`, `hospital`, `procedure`, `role` (`observing`, `assisting`, `supervised`, `independent`), `performed_on` (date the student says), `entered_on` (date it was logged), `ms_to_log` (procedure tap to saved, a usability measurement), `online`, `schema` (1), `details` (optional: `{question id: option id or whole number}`, questions from `DETAIL_FIELDS`; left out when nothing was answered) |
+| `followup` | student tablet | `target` (an entry id), `known_on` (the day the student learnt it), `answers` (`{question id: option id}`, questions from `FOLLOWUP_FIELDS`, at least one). Only the answers that changed. |
+| `void` | student tablet | `target` (an entry or follow-up id). "Delete", or Undo of a follow-up. |
 | `sign` | **server only** | `target` (an entry id), `supervisor` (account id), `supervisor_name` (name at the time of signing) |
 
 "Performed" in progress counts means role `supervised` or `independent`.
@@ -194,12 +197,13 @@ All calls are `POST` with a JSON body, except `GET /api/health`. Authenticated c
 | `POST /api/admin/revoke` | admin | `id` | `{ok}` |
 | `POST /api/admin/delete` | admin, not own account, account disabled | `id` | `{ok}`, `events`, `assignments` (how many were removed) |
 | `POST /api/admin/rename` | admin | `id`, `name` | `{ok}` |
-| `POST /api/admin/export` | admin | `kind` (`procedures`, `hospitals`, `entries`), `delimiter` (`,` or `;`) | a CSV file (UTF-8 with byte order mark; cells starting with `= + - @` are prefixed so spreadsheets do not run them) |
+| `POST /api/admin/export` | admin | `kind` (`procedures`, `hospitals`, `entries`), `delimiter` (`,` or `;`) | a CSV file (`entries` has one column per detail question, one `followup_<id>` column per follow-up question with the newest answer, and `followup_on`; answers are the stored codes) (UTF-8 with byte order mark; cells starting with `= + - @` are prefixed so spreadsheets do not run them) |
 | `POST /api/admin/backup` | admin | | the database file (a consistent copy) |
 | `POST /api/admin/assign` / `unassign` | admin | `supervisor`, `student` | `{ok}` |
 | `POST /api/admin/entries` | admin | `candidate`, `cursor` | `events`, `cursor`, `has_more` |
 
-Rejection reasons from `/api/sync`: `bad id`, `bad ts`, `bad procedure`, `bad role`, `bad date`, `bad hospital`, `bad ms_to_log`, `bad target`, `unknown type`, `sign_not_allowed`, `signed_locked`.
+Rejection reasons from `/api/sync`: `bad id`, `bad ts`, `bad procedure`, `bad role`, `bad date`, `bad hospital`, `bad ms_to_log`, `bad target`, `bad answers` (a follow-up with no valid answer), `unknown type`, `sign_not_allowed`, `signed_locked`.
+A detail answer that is not allowed (unknown question, option not on the list, number out of range) is dropped from the entry; the entry itself is kept.
 
 ## 9. Security and privacy
 
@@ -209,7 +213,8 @@ What protects what:
 - **Sessions**: random 256-bit tokens, stored only as SHA-256 hashes, valid 365 days since last use (long on purpose: tablets are offline for weeks). When a session is refused, the message says why (ended on the server, account disabled, unused for a year). `disable` and `revoke` end sessions at once.
 - **Login attempts**: 5 wrong passwords lock that account id for 10 minutes. The lock is in server memory (lost on restart) and per account id, not per address. Unknown ids take as long to answer as known ones and get the same error message.
 - **Isolation**: every query on student data filters on the logged-in account; supervisor calls first check the assignment. Tests cover cross-student and cross-supervisor access.
-- **Minimum data**: no patient data. A supervisor sees procedure, role, dates and hospital, not `ms_to_log` or `online`.
+- **Minimum data**: no patient identifiers. A supervisor sees procedure, role, dates, hospital, details and follow-ups, not `ms_to_log` or `online`.
+- **Outcomes are health data about patients.** Detail and follow-up answers identify no patient on their own, but an operation on a known day at a small hospital with a death recorded could be linked to a person by someone who was there. Keep the questions coarse (fixed lists, no exact times), and settle the ethics and data-protection position on outcomes before real use ([14](#14-open-questions-for-capacare)).
 - **Transparency**: a student sees the list of supervisors who can see their entries (More tab) and who signed what.
 - **Transport**: HTTPS is required. Passwords travel in the request body, protected only by HTTPS. Never run the server on the open internet over plain HTTP.
 - **Static files**: the server serves only a fixed list of app files, never the database or server code.
@@ -259,6 +264,8 @@ For example "case type". Touch, in this order:
 6. Tests in `core.test.mjs` and `server.test.mjs`. Update section 7.2 here.
 
 Keep the privacy rule: a fixed list or a number, never free text.
+
+For a new **detail or follow-up question** none of this is needed: add it to `DETAIL_FIELDS` or `FOLLOWUP_FIELDS` in `config.js` and to the procedure's list (`DETAILS_BY_PROCEDURE`, `FOLLOWUP_BY_PROCEDURE`, or the defaults). The server checks answers against the same lists, and the screens and the CSV columns follow. Question and option ids are stored in events: never rename or reuse one. Then release.
 
 ### 10.4 Add an event type
 
@@ -380,7 +387,11 @@ Hosting, updating, backups, restoring and costs are in **`DEPLOY.md`**. The curr
 - **English only.**
 - **Whole history is sent to a new tablet.** Fine for hundreds or a few thousand entries per student; revisit beyond that.
 - **Accessibility** has not been checked beyond large touch targets and labels.
-- **Targets and the "more procedures" list are placeholders.**
+- **Targets, the "more procedures" list and the detail and follow-up questions are placeholders.**
+- **Follow-up has no reminder.** The student has to remember to open History. A list or count of operations still waiting for a follow-up is a likely next step.
+- **The same operation can be logged by several students** (one operating, one assisting). Their follow-ups are separate, so counting outcomes needs care (for example only entries with role `supervised` or `independent`).
+- **The 6-week follow-up window is only enforced in the app**, from dates on the tablet; the server accepts a follow-up at any time.
+- **All detail questions are optional.** Making some required is a small change in `questions()` in `app.js` once CapaCare decides which.
 - **Single server, single file.** No redundancy; a failed disk means restoring from the last backup.
 
 ## 14. Open questions for CapaCare
@@ -392,7 +403,8 @@ These need people, not code. Record the answers here.
 3. **Who decides which supervisor sees which student?** Self-service (now), student approval, or a coordinator? Should a student be able to remove a supervisor?
 4. **Do supervisors need to sign offline?** How reliable is their connection at the hospitals?
 5. **What counts as signed?** One supervisor is enough today. Is co-signing needed? Can a signature be withdrawn?
-6. **The real procedure list, targets and hospital list** from the STP training manual.
+6. **The real procedure list, targets and hospital list** from the STP training manual, and **the detail and follow-up questions** per procedure (the existing logbook's data structure). Which are required, and is a longer time to log acceptable?
+   **Outcome data**: may patient outcomes (complications, deaths) be collected, under which ethics approval, and who may see them?
 7. **Languages.** English only, or also Krio?
 8. **What does "better than the CheckWare logbook" mean?** Suggested measures, most already collected: share of students who log weekly, entries per student per week, median seconds to log (`ms_to_log`), share of entries signed within 14 days, and interviews (questions in `TESTER-GUIDE.md`). Agree thresholds before the trial.
 9. **Who runs and pays for the server** after the prototype, and who holds the accounts and backups.

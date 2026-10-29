@@ -3,7 +3,7 @@
 An installable web app (PWA) for logging surgical procedures on a tablet, plus a small server for accounts, sync and supervisor sign-off.
 Built for CapaCare's Surgical Training Programme in Sierra Leone, to find out whether it can be better than the existing e-logbook.
 
-- **Students** log in with the candidate number from CapaCare and a password, on any tablet. They log procedures in two taps, also without internet; entries are sent to the server automatically.
+- **Students** log in with the candidate number from CapaCare and a password, on any tablet. They log a procedure with a few taps (procedure, role, optional details), also without internet, and can add what happened to the patient later (follow-up); entries are sent to the server automatically.
 - **Supervisors** log in with a staff ID, add the students they supervise, see their entries and sign them. The server checks every signature.
 - **Administrators** log in too: they see all procedures across students and hospitals, add accounts (with names), give new passwords, disable accounts, choose who supervises whom, and download spreadsheets (CSV) and a backup. No command line needed.
 

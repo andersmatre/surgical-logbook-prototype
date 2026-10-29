@@ -121,3 +121,38 @@ test('dropEvent removes one event from the log and from the sent list', async ()
   assert.equal((await core.sentIds()).has(v.id), false);
   assert.equal(core.derive(events).length, 1); // the entry is back
 });
+
+test('details are stored with the entry; follow-ups are added on top, newest answer wins, and can be undone', async () => {
+  const a = await core.logEntry({ ...base, procedure: 'cs', role: 'independent', ms_to_log: 9000, details: { anaesthesia: 'spinal', duration_min: 40 } });
+  const b = await core.logEntry({ ...base, procedure: 'cs', role: 'assisting', ms_to_log: 3000, details: {} });
+  assert.deepEqual(a.details, { anaesthesia: 'spinal', duration_min: 40 });
+  assert.equal('details' in b, false, 'no answers, no details field');
+
+  const f1 = await core.addFollowUp(a.id, { mother: 'alive', baby: 'alive' });
+  await new Promise((r) => setTimeout(r, 5)); // a later ts
+  await core.addFollowUp(a.id, { baby: 'died' });
+  const wrong = await core.addFollowUp(b.id, { complication: 'bleeding' });
+  await core.voidEntry(wrong.id); // Undo
+  assert.equal(f1.known_on, core.localDateISO());
+
+  const events = await core.allEvents();
+  assert.equal(events.filter((e) => e.type === 'entry').length, 2, 'the entries themselves never change');
+  const entries = core.derive(events);
+  const ea = entries.find((e) => e.id === a.id);
+  assert.deepEqual(ea.outcome, { mother: 'alive', baby: 'died' });
+  assert.equal(ea.followups.length, 2);
+  assert.deepEqual(entries.find((e) => e.id === b.id).outcome, {}, 'the undone follow-up is gone');
+  assert.equal(entries.length, 2, 'voiding a follow-up does not remove the entry');
+
+  const { DETAIL_FIELDS, FOLLOWUP_FIELDS } = await import('../config.js');
+  assert.equal(core.answersText(DETAIL_FIELDS, ea.details), 'Anaesthesia: Spinal · Operation time: 40 minutes');
+  assert.equal(core.answersText(FOLLOWUP_FIELDS, ea.outcome), 'Mother: Alive · Baby: Died after birth');
+  assert.equal(core.answersText(DETAIL_FIELDS, undefined), '');
+
+  assert.equal(core.followUpOpen({ performed_on: '2026-09-17' }, '2026-10-29'), true, '42 days: still open');
+  assert.equal(core.followUpOpen({ performed_on: '2026-09-16' }, '2026-10-29'), false, '43 days: closed');
+
+  const m = core.metrics(events);
+  assert.equal(m.entries_with_details, 1);
+  assert.equal(m.followups, 3);
+});

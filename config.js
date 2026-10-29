@@ -1,7 +1,7 @@
 // config.js — content, not logic. Edit procedure lists, targets and hospitals here.
 // (Supervisors are accounts on the server now, created with `admin.js add-supervisor`.)
 
-export const APP_VERSION = '0.8.0';
+export const APP_VERSION = '0.9.0';
 
 // Where the logbook server lives. '' = the same address the app was loaded from
 // (when the server also serves the app). If the app is hosted elsewhere, for example
@@ -70,6 +70,47 @@ export const TARGETS = {
   ectopic: 3,
 };
 
+// ---- Details and follow-up -----------------------------------------------------------------
+// PLACEHOLDER: a first guess to show the idea. The real fields come from the training manual and
+// the existing logbook. Every field is a fixed list ('choice') or a whole number ('number'), never
+// free text. Like procedure ids, field ids and option ids are stored in entries: never rename or
+// reuse one. To stop asking a field, take it out of the procedure's list; old entries keep it.
+
+// Asked after the role, before saving. All optional: "Save" works with nothing filled in.
+export const DETAIL_FIELDS = {
+  urgency: { label: 'Urgency', options: [['elective', 'Planned'], ['emergency', 'Emergency']] },
+  anaesthesia: { label: 'Anaesthesia', options: [['spinal', 'Spinal'], ['general', 'General'], ['ketamine', 'Ketamine'], ['local', 'Local'], ['other', 'Other']] },
+  duration_min: { label: 'Operation time', unit: 'minutes', number: { min: 1, max: 1440 } },
+  side: { label: 'Side', options: [['left', 'Left'], ['right', 'Right'], ['both', 'Both']] },
+  mesh: { label: 'Mesh used', options: [['yes', 'Yes'], ['no', 'No']] },
+  cs_indication: { label: 'Main reason', options: [['obstructed', 'Obstructed labour'], ['previous_cs', 'Previous caesarean'], ['fetal_distress', 'Fetal distress'], ['malpresentation', 'Breech or other position'], ['bleeding', 'Bleeding'], ['eclampsia', 'Eclampsia'], ['other', 'Other']] },
+};
+
+// Added later, from the History tab, as a follow-up on the entry (the entry itself never changes).
+// A newer follow-up replaces older answers to the same question.
+export const FOLLOWUP_FIELDS = {
+  complication: { label: 'Complication', options: [['none', 'None'], ['wound_infection', 'Wound infection'], ['wound_breakdown', 'Wound opened up'], ['bleeding', 'Bleeding'], ['reoperation', 'Back to theatre'], ['other', 'Other']] },
+  patient: { label: 'Patient', options: [['alive', 'Alive'], ['died', 'Died'], ['unknown', 'Not known']] },
+  mother: { label: 'Mother', options: [['alive', 'Alive'], ['died', 'Died'], ['unknown', 'Not known']] },
+  baby: { label: 'Baby', options: [['alive', 'Alive'], ['stillbirth', 'Stillborn'], ['died', 'Died after birth'], ['unknown', 'Not known']] },
+};
+
+// How long after the operation a follow-up can be added from the History tab (6 weeks).
+export const FOLLOWUP_DAYS = 42;
+
+// Which fields each procedure asks. A procedure not listed here gets the default.
+const DETAILS_DEFAULT = ['urgency', 'anaesthesia', 'duration_min'];
+const DETAILS_BY_PROCEDURE = {
+  cs: ['urgency', 'cs_indication', 'anaesthesia', 'duration_min'],
+  ing_hernia: ['urgency', 'side', 'mesh', 'anaesthesia', 'duration_min'],
+  strang_hernia: ['side', 'anaesthesia', 'duration_min'],
+  hydrocele: ['side', 'anaesthesia', 'duration_min'],
+};
+const FOLLOWUP_DEFAULT = ['complication', 'patient'];
+const FOLLOWUP_BY_PROCEDURE = {
+  cs: ['complication', 'mother', 'baby'],
+};
+
 // Training hospitals (subset of those listed in the 2025 annual report).
 export const HOSPITALS = [
   'Masanga Hospital',
@@ -100,7 +141,7 @@ export const PRIVACY = {
     ['What is stored', [
       'Your candidate number or staff ID, and your name if CapaCare added it.',
       'Your password, scrambled so that nobody can read it, not even CapaCare.',
-      'Students: each procedure you log, with your role, the date, the hospital, and if a supervisor signed it.',
+      'Students: each procedure you log, with your role, the date, the hospital, details about the operation (such as the anaesthesia), what happened to the patient afterwards, and if a supervisor signed it. Never who the patient is.',
       'Supervisors: which students you added, and which entries you signed.',
       'How the app is used: how many seconds logging takes, if you were offline, and how often you tap Undo. This shows us if the app is easy to use.',
     ]],
@@ -117,3 +158,13 @@ export const PRIVACY = {
 export const procName = (id) => (ALL_PROCEDURES.find((p) => p.id === id) || { name: id }).name;
 export const roleLabel = (id) => (ROLES.find((r) => r.id === id) || { label: id }).label;
 export const roleDone = (id) => (ROLES.find((r) => r.id === id) || { done: id }).done;
+export const detailFieldsFor = (procedure) => DETAILS_BY_PROCEDURE[procedure] || DETAILS_DEFAULT;
+export const followupFieldsFor = (procedure) => FOLLOWUP_BY_PROCEDURE[procedure] || FOLLOWUP_DEFAULT;
+// The words shown for a stored answer, e.g. ('anaesthesia', 'spinal') -> 'Spinal', ('duration_min', 45) -> '45 minutes'.
+export function answerLabel(fields, id, value) {
+  const f = fields[id];
+  if (!f) return String(value);
+  if (f.number) return f.unit ? `${value} ${f.unit}` : String(value);
+  const o = f.options.find(([v]) => v === value);
+  return o ? o[1] : String(value);
+}

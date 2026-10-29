@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { procName, roleLabel } from '../config.js';
+import { procName, roleLabel, DETAIL_FIELDS, FOLLOWUP_FIELDS } from '../config.js';
 
 const scrypt = promisify(crypto.scrypt);
 const SCRYPT_N = 16384;
@@ -362,12 +362,31 @@ export function toCsv(header, rows, delimiter = ',') {
 
 export const EXPORT_KINDS = ['procedures', 'hospitals', 'entries'];
 
+// The follow-up answers of every entry, merged oldest to newest like derive() in core.js does on the tablet.
+// Key: owner + NUL + entry id. Value: { answers, on } (on = known_on of the newest follow-up).
+function followUpOutcomes(db) {
+  const rows = db.prepare(
+    `SELECT e.owner, e.target, e.payload FROM events e WHERE e.type = 'followup' AND ${NOT_VOIDED}
+     ORDER BY json_extract(e.payload, '$.ts'), e.seq`,
+  ).all();
+  const out = new Map();
+  for (const r of rows) {
+    const p = JSON.parse(r.payload);
+    const key = `${r.owner}\u0000${r.target}`;
+    const o = out.get(key) || { answers: {}, on: null };
+    Object.assign(o.answers, p.answers);
+    o.on = p.known_on;
+    out.set(key, o);
+  }
+  return out;
+}
+
 export function exportCsv(db, kind, delimiter = ',') {
   const rows = db.prepare(
     `SELECT e.owner AS candidate, u.display_name AS name, e.id AS entry_id,
             json_extract(e.payload, '$.performed_on') AS performed_on, json_extract(e.payload, '$.entered_on') AS entered_on,
             json_extract(e.payload, '$.hospital') AS hospital, json_extract(e.payload, '$.procedure') AS procedure,
-            json_extract(e.payload, '$.role') AS role,
+            json_extract(e.payload, '$.role') AS role, json_extract(e.payload, '$.details') AS details,
             (SELECT json_extract(g.payload, '$.supervisor') FROM events g WHERE g.owner = e.owner AND g.type = 'sign' AND g.target = e.id LIMIT 1) AS signed_by,
             (SELECT json_extract(g.payload, '$.ts') FROM events g WHERE g.owner = e.owner AND g.type = 'sign' AND g.target = e.id LIMIT 1) AS signed_at
      FROM events e JOIN users u ON u.candidate = e.owner
@@ -377,10 +396,21 @@ export function exportCsv(db, kind, delimiter = ',') {
   const performed = (r) => r === 'supervised' || r === 'independent';
 
   if (kind === 'entries') {
+    // Details and follow-up answers as stored codes (option ids, numbers), one column per question.
+    // The follow-up columns hold the newest answer; followup_on is the day the newest follow-up was known.
+    const outcomes = followUpOutcomes(db);
+    const detailIds = Object.keys(DETAIL_FIELDS);
+    const followIds = Object.keys(FOLLOWUP_FIELDS);
     return toCsv(
-      ['candidate', 'name', 'entry_id', 'performed_on', 'entered_on', 'hospital', 'procedure_id', 'procedure', 'role', 'performed', 'signed', 'signed_by', 'signed_at'],
-      rows.map((r) => [r.candidate, r.name, r.entry_id, r.performed_on, r.entered_on, r.hospital, r.procedure, procName(r.procedure), roleLabel(r.role),
-        performed(r.role) ? 'yes' : 'no', r.signed_by ? 'yes' : 'no', r.signed_by, r.signed_at]),
+      ['candidate', 'name', 'entry_id', 'performed_on', 'entered_on', 'hospital', 'procedure_id', 'procedure', 'role', 'performed', 'signed', 'signed_by', 'signed_at',
+        ...detailIds, ...followIds.map((id) => `followup_${id}`), 'followup_on'],
+      rows.map((r) => {
+        const d = r.details ? JSON.parse(r.details) : {};
+        const o = outcomes.get(`${r.candidate}\u0000${r.entry_id}`) || { answers: {}, on: null };
+        return [r.candidate, r.name, r.entry_id, r.performed_on, r.entered_on, r.hospital, r.procedure, procName(r.procedure), roleLabel(r.role),
+          performed(r.role) ? 'yes' : 'no', r.signed_by ? 'yes' : 'no', r.signed_by, r.signed_at,
+          ...detailIds.map((id) => d[id]), ...followIds.map((id) => o.answers[id]), o.on];
+      }),
       delimiter,
     );
   }
@@ -410,6 +440,22 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const ROLE_IDS = ['observing', 'assisting', 'supervised', 'independent'];
 const idOk = (s) => typeof s === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(s);
 
+// Keeps only answers to known questions (DETAIL_FIELDS or FOLLOWUP_FIELDS in config.js) with an allowed value:
+// an option id from the list, or a whole number in range. Anything else is left out, so free text never gets in.
+// Returns null when nothing is left.
+export function cleanAnswers(fields, answers) {
+  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) return null;
+  const out = {};
+  for (const [id, f] of Object.entries(fields)) {
+    if (!Object.hasOwn(answers, id)) continue;
+    const v = answers[id];
+    if (f.number) {
+      if (Number.isInteger(v) && v >= f.number.min && v <= f.number.max) out[id] = v;
+    } else if (f.options.some(([o]) => o === v)) out[id] = v;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 // The server stores only whitelisted fields, and always stamps the owner's account id
 // itself: a client cannot write entries for someone else. Students cannot write
 // signatures at all: those are created by the server when a supervisor signs.
@@ -425,17 +471,26 @@ export function validateEvent(ev, candidate) {
     if (!DATE.test(ev.performed_on) || !DATE.test(ev.entered_on)) return { reason: 'bad date' };
     if (typeof ev.hospital !== 'string' || ev.hospital.length > 100) return { reason: 'bad hospital' };
     if (typeof ev.ms_to_log !== 'number' || !Number.isFinite(ev.ms_to_log) || ev.ms_to_log < 0 || ev.ms_to_log > 1e8) return { reason: 'bad ms_to_log' };
+    // A wrong detail answer is dropped rather than refusing the whole entry: the entry itself is worth more.
+    const details = cleanAnswers(DETAIL_FIELDS, ev.details);
     return {
       clean: {
         ...base, student: candidate, hospital: ev.hospital, procedure: ev.procedure, role: ev.role,
         performed_on: ev.performed_on, entered_on: ev.entered_on, ms_to_log: Math.round(ev.ms_to_log),
-        online: !!ev.online, schema: 1,
+        online: !!ev.online, schema: 1, ...(details ? { details } : {}),
       },
     };
   }
   if (ev.type === 'void') {
     if (!idOk(ev.target)) return { reason: 'bad target' };
     return { clean: { ...base, target: ev.target } };
+  }
+  if (ev.type === 'followup') {
+    if (!idOk(ev.target)) return { reason: 'bad target' };
+    if (!DATE.test(ev.known_on)) return { reason: 'bad date' };
+    const answers = cleanAnswers(FOLLOWUP_FIELDS, ev.answers);
+    if (!answers) return { reason: 'bad answers' };
+    return { clean: { ...base, target: ev.target, known_on: ev.known_on, answers } };
   }
   if (ev.type === 'sign') return { reason: 'sign_not_allowed' };
   return { reason: 'unknown type' };
