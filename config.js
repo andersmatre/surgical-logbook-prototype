@@ -1,7 +1,7 @@
 // config.js — content, not logic. Edit procedure lists, targets and hospitals here.
 // (Supervisors are accounts on the server now, created with `admin.js add-supervisor`.)
 
-export const APP_VERSION = '0.6.0';
+export const APP_VERSION = '0.7.0';
 
 // Where the logbook server lives. '' = the same address the app was loaded from
 // (when the server also serves the app). If the app is hosted elsewhere, for example
@@ -46,11 +46,12 @@ export const ALL_PROCEDURES = [...PROCEDURES_TOP, ...PROCEDURES_OTHER];
 
 // The four roles CapaCare already uses in its logbook.
 // "Performed" = supervised or independent (counts towards targets).
+// `done` is the past tense, used where the student's own entries are listed (History).
 export const ROLES = [
-  { id: 'observing', label: 'Observing', hint: 'I watched' },
-  { id: 'assisting', label: 'Assisting', hint: 'I helped the surgeon' },
-  { id: 'supervised', label: 'Surgeon, supervised', hint: 'I operated, supervisor present' },
-  { id: 'independent', label: 'Surgeon, independent', hint: 'I operated on my own' },
+  { id: 'observing', label: 'Observing', hint: 'I watched', done: 'Observed' },
+  { id: 'assisting', label: 'Assisting', hint: 'I helped the surgeon', done: 'Assisted' },
+  { id: 'supervised', label: 'Surgeon, supervised', hint: 'I operated with supervisor present', done: 'Operated with supervisor' },
+  { id: 'independent', label: 'Surgeon, independent', hint: 'I operated on my own', done: 'Operated on my own' },
 ];
 
 // PLACEHOLDER targets (number of procedures performed).
@@ -88,3 +89,4 @@ export const HOSPITALS = [
 
 export const procName = (id) => (ALL_PROCEDURES.find((p) => p.id === id) || { name: id }).name;
 export const roleLabel = (id) => (ROLES.find((r) => r.id === id) || { label: id }).label;
+export const roleDone = (id) => (ROLES.find((r) => r.id === id) || { done: id }).done;

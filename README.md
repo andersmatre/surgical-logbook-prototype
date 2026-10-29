@@ -20,6 +20,8 @@ To put the server online, read [`DEPLOY.md`](DEPLOY.md). Instructions for people
 Open http://localhost:8080. Log in as `ADMIN-ANDERS`, choose your own password, and create a supervisor and a student under "Add users". In other browser profiles log in as them: the student logs a procedure, the supervisor adds the student under "Add students" and signs the entry.
 The database is `./data/logbook.db`.
 
+**Working on the screens?** Run `npm run dev` instead: http://localhost:5173 with demo accounts (password `demo1234`) and a page that reloads when you save a file. See `PROJECT.md`, section 10.9.
+
 ## Accounts (administrator)
 
 Normally in the app. The command line does the same and is the fallback:
@@ -55,9 +57,9 @@ Open the server's address in Chrome, menu (three dots), "Add to Home screen" / "
 ## Tests
 
     npm install
-    npm test            # 48 tests, about 1 minute
+    npm test            # 54 tests, about 1 minute
 
-`core` (data layer), `server` (API, login, sync, supervisor rules, upgrade of an old database, backup), `ui` (the whole student flow in a simulated browser against a real server), `ui-supervisor` (the whole supervisor flow), `files` (file lists stay in step). They do not replace trying the app on a real tablet.
+`core` (data layer), `server` (API, login, sync, supervisor rules, upgrade of an old database, backup), `ui` (the whole student flow in a simulated browser against a real server), `ui-supervisor` (the whole supervisor flow), `files` (file lists stay in step), `dev` (the developer tools). They do not replace trying the app on a real tablet.
 
 ## Files
 
@@ -67,5 +69,6 @@ Open the server's address in Chrome, menu (three dots), "Add to Home screen" / "
 | `core.js`, `api.js` | Local event log in IndexedDB; calls to the server. |
 | `app.js`, `ui.js`, `supervisor.js`, `administrator.js`, `style.css` | The interface: student app, shared pieces, supervisor and administrator screens. |
 | `sw.js`, `manifest.webmanifest` | Offline cache and installability. |
+| `dev/` | Developer tools only (dev server with live reload, demo data). Not part of the app. |
 | `server/` | `app.js` (HTTP API), `lib.js` (database, passwords, rules), `admin.js`, `index.js`. |
 | `PROJECT.md`, `DEPLOY.md`, `CLAUDE.md` | Project guide and handover, hosting guide, instructions for AI assistants. |

@@ -92,6 +92,12 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   assert.match($('.who').textContent, /CC1234 · Mohamed Kamara · Masanga Hospital/);
   assert.equal(JSON.parse(localStorage.getItem('logbook.session')).must_change, false);
 
+  // ---- the Log tab: the ten common procedures are always there, then "More procedures" opens the full list
+  assert.equal($$('.grid .proc').length, 10, 'the ten common procedures');
+  await click($('.proc-more'));
+  assert.match($('.sheet h3').textContent, /More procedures/);
+  await click(byText('.sheet .btn', 'Close'));
+
   // ---- log two entries; they are sent automatically
   await click(byText('.proc', 'Caesarean section'));
   await click(byText('.role', 'Surgeon, independent'));
@@ -106,12 +112,12 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   window.dispatchEvent(new window.Event('offline'));
   assert.match($('.chip').textContent, /Offline/);
   await click(byText('.proc', 'Laparotomy'));
-  assert.match($('.sheet').textContent, /Hospital:\s*Masanga Hospital/);
-  await click(byText('.sheet .link', 'Change hospital'), 100);
+  assert.equal($('.sheet .fact strong').textContent, 'Masanga Hospital', 'the hospital is shown when logging');
+  await click($('.sheet [aria-label="Change hospital"]'), 100);
   $('.sheet select').value = 'Bo Government Hospital';
   $('.sheet select').dispatchEvent(new window.Event('change'));
   await wait(100);
-  assert.match($('.sheet').textContent, /Hospital:\s*Bo Government Hospital/);
+  assert.equal($('.sheet .fact strong').textContent, 'Bo Government Hospital');
   await click(byText('.role', 'Assisting'), 200);
   assert.match($('.who').textContent, /Bo Government Hospital/, 'the tablet now works at the new hospital');
   assert.equal(serverEvents(), 2, 'nothing sent while offline');
@@ -128,9 +134,12 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   await syncNow('Log');
   assert.match($('.who').textContent, /Mohamed Sorie Kamara/, 'a changed name arrives with the next sync');
 
-  // ---- no supervisor yet: the History tab says so, and there is no sign-off button
+  // ---- no supervisor yet: nothing is signed, and there is no sign-off button.
+  // History has no count of unsigned entries on its tab and no message about them.
   await click(byText('.tab', 'History'));
-  assert.match($('.note-info').textContent, /No supervisor has added you yet/);
+  assert.equal($('.nav .badge'), null, 'no count on the History tab');
+  assert.equal($('.note-info'), null, 'no message about signatures at the top of History');
+  assert.match($('.entry .e-meta').textContent, /^\d+ \w+ · (Bo Government|Masanga) Hospital/, 'date · hospital');
   assert.match($('.list').textContent, /Bo Government Hospital/, 'history shows where each procedure was done');
   assert.match($('.list').textContent, /Masanga Hospital/);
   assert.equal(byText('.btn', 'Supervisor sign-off'), undefined);
@@ -151,13 +160,33 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   await syncNow('History');
   assert.equal($$('.tag.ok').length, 3);
   assert.match($('.entry').textContent, /Signed · Dr Anna Kamara/);
-  assert.match($('.note-info').textContent, /All your entries are signed/);
   assert.equal($$('.entry .link.danger').length, 0, 'signed entries cannot be deleted');
 
   // ---- the More tab lists who can see the entries
   await click(byText('.tab', 'More'));
   assert.match(document.body.textContent, /Your supervisors/);
   assert.match(document.body.textContent, /Dr Anna Kamara/);
+
+  // ---- the hospital is a row like candidate number and name, and can still be changed from there
+  assert.ok(byText('.kv', 'Hospital'), 'the hospital is shown as a row in the account card');
+  assert.ok(!$('select[aria-label="Hospital"]').classList.contains('show'), 'the list of hospitals is hidden until "Change" is tapped');
+  await click(byText('.kv .link', 'Change'), 100);
+  assert.ok($('select[aria-label="Hospital"]').classList.contains('show'));
+  $('select[aria-label="Hospital"]').value = 'Kenema Government Hospital';
+  $('select[aria-label="Hospital"]').dispatchEvent(new window.Event('change'));
+  await wait(200);
+  assert.match(byText('.kv', 'Hospital').textContent, /Kenema Government Hospital/);
+  assert.match($('.who').textContent, /Kenema Government Hospital/);
+  assert.ok(!$('select[aria-label="Hospital"]').classList.contains('show'), 'the list closes after choosing');
+
+  // ---- the More tab: account, supervisors, then the rarely needed things folded away under "Advanced"
+  assert.deepEqual($$('section .card').map((c) => c.querySelector('h3, summary strong').textContent), ['Account', 'Your supervisors', 'Advanced']);
+  assert.ok(!$('details.advanced').open, 'Advanced is folded when the tab is opened');
+  assert.ok(byText('details.advanced .btn', 'Sync now') && byText('details.advanced', 'Version'), 'sync, export and app details are inside it');
+  $('details.advanced').open = true;
+  $('details.advanced').dispatchEvent(new window.Event('toggle'));
+  await click(byText('.btn', 'Sync now'), 500);
+  assert.ok($('details.advanced').open, 'tapping Sync now redraws the tab but keeps Advanced open');
 
   // ---- change password from the More tab
   await click(byText('.btn', 'Change password'));
@@ -194,6 +223,26 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   assert.equal($$('.entry').length, 3);
   assert.equal($$('.tag.ok').length, 3, 'signatures came back too');
   assert.match($('.entry').textContent, /Signed · Dr Anna Kamara/);
+  assert.deepEqual($$('.role-tag').map((t) => t.textContent).sort(), ['Assisted', 'Observed', 'Operated on my own'], 'History says what the student did, in the past tense');
+
+  // ---- History: show only one role, or one procedure
+  await click(byText('.filter', 'Role'));
+  assert.match(byText('.sheet .opt', 'Observed').textContent, /Observed1/, 'each choice shows how many entries it has');
+  await click(byText('.sheet .opt', 'Observed'));
+  assert.equal($$('.entry').length, 1);
+  assert.match($('.entry').textContent, /Appendectomy/);
+  assert.match($('.shown').textContent, /Showing 1 of 3/);
+  await click(byText('.filter', 'Procedure'));
+  assert.deepEqual($$('.sheet .opt').map((o) => o.firstChild.textContent), ['All procedures', 'Appendectomy'], 'only procedures that match the chosen role');
+  await click(byText('.shown button', 'Show all'));
+  assert.equal($$('.entry').length, 3);
+  assert.equal($('.shown'), null);
+  await click(byText('.filter', 'Procedure'));
+  assert.equal($$('.sheet .opt').length, 4, '"All procedures" and the three logged procedures');
+  await click(byText('.sheet .opt', 'Laparotomy'));
+  assert.equal($$('.entry').length, 1);
+  assert.match(byText('.filter', 'Procedure').textContent, /Laparotomy/);
+  await click(byText('.shown button', 'Show all'));
 });
 
 test('logging out with unsent entries warns and offers to lose them', async () => {

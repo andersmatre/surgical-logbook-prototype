@@ -31,11 +31,11 @@ The context that shaped every decision:
 
 ## 2. Status
 
-Version **0.6.0**. A working prototype, tested automatically and **deployed on Fly.io** (see [11](#11-running-it)), but **not yet used on a Samsung tablet**.
+Version **0.7.0**. A working prototype, tested automatically and **deployed on Fly.io** (see [11](#11-running-it)), but **not yet used on a Samsung tablet**.
 
 Works:
 
-- Student app: login with candidate number and password, forced own password at first login, log a procedure in two taps (procedure, then role), undo, history, progress against targets, weekly summary to share on WhatsApp, works offline, installable.
+- Student app: login with candidate number and password, forced own password at first login, log a procedure in two taps (procedure, then role), undo, history (can show only one procedure and/or one role), progress against targets, weekly summary to share on WhatsApp, works offline, installable.
 - Sync to the server with automatic retry; log in on any tablet and the history comes back.
 - Supervisor accounts: a supervisor logs in with a staff ID, adds students, sees their entries and signs selected ones. The server verifies every signature.
 - Administrator accounts and screens (no shell needed): overview of every procedure across all students, a matrix per student, user list, add many students at once, new password, disable, log out everywhere, assign supervisors, a log of recent changes. The first administrator is created from environment variables (`ADMIN_ID`, `ADMIN_PASSWORD`, see `DEPLOY.md`).
@@ -43,7 +43,8 @@ Works:
 - The hospital is stored in every entry. The student sees it when logging (and can change it there) and in the history; administrators get a hospital table and CSV downloads (procedures per student, per hospital, every entry).
 - Administrators download a complete database backup from the app and are reminded when none has been taken for a week.
 - Admin from the command line as a fallback: create accounts, assign, reset, disable, revoke, list, backup.
-- 48 automated tests, including whole-flow tests of both apps in a simulated browser against a real server.
+- 54 automated tests, including whole-flow tests of both apps in a simulated browser against a real server.
+- A development server with live reload and demo data for front-end work (`npm run dev`, see [3](#3-get-it-running) and [10.9](#109-front-end-work-with-the-dev-server)). It is a tool for the developer, not part of the app.
 
 Placeholders you must replace before real use: the target numbers and the "more procedures" list in `config.js`; the demo hospital list should be checked.
 
@@ -55,7 +56,7 @@ Needs **Node 22.13 or newer**. Nothing else: the server has no runtime dependenc
 
 ```
 npm install                                   # test tools only
-npm test                                      # 48 tests, about 1 minute
+npm test                                      # 54 tests, about 1 minute
 
 npm run admin -- add-admin ADMIN-ANDERS --name "Anders"            # prints an initial password; then do everything else in the app
 npm run admin -- add-supervisor SUP-ANNA --name "Dr Anna Kamara"   # prints an initial password
@@ -68,6 +69,8 @@ npm start                                                          # http://loca
 
 Open `http://localhost:8080` in Chrome. Log in as `CC1234`, choose a password, log a procedure. Open a second browser profile and log in as `SUP-ANNA` to sign it.
 The database is the single file `data/logbook.db` (ignored by git). Delete it to start over.
+
+**Working on the screens?** Use the dev server instead of `npm start`: `npm run dev` opens http://localhost:5173 with demo accounts (password `demo1234`) and reloads the page whenever you save a file. See [10.9](#109-front-end-work-with-the-dev-server).
 
 To try the student app offline: Chrome DevTools, Network tab, "Offline". To try it on a real tablet you need the server reachable over HTTPS (see `DEPLOY.md`); service workers do not run on plain `http://` except on `localhost`.
 
@@ -127,7 +130,8 @@ Read these before changing anything. Most bugs in this kind of system come from 
 | `server/admin.js` | Command-line administration (the same operations as the administrator screens, for when the app cannot be used). |
 | `Dockerfile`, `.dockerignore` | One container with server and app. Built and run by Fly.io for the current deployment. |
 | `docker-compose.yml`, `local.env` | Run the container (or the plain server) on your own computer with production-like settings. |
-| `test/*.test.mjs` | `core` (data layer), `server` (API and rules), `api` (the localhost-only server override), `ui` (student flow), `ui-supervisor` (supervisor flow), `ui-admin` (administrator flow), `files` (file lists stay in step). |
+| `dev/dev-server.mjs`, `dev/seed.mjs` | **Developer tools, not part of the app** (not in `sw.js`, `server/app.js` STATIC or the `Dockerfile`, and never deployed). `npm run dev` serves the app with live reload and no caching, plus the real API on `data/dev.db`; `seed.mjs` creates the demo accounts and entries. See [10.9](#109-front-end-work-with-the-dev-server). |
+| `test/*.test.mjs` | `core` (data layer), `server` (API and rules), `api` (the localhost-only server override), `ui` (student flow), `ui-supervisor` (supervisor flow), `ui-admin` (administrator flow), `files` (file lists stay in step), `dev` (the developer tools). |
 | `README.md` | Short overview. `DEPLOY.md` hosting guide. `TESTER-GUIDE.md` instructions for people trying the app. |
 | `CLAUDE.md` | Short instructions for AI assistants working in this repository. |
 
@@ -296,6 +300,42 @@ backup /data/backups/logbook-2026-11-01.db
 
 Hand initial passwords to each person through CapaCare, one at a time, not in a group chat. They only work for the first login.
 Account ids: 2 to 20 characters, letters, digits, `/`, `_`, `-`. Candidate numbers are case- and space-insensitive (`cc 1234` is `CC1234`). Suggested staff ids: `SUP-` plus a short name.
+
+### 10.9 Front-end work with the dev server
+
+For changing how the app looks and feels, `npm run dev` is much faster than `npm start`:
+
+```
+npm run dev                 # http://localhost:5173, demo data is created on the first start
+npm run dev:reset           # throw the dev database away, start again with fresh demo data
+npm run dev -- --lan        # also reachable from a tablet on the same network (http://<this computer's address>:5173)
+npm run dev -- --port 4000
+```
+
+What it does: serves the files straight from the project folder with no caching; replaces `sw.js` with an empty service worker (so an old offline cache never hides your change; the real `sw.js` is untouched); reloads the page when you save a file (a saved `.css` file is swapped in without a reload, so the screen stays as it is); and runs the real API from `server/app.js` on `data/dev.db`, reached through the same address (`/api/*`). The reload script is added to `index.html` while it is sent; no app file is changed.
+
+Demo accounts (password `demo1234`; `data/dev.db` is ignored by git):
+
+| Account | What it is for |
+|---|---|
+| `CC1001` | Student with 60 entries, 35 signed, 3 deleted: the full screens |
+| `CC1002` | Student with 8 entries, 3 signed |
+| `CC1003` | Student with 25 entries, none signed |
+| `CC1004` | Student with no entries: the empty states |
+| `CC1099` | Student who has not chosen a password yet: the first-login screen |
+| `SUP-DEMO` | Supervisor of CC1001, CC1002 and CC1003 (CC1004 is not assigned) |
+| `ADMIN-DEMO` | Administrator |
+
+Good to know:
+
+- The dev server listens on this computer only, unless you pass `--lan`. Only use `--lan` on a network you trust: the demo password is public.
+- It uses its own address (port 5173), so the browser keeps separate storage from `npm start` on port 8080.
+- It refuses to use a database called `logbook.db`; it can never touch real data.
+- To try the tablet for real: connect it with a USB cable, open `chrome://inspect` on the computer, and forward port 5173. Then `localhost` on the tablet is this computer, which Chrome treats as a secure address.
+- The dev server shows the app **without** the real service worker, so it cannot show offline behaviour or the "App updated" message. Test those with `npm start` (and DevTools, Network, "Offline") before a release.
+- Work on a branch, commit as often as you like, and release **once** when a set of changes is finished ([10.2](#102-release-a-new-version)): bump the version in the four places, run `npm test` and update this file. Do not bump the version for every small change.
+- The UI tests (`test/ui*.test.mjs`) run in a simulated browser and can fail when screens change. Run `npm test` now and then while you work, not only at the end.
+- To change the demo data, edit `dev/seed.mjs` and the table above. The seed checks every entry with `validateEvent`, so it fails loudly if the event rules change.
 
 ## 11. Running it
 

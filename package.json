@@ -1,6 +1,6 @@
 {
   "name": "surgical-logbook-prototype",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "description": "Offline-first surgical logbook: static PWA plus a small login and sync server",
@@ -9,6 +9,8 @@
     "start": "node --no-warnings=ExperimentalWarning server/index.js",
     "local": "node --no-warnings=ExperimentalWarning --env-file=local.env server/index.js",
     "admin": "node --no-warnings=ExperimentalWarning server/admin.js",
+    "dev": "node --no-warnings=ExperimentalWarning dev/dev-server.mjs",
+    "dev:reset": "node --no-warnings=ExperimentalWarning dev/dev-server.mjs --reset",
     "test": "node --no-warnings=ExperimentalWarning --test test/*.test.mjs"
   },
   "devDependencies": {

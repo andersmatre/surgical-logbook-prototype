@@ -70,10 +70,12 @@ export function toast(msg, opts = {}) {
   if (!opts.sticky) toastTimer = setTimeout(hideToast, opts.ms || 6000);
 }
 
-export function openSheet(content) {
+// Opens a pop-up in the middle of the screen. { tall: true } gives it a fixed height, for a list that
+// gets shorter while you search, so the pop-up does not jump around.
+export function openSheet(content, { tall = false } = {}) {
   overlay.replaceChildren(
     h('div', { class: 'scrim', onclick: closeSheet }),
-    h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true' }, content),
+    h('div', { class: tall ? 'sheet tall' : 'sheet', role: 'dialog', 'aria-modal': 'true' }, content),
   );
   overlay.classList.add('open');
 }

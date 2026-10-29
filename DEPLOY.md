@@ -167,7 +167,7 @@ Do all of these before you give the address to anyone:
 - [ ] On a real tablet in Chrome: log in with a test student, choose a password, log a procedure; no sync button is shown at the top right when everything is sent.
 - [ ] "Add to Home screen" works and the app opens from the icon.
 - [ ] Switch on airplane mode: the app still opens and logs; switch it off: the "Offline" button at the top right goes away.
-- [ ] Log in as a test supervisor on another device, add the student, sign the entry; the student sees the signature after tapping "Sync now" on the More tab.
+- [ ] Log in as a test supervisor on another device, add the student, sign the entry; the student sees the signature after tapping "Sync now" (More tab, Advanced).
 - [ ] Log out and log in on a second device: the entries come back.
 - [ ] **Take a backup and restore it** (below). Do not skip this.
 - [ ] Delete the test accounts' data, or start with a fresh database, before real students start.

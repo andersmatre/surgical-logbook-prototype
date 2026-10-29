@@ -24,7 +24,7 @@ Please try these in order. Do not ask anyone for help. If you get stuck, note wh
 3. Make a mistake on purpose and undo it.
 4. Switch on airplane mode. Log two procedures. Switch airplane mode off. Watch the top right: while entries wait it shows "Offline" or "N to sync"; after a short time the button disappears, which means everything is sent.
 5. Open "Progress" and look at your numbers. Send the weekly summary to yourself on WhatsApp.
-6. Ask your supervisor to add your candidate number in their app and sign your entries. Your entries must be synced first (no sync button is shown at the top right). Then open the More tab and tap "Sync now": the signatures appear in the History tab, and your supervisor's name appears under More, "Your supervisors".
+6. Ask your supervisor to add your candidate number in their app and sign your entries. Your entries must be synced first (no sync button is shown at the top right). Then open the More tab, open "Advanced" and tap "Sync now": the signatures appear in the History tab, and your supervisor's name appears under More, "Your supervisors".
 
 ## Use it for real for one to two weeks
 
@@ -38,7 +38,7 @@ If you forget your password, tell us. We cannot read it, but we can give you a n
 
 ## Then
 
-1. Open the app, More tab, "Export test data". Send the file to us on WhatsApp.
+1. Open the app, More tab, "Advanced", "Export test data". Send the file to us on WhatsApp.
 2. Answer these questions (voice message is fine):
    - What was confusing or slow?
    - What was missing?

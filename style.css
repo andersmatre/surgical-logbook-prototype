@@ -1,9 +1,16 @@
 :root {
-  --teal: #0F6E56; --teal-dark: #085041; --teal-light: #E1F5EE;
+  /* The one main colour of the app (now blue) in its shades. To try another colour scheme, change these lines
+     (and theme-color in index.html and manifest.webmanifest). Light shades carry --main-dark text, dark ones white text. */
+  --main: #1F5FAD; --main-dark: #123E73; --main-light: #E7EFF9;
+  --main-hover: #1A5296; --main-press: #D0E0F4;
+  --main-soft: #B4CDEC; --main-mid: #2F6DB8;
   --bg: #F6F5F1; --card: #fff; --ink: #1d1d1b; --muted: #5f5e5a; --line: #d3d1c7;
   --warn-bg: #FAEEDA; --warn-ink: #633806; --ok-bg: #EAF3DE; --ok-ink: #27500A;
   --danger: #A32D2D; --danger-bg: #FCEBEB;
-  --observing: #5F5E5A; --assisting: #185FA5; --supervised: #854F0B; --independent: #3B6D11;
+  --danger-hover: #8E2626; --danger-press: #761E1E;
+  /* Role buttons, light to dark shades of the main colour: background (-bg) and text (-ink). */
+  --observing-bg: var(--main-light); --observing-ink: var(--main-dark); --assisting-bg: var(--main-soft); --assisting-ink: var(--main-dark);
+  --supervised-bg: var(--main-mid); --supervised-ink: #fff; --independent-bg: var(--main-dark); --independent-ink: #fff;
   --radius: 14px;
 }
 * { box-sizing: border-box; }
@@ -23,7 +30,7 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 
 #app { max-width: 960px; margin: 0 auto; padding-bottom: 24px; }
 .top {
-  background: var(--teal); color: #fff;
+  background: var(--main); color: #fff;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 12px 16px; padding-top: max(12px, env(safe-area-inset-top));
 }
@@ -37,63 +44,104 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 .banner { background: #FFF6D6; color: #5a4300; font-size: 14px; padding: 6px 16px; text-align: center; }
 .main { padding: 8px 16px 16px; }
 
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-bottom: 16px; }
+/* Log tab: the ten procedures as two even columns of big rows (one column on a phone), then "More procedures". */
+.log-title { margin-bottom: 2px; }
+.log-hint { margin: 0 0 12px; }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
+@media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
 .proc {
-  min-height: 84px; text-align: left; padding: 14px 16px; border-radius: var(--radius);
-  background: var(--card); border: 2px solid var(--line); display: flex; flex-direction: column; justify-content: space-between; gap: 6px;
+  width: 100%; min-height: 76px; text-align: left; padding: 10px 14px 10px 18px; border-radius: var(--radius);
+  background: var(--card); border: 2px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 14px;
 }
-.proc:active { background: var(--teal-light); border-color: var(--teal); }
-.proc-name { font-weight: 600; font-size: 19px; }
-.proc-count { color: var(--muted); font-size: 14px; }
+.proc-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.proc-name { font-weight: 600; font-size: 20px; line-height: 1.25; }
+.proc-count { color: var(--muted); font-size: 15px; }
+/* The round "+" on the right of each row, drawn with two bars so it needs no icon file. */
+.proc-add { flex: none; position: relative; width: 46px; height: 46px; border-radius: 50%; background: var(--main); }
+.proc-add::before, .proc-add::after { content: ""; position: absolute; left: 50%; top: 50%; background: #fff; border-radius: 2px; transform: translate(-50%, -50%); }
+.proc-add::before { width: 22px; height: 4px; }
+.proc-add::after { width: 4px; height: 22px; }
+/* "More procedures" is a row like the procedures above it, across the full width, with an arrow instead of "+". */
+.proc-add.more::before { width: 14px; height: 14px; background: none; border-radius: 0; border-right: 4px solid #fff; border-bottom: 4px solid #fff; transform: translate(-70%, -50%) rotate(-45deg); }
+.proc-add.more::after { display: none; }
 
 .btn {
   min-height: 56px; padding: 12px 22px; border-radius: var(--radius); border: 0;
-  background: var(--teal); color: #fff; font-weight: 600;
+  background: var(--main); color: #fff; font-weight: 600;
 }
-.btn:active { background: var(--teal-dark); }
+.btn:active { background: var(--main-dark); }
 .btn:disabled { background: var(--line); color: var(--muted); cursor: default; }
-.btn.ghost { background: transparent; color: var(--teal-dark); border: 2px solid var(--teal); }
+.btn.ghost { background: transparent; color: var(--main-dark); border: 2px solid var(--main); }
 .btn.danger { background: var(--danger); color: #fff; }
 .btn.wide { width: 100%; }
-.link { background: none; border: 0; color: var(--teal-dark); text-decoration: underline; padding: 10px 6px; min-height: 44px; }
+.link { background: none; border: 0; color: var(--main-dark); text-decoration: underline; padding: 10px 6px; min-height: 44px; }
 .link.danger { color: var(--danger); }
 .row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
 .row > .btn { flex: 1 1 200px; }
 /* Full-width buttons (and list rows) stacked directly under each other or under a list get a gap, like .row. */
 .btn.wide + .btn.wide, .list + .btn.wide, .addrow + .btn.wide { margin-top: 12px; }
+/* A form in a pop-up (Change password) has its gap below itself, not on the button after it: password managers
+   can put their own element right after a form, and then a "form + button" rule would stop working. */
+.sheet .setup-form { margin-bottom: 12px; }
 .addrow + .addrow { margin-top: 8px; }
 
 /* Header and tab bar stay at the top while the page scrolls. The tabs are all the same width. */
 .sticky-top { position: sticky; top: 0; z-index: 10; }
 .nav { display: flex; background: var(--card); border-bottom: 1px solid var(--line); }
 .tab { flex: 1 1 0; min-width: 0; min-height: 56px; padding: 6px 4px; border: 0; background: none; font-weight: 600; color: var(--muted); position: relative; }
-.tab.on { color: var(--teal-dark); box-shadow: inset 0 -3px 0 var(--teal); background: var(--teal-light); }
+.tab.on { color: var(--main-dark); box-shadow: inset 0 -3px 0 var(--main); background: var(--main-light); }
 .badge {
   display: inline-block; margin-left: 6px; min-width: 22px; padding: 0 6px; border-radius: 11px;
   background: var(--warn-bg); color: var(--warn-ink); font-size: 14px; line-height: 22px;
 }
 
-#overlay { display: none; position: fixed; inset: 0; z-index: 50; }
-#overlay.open { display: block; }
-.scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, .45); }
+/* Pop-ups sit in the middle of the screen, over a dark layer. Tapping the dark layer closes them.
+   dvh is the height that is really visible (without the keyboard on newer browsers); vh is the fallback. */
+#overlay { display: none; position: fixed; inset: 0; z-index: 50; padding: 16px; align-items: center; justify-content: center; }
+#overlay.open { display: flex; }
+.scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, .5); }
 .sheet {
-  position: absolute; left: 0; right: 0; bottom: 0; margin: 0 auto; max-width: 720px; max-height: 90vh; overflow: auto;
-  background: var(--card); border-radius: 22px 22px 0 0; padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
+  position: relative; width: 100%; max-width: 640px; max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow: auto;
+  background: var(--card); border-radius: 22px; padding: 24px; box-shadow: 0 12px 40px rgba(0, 0, 0, .25);
+  animation: sheet-in .16s ease-out;
 }
-.daterow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* A tall pop-up keeps its title, search and Close button in place; only the list in it scrolls. */
+.sheet.tall { height: 720px; display: flex; flex-direction: column; overflow: hidden; }
+.sheet.tall > * { flex: none; }
+.sheet.tall > .plist { flex: 1 1 auto; min-height: 0; overflow: auto; margin: 0 -4px 12px; padding: 0 4px; }
+@keyframes sheet-in { from { opacity: 0; transform: scale(.96); } }
+.sheet > h3:first-child { font-size: 24px; margin-bottom: 16px; }
 .dinput { display: none; margin: 4px 0 8px; min-height: 48px; padding: 6px 10px; border: 2px solid var(--line); border-radius: 10px; }
 .dinput.show { display: block; }
-.q { font-weight: 600; margin: 12px 0 8px; }
-.roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin-bottom: 12px; }
+
+/* The pop-up after tapping a procedure: hospital and date in a grey box, then the four roles. */
+.facts { background: var(--bg); border-radius: var(--radius); padding: 4px 16px; margin-bottom: 20px; }
+.fact { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; min-height: 64px; }
+.fact + .fact { border-top: 1px solid var(--line); }
+/* The hospital list and the date field are invisible, under the "Change" button, so their picker opens there.
+   If the browser cannot open the picker from the button, the field is shown under the row instead (.show). */
+.facts .picker { display: block; position: absolute; right: 0; top: 8px; width: 110px; height: 48px; margin: 0; padding: 0; opacity: 0; pointer-events: none; }
+.facts .picker.show { position: static; flex: 1 0 100%; width: 100%; height: auto; margin: 0 0 12px; padding: 6px 10px; opacity: 1; pointer-events: auto; background: #fff; }
+.fact-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.fact-text span { color: var(--muted); font-size: 15px; }
+.fact-text strong { font-size: 19px; }
+.change { flex: none; min-height: 48px; padding: 8px 18px; border-radius: 999px; border: 2px solid var(--main); background: var(--card); color: var(--main-dark); font-weight: 600; }
+.q { font-weight: 700; font-size: 20px; margin: 0; }
+.q-hint { margin: 0 0 12px; }
+/* One role per row, in order from watching to operating alone. */
+.roles { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 16px; }
 .role {
-  min-height: 76px; text-align: left; border: 0; border-radius: var(--radius); padding: 12px 16px; color: #fff;
-  display: flex; flex-direction: column; gap: 2px;
+  min-height: 72px; text-align: left; border: 0; border-radius: var(--radius); padding: 14px 18px; color: #fff;
+  display: flex; flex-direction: column; justify-content: center; gap: 2px;
 }
-.role span { font-size: 14px; opacity: .92; }
-.role-observing { background: var(--observing); }
-.role-assisting { background: var(--assisting); }
-.role-supervised { background: var(--supervised); }
-.role-independent { background: var(--independent); }
+.role strong { font-size: 20px; }
+.role span { font-size: 15px; opacity: .95; }
+/* The role buttons go from light to dark (main colour): the more you did yourself, the darker the button.
+   The two light ones have dark text, the two dark ones white text, so all four are easy to read. */
+.role-observing { background: var(--observing-bg); color: var(--observing-ink); }
+.role-assisting { background: var(--assisting-bg); color: var(--assisting-ink); }
+.role-supervised { background: var(--supervised-bg); color: var(--supervised-ink); }
+.role-independent { background: var(--independent-bg); color: var(--independent-ink); }
 .search, .pin, select {
   width: 100%; min-height: 52px; padding: 8px 12px; border: 2px solid var(--line); border-radius: 10px; background: #fff; margin: 4px 0 12px;
 }
@@ -102,7 +150,7 @@ input[type=text], .setup-form input[type=password] { width: 100%; min-height: 52
 .plist { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 .row-btn { text-align: left; min-height: 56px; padding: 10px 14px; border-radius: 10px; border: 2px solid var(--line); background: #fff; }
 .radio, .check { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 4px; }
-input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-color: var(--teal); flex: none; }
+input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-color: var(--main); flex: none; }
 .signlist { max-height: 40vh; overflow: auto; margin-bottom: 8px; }
 
 .card { background: var(--card); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; border: 1px solid var(--line); }
@@ -110,36 +158,73 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .stats.four { grid-template-columns: repeat(4, 1fr); }
 @media (max-width: 520px) { .stats.four { grid-template-columns: repeat(2, 1fr); } }
 .stat { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; text-align: center; display: flex; flex-direction: column; }
-.stat strong { font-size: 30px; color: var(--teal-dark); }
+.stat strong { font-size: 30px; color: var(--main-dark); }
 .stat span { color: var(--muted); font-size: 14px; }
 .prow { margin-bottom: 14px; }
 .prow-top { display: flex; justify-content: space-between; gap: 8px; }
 .bar { height: 14px; background: #ece9df; border-radius: 7px; overflow: hidden; margin: 6px 0 4px; }
-.fill { height: 100%; background: var(--teal); border-radius: 7px; }
+.fill { height: 100%; background: var(--main); border-radius: 7px; }
 .orow, .kv { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #efede6; }
+.kv-val { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 4px 10px; text-align: right; }
+.kv-val .link { margin: -8px 0 -8px -6px; } /* a big touch target that does not make the row taller than the others */
+/* "Advanced" on the More tab: a folded card with a big touch target to open it. */
+.advanced summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; list-style: none; cursor: pointer;
+  min-height: 56px; margin: -8px -10px; padding: 8px 10px; border-radius: 10px;
+}
+.advanced summary::-webkit-details-marker { display: none; }
+.advanced summary::after {
+  content: ""; flex: none; width: 10px; height: 10px; margin-right: 6px; border-right: 3px solid var(--muted); border-bottom: 3px solid var(--muted);
+  transform: translateY(-3px) rotate(45deg); transition: transform .15s;
+}
+.advanced[open] summary { margin-bottom: 8px; }
+.advanced[open] summary::after { transform: translateY(3px) rotate(-135deg); }
+.adv-text { display: flex; flex-direction: column; }
+.adv-text strong { font-size: 20px; }
+.advanced h3 { margin-top: 16px; }
+.advanced summary:active { background: var(--main-light); }
 .summary { background: #f7f6f2; padding: 12px; border-radius: 10px; white-space: pre-wrap; font: 15px/1.5 ui-monospace, Menlo, monospace; margin: 0 0 8px; }
 
 .list { list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 10px; }
+
+/* History: "Procedure" and "Role" buttons that open a pop-up to show only some entries. A button with a choice made is coloured. */
+.filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.filter {
+  display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 8px 16px; text-align: left;
+  background: var(--card); border: 2px solid var(--line); border-radius: var(--radius);
+}
+.filter::after {
+  content: ""; flex: none; width: 10px; height: 10px; margin-left: auto; border-right: 3px solid var(--muted); border-bottom: 3px solid var(--muted);
+  transform: translateY(-3px) rotate(45deg);
+}
+.filter.on { background: var(--main-light); border-color: var(--main); }
+.filter.on::after { border-color: var(--main-dark); }
+.filter-text { display: flex; flex-direction: column; min-width: 0; }
+.filter-text span { color: var(--muted); font-size: 15px; }
+.filter-text strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shown { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; font-weight: 600; }
+.row-btn.opt { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.row-btn.opt.on { background: var(--main-light); border-color: var(--main); font-weight: 600; }
+.opt-n { flex: none; min-width: 36px; padding: 2px 10px; border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 15px; text-align: center; }
 .entry { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
 .e-main { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
-.role-tag { font-size: 14px; font-weight: 600; background: none; }
-.role-tag.role-observing { color: var(--observing); }
-.role-tag.role-assisting { color: var(--assisting); }
-.role-tag.role-supervised { color: var(--supervised); }
-.role-tag.role-independent { color: var(--independent); }
+/* The role of an entry, as text in one colour. (It comes after .role-observing etc., so it wins over the button colours.) */
+.role-tag { font-size: 14px; font-weight: 600; color: var(--main-dark); background: none; }
 .e-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 4px; color: var(--muted); font-size: 15px; }
+/* "Delete" on the right of the second line. The negative margins keep the big touch target without making the line taller. */
+.e-del { margin: -10px -6px -10px auto; font-size: 16px; }
 .tag { font-size: 13px; padding: 2px 10px; border-radius: 999px; background: #ece9df; color: var(--ink); }
 .tag.ok { background: var(--ok-bg); color: var(--ok-ink); }
 .tag.warn { background: var(--warn-bg); color: var(--warn-ink); }
 
-.note-info { background: var(--teal-light); color: var(--teal-dark); border-radius: 10px; padding: 10px 14px; margin: 0 0 12px; }
+.note-info { background: var(--main-light); color: var(--main-dark); border-radius: 10px; padding: 10px 14px; margin: 0 0 12px; }
 
 /* supervisor screens */
 .srow {
   width: 100%; min-height: 72px; text-align: left; display: flex; align-items: center; justify-content: space-between; gap: 12px;
   background: var(--card); border: 2px solid var(--line); border-radius: var(--radius); padding: 12px 16px;
 }
-.srow:active { background: var(--teal-light); border-color: var(--teal); }
+.srow:active { background: var(--main-light); border-color: var(--main); }
 .srow-main { display: flex; flex-direction: column; min-width: 0; }
 .addrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; padding: 4px 4px 4px 14px; background: #fff; border: 2px solid var(--line); border-radius: 10px; }
 .btn.small { min-height: 44px; padding: 8px 20px; }
@@ -157,13 +242,13 @@ textarea {
 .tbl.matrix th { min-width: 84px; }
 .tbl.matrix td:first-child, .tbl.matrix th:first-child { position: sticky; left: 0; background: var(--card); min-width: 96px; }
 .tbl.matrix tbody tr { cursor: pointer; }
-.tbl.matrix tbody tr:active td { background: var(--teal-light); }
+.tbl.matrix tbody tr:active td { background: var(--main-light); }
 .tbl .dim td { color: var(--muted); }
 .tbl .tag { margin-left: 6px; }
 .mono { font-family: ui-monospace, Menlo, monospace; font-size: 18px; letter-spacing: .5px; }
 .seg { display: flex; gap: 8px; margin: 8px 0 12px; flex-wrap: wrap; }
 .seg-b { flex: 1 1 120px; min-height: 52px; border: 2px solid var(--line); border-radius: var(--radius); background: #fff; font-weight: 600; }
-.seg-b.on { background: var(--teal-light); border-color: var(--teal); color: var(--teal-dark); }
+.seg-b.on { background: var(--main-light); border-color: var(--main); color: var(--main-dark); }
 .audit { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #efede6; }
 h4 { font-size: 17px; margin: 16px 0 6px; }
 .block { display: block; }
@@ -187,3 +272,47 @@ h4 { font-size: 17px; margin: 16px 0 6px; }
 
 @media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
 :focus-visible { outline: 3px solid #378ADD; outline-offset: 2px; }
+
+/* ---- Button feedback -------------------------------------------------------------------------
+   Pressing (:active) is what a tablet shows: the button gets darker and sinks a little.
+   Hovering only exists with a mouse, so it sits inside (hover: hover) and is never stuck on after a tap.
+   Disabled buttons give no feedback. People who ask for less motion get the colour change only. */
+.btn, .chip, .tab, .link, .proc, .role, .srow, .row-btn, .seg-b, .t-act, .change, .filter {
+  transition: background-color .12s, border-color .12s, color .12s, box-shadow .12s, filter .12s, opacity .12s, transform .08s;
+}
+
+/* Hover (mouse only). Comes before "Press", so a button that is hovered and pressed shows the pressed look. */
+@media (hover: hover) {
+  .advanced summary:hover { background: var(--main-light); }
+  .btn:not(:disabled):hover { background: var(--main-hover); }
+  .btn.ghost:not(:disabled):hover { background: var(--main-light); }
+  .btn.danger:not(:disabled):hover { background: var(--danger-hover); }
+  .chip:hover { filter: brightness(.95); }
+  .tab:not(.on):hover { background: var(--bg); }
+  .link:hover { background: var(--main-light); border-radius: 8px; }
+  .link.danger:hover { background: var(--danger-bg); }
+  .proc:hover, .srow:hover, .row-btn:hover, .seg-b:hover, .filter:hover { border-color: var(--main); box-shadow: 0 2px 8px rgba(0, 0, 0, .08); }
+  .role:hover { filter: brightness(.92); }
+  .change:hover { background: var(--main-light); }
+  .tbl.matrix tbody tr:hover td { background: var(--main-light); }
+}
+
+/* Press */
+.btn:not(:disabled):active, .chip:active, .proc:active, .role:active, .srow:active, .row-btn:active, .seg-b:active, .filter:active { transform: scale(.97); }
+.btn:not(:disabled):active { background: var(--main-dark); }
+.btn.ghost:not(:disabled):active { background: var(--main-press); }
+.btn.danger:not(:disabled):active { background: var(--danger-press); }
+.chip:active { filter: brightness(.9); }
+.tab:not(.on):active { background: var(--main-light); }
+.link:active { opacity: .6; }
+.t-act:active { opacity: .6; }
+.proc:active, .srow:active, .row-btn:active, .seg-b:active, .filter:active { background: var(--main-light); border-color: var(--main); }
+.role:active { filter: brightness(.8); }
+.change:active { background: var(--main-press); transform: scale(.97); }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn, .chip, .tab, .link, .proc, .role, .srow, .row-btn, .seg-b, .t-act, .change, .filter, .advanced summary::after { transition: none; }
+  .sheet { animation: none; }
+  .change:active { transform: none; }
+  .btn:not(:disabled):active, .chip:active, .proc:active, .role:active, .srow:active, .row-btn:active, .seg-b:active, .filter:active { transform: none; }
+}
