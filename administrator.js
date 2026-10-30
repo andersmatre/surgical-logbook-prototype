@@ -228,7 +228,7 @@ async function openEntries(candidate) {
       who ? h('p', { class: 'muted' }, who) : null,
       entries.length
         ? h('ul', { class: 'list tight' }, shown.map((e) => h('li', { class: 'entry' },
-          h('div', { class: 'e-main' }, h('strong', {}, procName(e.procedure)), h('span', { class: `role-tag role-${e.role}` }, roleLabel(e.role))),
+          h('div', { class: 'e-main' }, h('strong', {}, procName(e.procedure)), h('span', { class: `role-tag role-${e.role}` }, roleLabel(e.role, e.procedure))),
           h('div', { class: 'e-meta' }, h('span', {}, core.fmtDate(e.performed_on)), h('span', {}, e.hospital),
             e.sign ? h('span', { class: 'tag ok' }, `Signed · ${e.sign.supervisor_name || e.sign.supervisor}`) : h('span', { class: 'tag warn' }, 'Not signed')),
           e.details ? h('div', { class: 'e-extra' }, core.answersText(DETAIL_FIELDS, e.details)) : null,

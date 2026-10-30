@@ -175,7 +175,7 @@ function errorBox() {
 // ---- one student ----------------------------------------------------------------------
 
 function entryLine(e) {
-  return [h('strong', {}, procName(e.procedure)), ` · ${roleLabel(e.role)} · ${core.fmtDate(e.performed_on)}`];
+  return [h('strong', {}, procName(e.procedure)), ` · ${roleLabel(e.role, e.procedure)} ·${core.fmtDate(e.performed_on)}`];
 }
 
 // The details given when logging, and the newest follow-up answers, one small line each.

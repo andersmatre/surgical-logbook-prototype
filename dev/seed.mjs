@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { openDb, addUser, assign, insertEvent, signEntries, validateEvent } from '../server/lib.js';
-import { PROCEDURES_TOP, PROCEDURES_OTHER, HOSPITALS } from '../config.js';
+import { PROCEDURES_TOP, PROCEDURES } from '../config.js';
 
 export const DEMO_PASSWORD = 'demo1234';
 export const DEMO_ACCOUNTS = [
@@ -42,9 +42,9 @@ const day = (daysAgo, now) => new Date(now - daysAgo * 86400000).toISOString().s
 function addEntries(db, student, count, seed, now) {
   const rand = prng(seed);
   const pick = (list) => list[Math.floor(rand() * list.length)];
-  const procedures = [...PROCEDURES_TOP, ...PROCEDURES_TOP, ...PROCEDURES_TOP, ...PROCEDURES_OTHER]; // top ten are more common
+  const procedures = [...PROCEDURES_TOP, ...PROCEDURES_TOP, ...PROCEDURES_TOP, ...PROCEDURES]; // those on the Log tab are more common
   const roles = ['observing', 'assisting', 'assisting', 'supervised', 'supervised', 'independent'];
-  const hospitals = HOSPITALS.slice(0, 4);
+  const hospitals = ['Masanga Hospital', 'Bo Government Hospital', 'Kenema Government Hospital', 'Makeni Government Hospital'];
   const ids = [];
   for (let i = 0; i < count; i++) {
     const ago = Math.floor((count - i) * (90 / count)); // spread over about the last 90 days

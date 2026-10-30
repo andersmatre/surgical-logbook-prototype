@@ -41,9 +41,13 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 .banner { background: #FFF6D6; color: #5a4300; font-size: 14px; padding: 6px 16px; text-align: center; }
 .main { padding: 8px 16px 16px; }
 
-/* Log tab: the ten procedures as two even columns of big rows (one column on a phone), then "More procedures". */
+/* Log tab: first Surgery or Delivery, then that part's procedures as two even columns of big rows (one column on a
+   phone). Under Surgery, "More operations" follows on its own, a little apart. */
 .log-title { margin-bottom: 2px; }
 .log-hint { margin: 0 0 12px; }
+.log-parts { margin-bottom: 18px; }
+.log-parts .choice strong { font-size: 20px; }
+.proc-more { margin-top: 10px; }
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
 @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
 .proc {
@@ -58,7 +62,7 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 .proc-add::before, .proc-add::after { content: ""; position: absolute; left: 50%; top: 50%; background: #fff; border-radius: 2px; transform: translate(-50%, -50%); }
 .proc-add::before { width: 22px; height: 4px; }
 .proc-add::after { width: 4px; height: 22px; }
-/* "More procedures" is a row like the procedures above it, across the full width, with an arrow instead of "+". */
+/* "More operations" is a row like the procedures above it, across the full width, with an arrow instead of "+". */
 .proc-add.more::before { width: 14px; height: 14px; background: none; border-radius: 0; border-right: 4px solid #fff; border-bottom: 4px solid #fff; transform: translate(-70%, -50%) rotate(-45deg); }
 .proc-add.more::after { display: none; }
 
@@ -115,10 +119,19 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 .facts { background: var(--bg); border-radius: var(--radius); padding: 4px 16px; margin-bottom: 20px; }
 .fact { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; min-height: 64px; }
 .fact + .fact { border-top: 1px solid var(--line); }
-/* The hospital list and the date field are invisible, under the "Change" button, so their picker opens there.
-   If the browser cannot open the picker from the button, the field is shown under the row instead (.show). */
-.facts .picker { display: block; position: absolute; right: 0; top: 8px; width: 110px; height: 48px; margin: 0; padding: 0; opacity: 0; pointer-events: none; }
-.facts .picker.show { position: static; flex: 1 0 100%; width: 100%; height: auto; margin: 0 0 12px; padding: 6px 10px; opacity: 1; pointer-events: auto; background: #fff; }
+/* The hospital list that "Change" folds out: search, then a short list that scrolls, one button per hospital. */
+.hpick { flex: 1 0 100%; margin: 0 0 12px; }
+.hpick .search { margin: 0 0 8px; font-size: 16px; }
+.hlist { position: relative; display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow: auto; overscroll-behavior: contain; }
+.hlist .row-btn { min-height: 52px; flex: none; }
+.hpick[hidden] { display: none; }
+
+/* The date field is invisible, on top of the "Change" button, so a tap lands on the field
+   itself and its picker opens there (iPhone and iPad only open it from a real tap on the field). The button under it
+   is for the keyboard; if the browser cannot open the picker from it, the field is shown under the row (.show).
+   16px text stops the iPhone from zooming in on the field. */
+.facts .picker { display: block; position: absolute; right: 0; top: 8px; z-index: 1; width: 110px; height: 48px; margin: 0; padding: 0; font-size: 16px; opacity: 0; cursor: pointer; -webkit-appearance: none; appearance: none; }
+.facts .picker.show { position: static; flex: 1 0 100%; width: 100%; height: auto; margin: 0 0 12px; padding: 6px 10px; opacity: 1; background: #fff; -webkit-appearance: auto; appearance: auto; }
 .fact-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .fact-text span { color: var(--muted); font-size: 15px; }
 .fact-text strong { font-size: 19px; }
@@ -143,6 +156,9 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 input[type=text], .setup-form input[type=password] { width: 100%; min-height: 52px; padding: 8px 12px; border: 2px solid var(--line); border-radius: 10px; margin: 4px 0 14px; background: #fff; }
 .pin { letter-spacing: 6px; font-size: 24px; text-align: center; }
 .plist { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+/* A group heading in the list of all operations. */
+.plist-group { margin: 12px 0 0; color: var(--main-dark); }
+.plist-group:first-child { margin-top: 0; }
 .row-btn { text-align: left; min-height: 56px; padding: 10px 14px; border-radius: 10px; border: 2px solid var(--line); background: #fff; }
 .radio, .check { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 4px; }
 input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-color: var(--main); flex: none; }
@@ -222,6 +238,10 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 /* Questions (role, details, follow-up): a label, then choices or a number field. The optional details sit under a thin line. */
 .questions { margin: 0 0 4px; }
 .qrow { margin-bottom: 16px; }
+.questions [hidden] { display: none; }
+/* A part of the questions (Mother, Baby, Operation, ...): a small heading in the main colour. */
+.qsection { margin: 22px 0 10px; color: var(--main-dark); font-size: 18px; }
+.qsection:first-child { margin-top: 0; }
 .qlabel { display: block; font-weight: 700; }
 .qpart { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; border-top: 1px solid var(--line); padding-top: 16px; margin: 20px 0 12px; }
 .qpart-title { display: block; font-size: 19px; font-weight: 700; }

@@ -145,7 +145,7 @@ test('details are stored with the entry; follow-ups are added on top, newest ans
   assert.equal(entries.length, 2, 'voiding a follow-up does not remove the entry');
 
   const { DETAIL_FIELDS, FOLLOWUP_FIELDS } = await import('../config.js');
-  assert.equal(core.answersText(DETAIL_FIELDS, ea.details), 'Anaesthesia: Spinal · Operation time: 40 minutes');
+  assert.equal(core.answersText(DETAIL_FIELDS, ea.details), 'Anaesthesia: Spinal or epidural · Operation time: 40 minutes');
   assert.equal(core.answersText(FOLLOWUP_FIELDS, ea.outcome), 'Mother: Alive · Baby: Died after birth');
   assert.equal(core.answersText(DETAIL_FIELDS, undefined), '');
 
@@ -155,4 +155,48 @@ test('details are stored with the entry; follow-ups are added on top, newest ans
   const m = core.metrics(events);
   assert.equal(m.entries_with_details, 1);
   assert.equal(m.followups, 3);
+});
+
+test('the procedure list: ids are valid and unique, every group and Log-tab button exists, roles are worded per procedure', async () => {
+  const cfg = await import('../config.js');
+  const ids = cfg.ALL_PROCEDURES.map((p) => p.id);
+  assert.equal(new Set(ids).size, ids.length, 'no id is used twice, retired ones included');
+  for (const id of ids) assert.match(id, /^[a-z0-9_]{1,40}$/, `${id} is an id the server accepts`);
+  const groups = new Set(cfg.PROCEDURE_GROUPS.map((g) => g.id));
+  for (const p of cfg.PROCEDURES) assert.ok(p.group ? groups.has(p.group) : p.delivery, `${p.id} is an operation in a known group, or a delivery`);
+  for (const g of groups) assert.ok(cfg.PROCEDURES.some((p) => p.group === g && p.id === `other_${g}`), `the group ${g} has an "Other"`);
+  for (const id of [...cfg.LOG_SURGERY, ...cfg.LOG_DELIVERIES, ...Object.keys(cfg.TARGETS)]) {
+    assert.ok(cfg.PROCEDURES.some((p) => p.id === id), `${id} is offered`);
+  }
+  for (const id of cfg.LOG_SURGERY) assert.ok(cfg.findProcedure(id).group, `${id} is an operation`);
+  for (const id of cfg.LOG_DELIVERIES) assert.ok(cfg.findProcedure(id).delivery, `${id} is a delivery`);
+  // The ids of the first list are kept, so entries made before still show a name.
+  for (const id of ['cs', 'ing_hernia', 'abscess', 'placenta', 'burns', 'other']) assert.notEqual(cfg.procName(id), id);
+
+  // A caesarean is an operation and keeps the surgical wording; a normal delivery uses the obstetric logbook's.
+  assert.equal(cfg.roleLabel('independent', 'cs'), 'Surgeon, independent');
+  assert.equal(cfg.roleLabel('independent', 'normal_delivery'), 'Delivered alone');
+  assert.equal(cfg.roleDone('supervised', 'forceps_delivery'), 'Delivered with supervisor');
+  assert.equal(cfg.roleDone('observing', 'normal_delivery'), 'Observed');
+  assert.equal(cfg.roleDone('supervised', 'not_a_procedure'), 'Operated with supervisor');
+  assert.equal(cfg.roleLabel('nonsense'), 'nonsense');
+  // The questions: an operation, a delivery, or both (each question once); every id is a known question.
+  const ids2 = (parts) => parts.flatMap((p) => p.ids);
+  assert.ok(ids2(cfg.detailFieldsFor('appendectomy')).includes('sapgar_hr') && !ids2(cfg.detailFieldsFor('appendectomy')).includes('gravida'));
+  assert.ok(ids2(cfg.detailFieldsFor('normal_delivery')).includes('baby2_weight_g') && !ids2(cfg.detailFieldsFor('normal_delivery')).includes('anaesthesia'));
+  for (const p of cfg.PROCEDURES) {
+    const d = ids2(cfg.detailFieldsFor(p.id));
+    const f = ids2(cfg.followupFieldsFor(p.id));
+    assert.equal(new Set(d).size, d.length, `${p.id} asks each detail once`);
+    assert.equal(new Set(f).size, f.length, `${p.id} asks each follow-up once`);
+    for (const id of d) assert.ok(cfg.DETAIL_FIELDS[id], `${id} is a detail question`);
+    for (const id of f) assert.ok(cfg.FOLLOWUP_FIELDS[id], `${id} is a follow-up question`);
+  }
+  assert.ok(ids2(cfg.detailFieldsFor('cs')).includes('cs_reason') && ids2(cfg.detailFieldsFor('cs')).includes('sapgar_map'), 'a caesarean asks both logbooks');
+  assert.ok(ids2(cfg.followupFieldsFor('cs')).includes('mother') && !ids2(cfg.followupFieldsFor('cs')).includes('patient'));
+  // Surgical Apgar: the three parts added up; the blood loss can come from millilitres.
+  assert.equal(cfg.surgicalApgar({ sapgar_blood: '2', sapgar_map: '3', sapgar_hr: '1' }), 6);
+  assert.equal(cfg.surgicalApgar({ blood_loss_ml: 1200, sapgar_map: '3', sapgar_hr: '4' }), 7);
+  assert.equal(cfg.surgicalApgar({ sapgar_map: '3', sapgar_hr: '4' }), null);
+  assert.ok(cfg.HOSPITALS.includes('Masanga Hospital') && cfg.HOSPITALS.includes('Bo Government Hospital'), 'names already stored on tablets are still in the list');
 });

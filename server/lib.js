@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { procName, roleLabel, DETAIL_FIELDS, FOLLOWUP_FIELDS } from '../config.js';
+import { procName, roleLabel, surgicalApgar, DETAIL_FIELDS, FOLLOWUP_FIELDS } from '../config.js';
 
 const scrypt = promisify(crypto.scrypt);
 const SCRYPT_N = 16384;
@@ -396,20 +396,21 @@ export function exportCsv(db, kind, delimiter = ',') {
   const performed = (r) => r === 'supervised' || r === 'independent';
 
   if (kind === 'entries') {
-    // Details and follow-up answers as stored codes (option ids, numbers), one column per question.
+    // Details and follow-up answers as stored codes (option ids, numbers), one column per question, and the
+    // Surgical Apgar added up (empty when a part is missing).
     // The follow-up columns hold the newest answer; followup_on is the day the newest follow-up was known.
     const outcomes = followUpOutcomes(db);
     const detailIds = Object.keys(DETAIL_FIELDS);
     const followIds = Object.keys(FOLLOWUP_FIELDS);
     return toCsv(
       ['candidate', 'name', 'entry_id', 'performed_on', 'entered_on', 'hospital', 'procedure_id', 'procedure', 'role', 'performed', 'signed', 'signed_by', 'signed_at',
-        ...detailIds, ...followIds.map((id) => `followup_${id}`), 'followup_on'],
+        ...detailIds, 'surgical_apgar', ...followIds.map((id) => `followup_${id}`), 'followup_on'],
       rows.map((r) => {
         const d = r.details ? JSON.parse(r.details) : {};
         const o = outcomes.get(`${r.candidate}\u0000${r.entry_id}`) || { answers: {}, on: null };
-        return [r.candidate, r.name, r.entry_id, r.performed_on, r.entered_on, r.hospital, r.procedure, procName(r.procedure), roleLabel(r.role),
+        return [r.candidate, r.name, r.entry_id, r.performed_on, r.entered_on, r.hospital, r.procedure, procName(r.procedure), roleLabel(r.role, r.procedure),
           performed(r.role) ? 'yes' : 'no', r.signed_by ? 'yes' : 'no', r.signed_by, r.signed_at,
-          ...detailIds.map((id) => d[id]), ...followIds.map((id) => o.answers[id]), o.on];
+          ...detailIds.map((id) => d[id]), surgicalApgar(d), ...followIds.map((id) => o.answers[id]), o.on];
       }),
       delimiter,
     );

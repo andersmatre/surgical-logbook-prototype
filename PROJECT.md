@@ -31,11 +31,11 @@ The context that shaped every decision:
 
 ## 2. Status
 
-Version **0.10.0**. A working prototype, tested automatically and **deployed on Fly.io** (see [11](#11-running-it)), but **not yet used on a Samsung tablet**.
+Version **0.11.0**. A working prototype, tested automatically and **deployed on Fly.io** (see [11](#11-running-it)), but **not yet used on a Samsung tablet**.
 
 Works:
 
-- Student app: login with candidate number and password, forced own password at first login, log a procedure in one pop-up (tap the procedure; then the role, optional details such as anaesthesia and operation time, and Save), undo, a follow-up on an entry for 6 weeks after the operation (complications, patient, mother and baby outcome), history (can show only one procedure and/or one role), progress against targets, weekly summary to share on WhatsApp, works offline, installable.
+- Student app: login with candidate number and password, forced own password at first login, the Log tab has a choice of Surgery (chosen from the start) or Delivery, like CapaCare's two logbooks (Surgery: the ten most common operations, then "More operations" with every operation from CapaCare's logbook under its group; Delivery: every way of giving birth; the choice is kept while the app is open), log a procedure in one pop-up (tap the procedure; then the role, the optional questions of the logbook in parts with a heading (Patient or Mother, Baby, Operation, Surgical Apgar; a second and third baby only for twins and triplets), and Save), undo, a follow-up on an entry for 6 weeks after the operation (the outcome questions of the logbook), history (can show only one procedure and/or one role), progress against targets, weekly summary to share on WhatsApp, works offline, installable.
 - Sync to the server with automatic retry; log in on any tablet and the history comes back.
 - Supervisor accounts: a supervisor logs in with a staff ID, adds students, sees their entries and signs selected ones. The server verifies every signature.
 - Administrator accounts and screens (no shell needed): overview of every procedure across all students, a matrix per student, user list, add many students at once, new password, disable, log out everywhere, assign supervisors, a log of recent changes. The first administrator is created from environment variables (`ADMIN_ID`, `ADMIN_PASSWORD`, see `DEPLOY.md`).
@@ -44,10 +44,10 @@ Works:
 - Administrators download a complete database backup from the app and are reminded when none has been taken for a week.
 - Admin from the command line as a fallback: create accounts, assign, reset, disable, revoke, delete, list, backup.
 - Privacy: a notice ("Your data") on the first-login screen and under More in all three apps, with what is stored, why, who sees it, where, how long and the person's rights. Its text is in `config.js` and is still a draft (`PRIVACY_IS_PLACEHOLDER`). Administrators can erase a disabled account and all its data for good. The "Export test data" file identifies nobody.
-- 60 automated tests, including whole-flow tests of both apps in a simulated browser against a real server.
+- 61 automated tests, including whole-flow tests of both apps in a simulated browser against a real server.
 - A development server with live reload and demo data for front-end work (`npm run dev`, see [3](#3-get-it-running) and [10.9](#109-front-end-work-with-the-dev-server)). It is a tool for the developer, not part of the app.
 
-Placeholders you must replace before real use: the target numbers, the "more procedures" list and the detail and follow-up questions (`DETAIL_FIELDS`, `FOLLOWUP_FIELDS`, a first guess) in `config.js`; the demo hospital list should be checked.
+Placeholders you must replace before real use: the target numbers in `config.js`. The procedure list, the hospital list, the role definitions and the detail and follow-up questions (`DETAIL_FIELDS`, `FOLLOWUP_FIELDS`: everything the surgical and obstetric logbooks asked, except what identifies the patient; to be cut down after trying it) now come from CapaCare's logbook (`Logbook_softcopy_2021.xlsx`, not in the repository); the hospital list is from 2021 and should be checked.
 
 Not done: trying it on a real Samsung tablet, research export, offline signing for supervisors, ethics and data-protection approval. See [13](#13-known-limits) and [15](#15-next-steps).
 
@@ -88,7 +88,7 @@ To try the student app offline: Chrome DevTools, Network tab, "Offline". To try 
 └────────────────────────────────────────┘
 ```
 
-**Entry flow.** The student taps a procedure. One pop-up (`openEntrySheet` in `app.js`) shows the hospital and date (filled in, with Change), the role (required: until one is chosen the Save button reads "Choose your role") and the optional detail questions for that procedure. Save stays in view at the bottom. All choices, here and in the follow-up, use the same buttons (`choices()`): white, and filled with the main colour when chosen. `core.logEntry` writes an `entry` event to IndexedDB at once (works offline). A moment later `syncCore` (in `app.js`) sends every event the server has not confirmed (at most 200 per request) and pulls everything new. Confirmed ids go in the local `sent` store, which is what the "N to sync" counter is based on.
+**Entry flow.** The student taps a procedure. One pop-up (`openEntrySheet` in `app.js`) shows the hospital and date (filled in, with Change: the hospital folds out a list of buttons with a search field, one tap chooses; the date opens the device calendar, the invisible date field lies on top of the button because iOS only opens it from a real tap), the role (required: until one is chosen the Save button reads "Choose your role"; a delivery that is not an operation words the roles as the obstetric logbook does, "Delivered, supervised" / "Delivered alone", see `rolesFor` in `config.js`; the stored role ids are the same) and the optional detail questions for that procedure. Save stays in view at the bottom. All choices, here and in the follow-up, use the same buttons (`choices()`): white, and filled with the main colour when chosen. `core.logEntry` writes an `entry` event to IndexedDB at once (works offline). A moment later `syncCore` (in `app.js`) sends every event the server has not confirmed (at most 200 per request) and pulls everything new. Confirmed ids go in the local `sent` store, which is what the "N to sync" counter is based on.
 
 **Follow-up flow.** In History, an entry up to `FOLLOWUP_DAYS` (42) after the operation has "Add follow-up". The answers are saved as a `followup` event on top of the entry and synced like any other event. `derive()` merges an entry's follow-ups, the newest answer to each question winning, into `entry.outcome`. Undo is a `void` of the follow-up.
 
@@ -157,7 +157,7 @@ Every fact is an event. All have `id`, `type`, `ts` (device clock, ISO time).
 
 | Type | Made by | Extra fields |
 |---|---|---|
-| `entry` | student tablet | `student`, `hospital`, `procedure`, `role` (`observing`, `assisting`, `supervised`, `independent`), `performed_on` (date the student says), `entered_on` (date it was logged), `ms_to_log` (procedure tap to saved, a usability measurement), `online`, `schema` (1), `details` (optional: `{question id: option id or whole number}`, questions from `DETAIL_FIELDS`; left out when nothing was answered) |
+| `entry` | student tablet | `student`, `hospital`, `procedure`, `role` (`observing`, `assisting`, `supervised`, `independent`), `performed_on` (date the student says), `entered_on` (date it was logged), `ms_to_log` (procedure tap to saved, a usability measurement), `online`, `schema` (1), `details` (optional: `{question id: option id or whole number}`, questions from `DETAIL_FIELDS`; left out when nothing was answered; a question hidden by `showIf` is not saved) |
 | `followup` | student tablet | `target` (an entry id), `known_on` (the day the student learnt it), `answers` (`{question id: option id}`, questions from `FOLLOWUP_FIELDS`, at least one). Only the answers that changed. |
 | `void` | student tablet | `target` (an entry or follow-up id). "Delete", or Undo of a follow-up. |
 | `sign` | **server only** | `target` (an entry id), `supervisor` (account id), `supervisor_name` (name at the time of signing) |
@@ -197,7 +197,7 @@ All calls are `POST` with a JSON body, except `GET /api/health`. Authenticated c
 | `POST /api/admin/revoke` | admin | `id` | `{ok}` |
 | `POST /api/admin/delete` | admin, not own account, account disabled | `id` | `{ok}`, `events`, `assignments` (how many were removed) |
 | `POST /api/admin/rename` | admin | `id`, `name` | `{ok}` |
-| `POST /api/admin/export` | admin | `kind` (`procedures`, `hospitals`, `entries`), `delimiter` (`,` or `;`) | a CSV file (`entries` has one column per detail question, one `followup_<id>` column per follow-up question with the newest answer, and `followup_on`; answers are the stored codes) (UTF-8 with byte order mark; cells starting with `= + - @` are prefixed so spreadsheets do not run them) |
+| `POST /api/admin/export` | admin | `kind` (`procedures`, `hospitals`, `entries`), `delimiter` (`,` or `;`) | a CSV file (`entries` has one column per detail question, `surgical_apgar` (the three parts added up, empty if one is missing), one `followup_<id>` column per follow-up question with the newest answer, and `followup_on`; answers are the stored codes) (UTF-8 with byte order mark; cells starting with `= + - @` are prefixed so spreadsheets do not run them) |
 | `POST /api/admin/backup` | admin | | the database file (a consistent copy) |
 | `POST /api/admin/assign` / `unassign` | admin | `supervisor`, `student` | `{ok}` |
 | `POST /api/admin/entries` | admin | `candidate`, `cursor` | `events`, `cursor`, `has_more` |
@@ -241,7 +241,9 @@ Always: make the change, run `npm test`, update this file if behaviour changed, 
 
 ### 10.1 Change content: procedures, targets, hospitals
 
-Edit `config.js`. Procedure ids must match `^[a-z0-9_]{1,40}$` (the server rejects others). **Never rename or delete an id**; a removed id shows up as its raw id in old entries. To retire a procedure, leave it listed or keep it in `PROCEDURES_OTHER`.
+Edit `config.js`. Procedure ids must match `^[a-z0-9_]{1,40}$` (the server rejects others). **Never rename or delete an id**; a removed id shows up as its raw id in old entries. To stop offering a procedure, move it to `PROCEDURES_RETIRED` (old entries keep its name).
+`PROCEDURES` holds every procedure that can be logged. `group` is the surgical group it is listed under in "More operations" (`PROCEDURE_GROUPS`, as in CapaCare's logbook, each with an "Other"); `delivery: true` makes it a way of giving birth. A caesarean has both; a procedure without a group is not an operation and uses the delivery wording of the roles. The buttons on the Log tab, after the student has chosen Surgery or Delivery, are `LOG_SURGERY` and `LOG_DELIVERIES` (together, each once, also the columns of the administrator's per-student table). The progress tab shows the procedures in `TARGETS`. A test in `core.test.mjs` checks that ids are valid and unique and that these lists only name procedures that exist.
+Hospitals are stored by name: renaming one leaves old entries with the old name.
 When the real targets are known set `TARGETS_ARE_PLACEHOLDER = false`. Then release ([10.2](#102-release-a-new-version)).
 
 ### 10.2 Release a new version
@@ -265,7 +267,7 @@ For example "case type". Touch, in this order:
 
 Keep the privacy rule: a fixed list or a number, never free text.
 
-For a new **detail or follow-up question** none of this is needed: add it to `DETAIL_FIELDS` or `FOLLOWUP_FIELDS` in `config.js` and to the procedure's list (`DETAILS_BY_PROCEDURE`, `FOLLOWUP_BY_PROCEDURE`, or the defaults). The server checks answers against the same lists, and the screens and the CSV columns follow. Question and option ids are stored in events: never rename or reuse one. Then release.
+For a new **detail or follow-up question** none of this is needed: add it to `DETAIL_FIELDS` or `FOLLOWUP_FIELDS` in `config.js` and to a part of the lists below them (each part may word a question differently with `ask`, as the Mother part does for the age; `DETAILS_OPERATION` for operations, `DETAILS_BIRTH` for deliveries, `DETAILS_BIRTH_OPERATION` for a delivery that is an operation, `DETAILS_BY_PROCEDURE` for one procedure, and the `FOLLOWUP_…` lists likewise). Each part has a heading on the screen. `ask` is the wording on the screen if it differs from `label` (used in summaries); `showIf: {question: [answers]}` asks it only after one of those answers (used for the second and third baby and for the cause of death). The server checks answers against the same lists, and the screens and the CSV columns follow. Question and option ids are stored in events: never rename or reuse one. Then release.
 
 ### 10.4 Add an event type
 
@@ -387,7 +389,8 @@ Hosting, updating, backups, restoring and costs are in **`DEPLOY.md`**. The curr
 - **English only.**
 - **Whole history is sent to a new tablet.** Fine for hundreds or a few thousand entries per student; revisit beyond that.
 - **Accessibility** has not been checked beyond large touch targets and labels.
-- **Targets, the "more procedures" list and the detail and follow-up questions are placeholders.**
+- **Targets are placeholders.** The procedure and hospital lists and the questions are CapaCare's from 2021. A caesarean asks about 20 questions; which to keep is still to be decided.
+- **Not taken over from the 2021 logbook:** patient initials and address (district) identify the patient; times of day (operation start and end, time of birth) are replaced by the operation time in minutes; dates after the operation (discharge, reoperation, referral, death) by yes/no and "days". Reoperation and referral are yes/no only.
 - **Follow-up has no reminder.** The student has to remember to open History. A list or count of operations still waiting for a follow-up is a likely next step.
 - **The same operation can be logged by several students** (one operating, one assisting). Their follow-ups are separate, so counting outcomes needs care (for example only entries with role `supervised` or `independent`).
 - **The 6-week follow-up window is only enforced in the app**, from dates on the tablet; the server accepts a follow-up at any time.
@@ -404,6 +407,8 @@ These need people, not code. Record the answers here.
 4. **Do supervisors need to sign offline?** How reliable is their connection at the hospitals?
 5. **What counts as signed?** One supervisor is enough today. Is co-signing needed? Can a signature be withdrawn?
 6. **The real procedure list, targets and hospital list** from the STP training manual, and **the detail and follow-up questions** per procedure (the existing logbook's data structure). Which are required, and is a longer time to log acceptable?
+   **From the 2021 logbook (now in the app), to confirm:** is the hospital list current (and the name "Wilberforce Military Hospital")? Is "Cystectomy" in the gynaecology group an ovarian cystectomy? A caesarean uses the surgical role definitions; the obstetric logbook defined the roles differently ("alone" = no supervisor in the room). Is "Normal delivery" the right word for the logbook's "spontaneous"?
+   **The questions:** which are needed, which may be dropped, and which should be required? Is the Surgical Apgar scale right (the 2021 file had typos in the heart rate bands; the app uses Gawande 2007)? Is district of residence needed (it was left out, it helps to identify a patient)?
    **Outcome data**: may patient outcomes (complications, deaths) be collected, under which ethics approval, and who may see them?
 7. **Languages.** English only, or also Krio?
 8. **What does "better than the CheckWare logbook" mean?** Suggested measures, most already collected: share of students who log weekly, entries per student per week, median seconds to log (`ms_to_log`), share of entries signed within 14 days, and interviews (questions in `TESTER-GUIDE.md`). Agree thresholds before the trial.

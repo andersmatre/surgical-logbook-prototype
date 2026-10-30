@@ -755,13 +755,17 @@ test('CSV exports: counts per student, per hospital and every entry; safe for sp
 
     const entries = await get('entries');
     assert.equal(entries[0], 'candidate,name,entry_id,performed_on,entered_on,hospital,procedure_id,procedure,role,performed,signed,signed_by,signed_at,'
-      + 'urgency,anaesthesia,duration_min,side,mesh,cs_indication,followup_complication,followup_patient,followup_mother,followup_baby,followup_on');
+      + 'sex,age_years,gravida,para,children_alive,induction,babies,'
+      + 'baby_outcome,baby_presentation,baby_sex,baby_weight_g,baby_apgar1,baby_apgar5,baby2_outcome,baby2_presentation,baby2_sex,baby2_weight_g,baby2_apgar1,baby2_apgar5,'
+      + 'baby3_outcome,baby3_presentation,baby3_sex,baby3_weight_g,baby3_apgar1,baby3_apgar5,urgency,cs_reason,anaesthesia,duration_min,blood_loss_ml,'
+      + 'sapgar_blood,sapgar_map,sapgar_hr,side,mesh,cs_indication,surgical_apgar,followup_mat_complication,followup_patient,followup_mother,followup_died_day,'
+      + 'followup_death_cause,followup_wound_infection,followup_reoperation,followup_referral,followup_days_in_hospital,followup_complication,followup_baby,followup_on');
     assert.equal(entries.length, 4, 'header and three live entries; the deleted one is left out');
     const first = entries.find((l) => l.includes(e1.id));
     assert.match(first, /^S001,"'=HYPERLINK\(""x""\)",/, 'a name starting with = cannot become a formula');
     assert.match(first, /Masanga Hospital,cs,Caesarean section,Surgeon, independent|Masanga Hospital,cs,Caesarean section,"Surgeon, independent"/);
     assert.match(first, /,yes,yes,SUP-ANNA,\d{4}-/, 'performed, signed, who signed');
-    assert.match(entries.find((l) => l.includes(e2.id)), /,Observing,no,no,{13}$/, 'not signed, no details, no follow-up');
+    assert.match(entries.find((l) => l.includes(e2.id)), /,Observing,no,no,+$/, 'not signed, no details, no follow-up: every cell after it is empty');
     assert.match(entries.find((l) => l.includes(e3.id)), /^S002,"Doe, Jane",/, 'commas in a name are quoted');
 
     const procs = await get('procedures');
@@ -873,6 +877,7 @@ test('details and follow-ups: only known questions and allowed answers are store
     const one = row(e1.id);
     assert.equal(one('anaesthesia'), 'spinal');
     assert.equal(one('duration_min'), '45');
+    assert.equal(one('surgical_apgar'), '', 'no Surgical Apgar when its parts were not answered');
     assert.equal(one('followup_complication'), 'wound_infection', 'the newest answer wins');
     assert.equal(one('followup_mother'), 'died');
     assert.equal(one('followup_baby'), 'stillbirth', 'an answer not given again is kept');
