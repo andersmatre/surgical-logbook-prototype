@@ -35,6 +35,9 @@ export const timeAgo = (iso) => {
 };
 
 export const stat = (n, label) => h('div', { class: 'stat' }, h('strong', {}, n), h('span', {}, label));
+// A number of entries in words: "1 case", "3 cases".
+export const cases = (n) => `${n} ${n === 1 ? 'case' : 'cases'}`;
+
 export const kv = (k, v) => h('div', { class: 'kv' }, h('span', {}, k), h('strong', {}, v));
 
 // Hands a file to the browser as a download. Tests replace this with globalThis.LOGBOOK_SAVE_FILE.
@@ -73,12 +76,70 @@ export function toast(msg, opts = {}) {
 
 // Opens a pop-up in the middle of the screen. { tall: true } gives it a fixed height, for a list that
 // gets shorter while you search, so the pop-up does not jump around.
+// A pop-up that is longer than the screen shows a small arrow down above its Cancel and Save, and an arrow up at
+// its top once scrolled down (scrollHint), under its .sheet-head if it has one (a heading that stays at the top);
+// a tall one shows them over its list.
 export function openSheet(content, { tall = false } = {}) {
-  overlay.replaceChildren(
-    h('div', { class: 'scrim', onclick: closeSheet }),
-    h('div', { class: tall ? 'sheet tall' : 'sheet', role: 'dialog', 'aria-modal': 'true' }, content),
-  );
+  const sheet = h('div', { class: tall ? 'sheet tall' : 'sheet', role: 'dialog', 'aria-modal': 'true' }, content);
+  overlay.replaceChildren(h('div', { class: 'scrim', onclick: closeSheet }), sheet);
   overlay.classList.add('open');
+  const foot = sheet.querySelector(':scope > .sheet-foot');
+  const list = sheet.querySelector(':scope > .plist');
+  const head = sheet.querySelector(':scope > .sheet-head');
+  if (foot && head) scrollHint(sheet, foot, head);
+  else if (foot) {
+    const dock = h('div', { class: 'scroll-dock' }); // stays at the top while the pop-up scrolls
+    sheet.prepend(dock);
+    scrollHint(sheet, foot, dock);
+  } else if (tall && list) scrollHint(list, sheet);
+}
+
+// Small arrows for people who are not used to scrolling: one down at the bottom of `scroller` while there is more
+// further down, one up at its top once it is scrolled down. The content fades out under them; a tap scrolls a
+// screen. They are small and quiet, so they do not get in the way once someone knows. The arrow down is placed
+// in `downHost`, the arrow up in `upHost`: elements with a position. If they hold the scroller (a list in a
+// pop-up), the arrows are put at the top and bottom of the list; otherwise CSS places them (.scroll-hint).
+export function scrollHint(scroller, downHost, upHost = downHost) {
+  const arrow = (dir) => h('div', { class: `scroll-hint ${dir}`, hidden: true },
+    h('button', {
+      class: 'scroll-pill', type: 'button', tabindex: '-1', 'aria-label': dir === 'down' ? 'Scroll down' : 'Scroll up',
+      onclick: () => scroller.scrollBy({ top: (dir === 'down' ? 0.7 : -0.7) * scroller.clientHeight, behavior: 'smooth' }),
+    }));
+  const down = arrow('down');
+  const up = arrow('up');
+  downHost.append(down);
+  upHost.append(up);
+  const inHost = downHost.contains(scroller);
+  const show = (el, on) => { if (el.hidden === on) el.hidden = !on; }; // only when it changes: the observer would see it
+  const update = () => {
+    show(down, scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > 12);
+    show(up, scroller.scrollTop > 12);
+    if (inHost) { // outside the scroller, so this does not wake the observer
+      up.style.top = `${scroller.offsetTop}px`;
+      down.style.top = `${scroller.offsetTop + scroller.clientHeight}px`;
+    }
+  };
+  scroller.addEventListener('scroll', update, { passive: true });
+  // answers that show more questions, a search that makes a list shorter, a screen that turns
+  new MutationObserver(update).observe(scroller, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'class'] });
+  if (typeof ResizeObserver === 'function') new ResizeObserver(update).observe(scroller);
+  requestAnimationFrame(update);
+  return update;
+}
+
+// A small question on top of the open pop-up, which stays as it is underneath. "No" (or a tap outside) only
+// closes the question; "Yes" closes it and runs onYes.
+export function confirmOver({ title, text, yes, no, onYes }) {
+  const close = () => layer.remove();
+  const layer = h('div', { class: 'layer' },
+    h('div', { class: 'scrim', onclick: close }),
+    h('div', { class: 'sheet confirm', role: 'alertdialog', 'aria-modal': 'true' },
+      h('h3', {}, title),
+      h('p', {}, text),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn ghost', type: 'button', onclick: close }, no),
+        h('button', { class: 'btn', type: 'button', onclick: () => { close(); onYes(); } }, yes))));
+  overlay.append(layer);
 }
 
 export function closeSheet() {

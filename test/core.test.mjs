@@ -46,7 +46,7 @@ test('late entries are flagged and the weekly summary only counts the last 7 day
   assert.equal(core.metrics(await core.allEvents()).late_entries, 1);
   assert.equal(core.weekEntries(entries).length, 1);
   const text = core.weeklySummary(entries, { student: 'S01' });
-  assert.match(text, /Logged: 1 \(0 signed\)/);
+  assert.match(text, /Cases: 1 \(0 signed\)/);
   assert.match(text, /Caesarean section: 2\/30/); // cumulative progress includes the old entry
   assert.doesNotMatch(text, /patient/i);
 });

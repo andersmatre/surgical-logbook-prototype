@@ -7,7 +7,7 @@ import { PROCEDURES_TOP, DETAIL_FIELDS, FOLLOWUP_FIELDS, procName, roleLabel } f
 import * as core from './core.js';
 import * as api from './api.js';
 import {
-  h, timeAgo, stat, kv, toast, openSheet, closeSheet, saveBlob, privacyCard,
+  h, timeAgo, stat, kv, cases, toast, openSheet, closeSheet, saveBlob, privacyCard,
 } from './ui.js';
 
 const ENDED = Symbol('session ended'); // the server ended the session; app.js shows the login screen
@@ -133,7 +133,7 @@ function overviewView() {
       s.students.length
         ? table(['Student', 'Logged', 'Performed', 'Signed', ...PROCEDURES_TOP.map((p) => p.name), 'Other'], studentRows, 'matrix')
         : h('p', { class: 'muted' }, 'No students yet. Add them under "Add users".'),
-      h('p', { class: 'muted small' }, 'Each procedure column shows performed / logged. Tap a student to see the entries.')),
+      h('p', { class: 'muted small' }, 'Each procedure column shows performed / cases. Tap a student to see the entries.')),
     h('div', { class: 'card' }, h('h3', {}, 'Hospitals'),
       s.hospitals.length
         ? table(['Hospital', 'Logged', 'Performed', 'Students'], s.hospitals.map((x) => h('tr', {}, h('td', {}, x.hospital), h('td', {}, x.entries), h('td', {}, x.performed), h('td', {}, x.students))))
@@ -224,7 +224,7 @@ async function openEntries(candidate) {
     const shown = entries.slice(0, 200);
     const who = nameOf(candidate);
     openSheet([
-      h('h3', {}, `${candidate} · ${entries.length} logged`),
+      h('h3', {}, `${candidate} · ${cases(entries.length)}`),
       who ? h('p', { class: 'muted' }, who) : null,
       entries.length
         ? h('ul', { class: 'list tight' }, shown.map((e) => h('li', { class: 'entry' },
@@ -264,7 +264,7 @@ function usersView() {
 }
 
 function userRow(u) {
-  const meta = [ROLE_NAME[u.role], `last login ${u.last_login_at ? timeAgo(u.last_login_at) : 'never'}`, u.role === 'student' ? `${u.entries} logged` : null].filter(Boolean).join(' · ');
+  const meta = [ROLE_NAME[u.role], `last login ${u.last_login_at ? timeAgo(u.last_login_at) : 'never'}`, u.role === 'student' ? cases(u.entries) : null].filter(Boolean).join(' · ');
   return h('li', {},
     h('button', { class: 'srow', onclick: () => openUser(u.id) },
       h('span', { class: 'srow-main' }, h('strong', {}, u.id, u.name ? ` · ${u.name}` : ''), h('span', { class: 'muted small' }, meta)),

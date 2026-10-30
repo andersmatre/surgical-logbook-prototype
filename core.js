@@ -216,7 +216,7 @@ export function weeklySummary(entries, { student, now = new Date(), days = 7 }) 
     lines.push('No procedures logged this week.');
   } else {
     const signed = week.filter((e) => e.sign).length;
-    lines.push(`Logged: ${week.length} (${signed} signed)`);
+    lines.push(`Cases: ${week.length} (${signed} signed)`);
     const by = {};
     for (const e of week) by[e.procedure] = (by[e.procedure] || 0) + 1;
     for (const [id, n] of Object.entries(by).sort((a, b) => b[1] - a[1])) lines.push(`- ${procName(id)}: ${n}`);

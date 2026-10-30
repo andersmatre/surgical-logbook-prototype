@@ -14,6 +14,8 @@ const { window } = dom;
 window.scrollTo = () => {};
 globalThis.window = window;
 globalThis.document = window.document;
+globalThis.MutationObserver = window.MutationObserver; // the "More below" hint (scrollHint in ui.js)
+globalThis.requestAnimationFrame = window.requestAnimationFrame;
 globalThis.localStorage = window.localStorage;
 Object.defineProperty(globalThis, 'navigator', { value: window.navigator, configurable: true });
 globalThis.LOGBOOK_SYNC_DELAY = 30;

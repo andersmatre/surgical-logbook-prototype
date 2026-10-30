@@ -14,6 +14,8 @@ const { window } = dom;
 window.scrollTo = () => {};
 globalThis.window = window;
 globalThis.document = window.document;
+globalThis.MutationObserver = window.MutationObserver; // the "More below" hint (scrollHint in ui.js)
+globalThis.requestAnimationFrame = window.requestAnimationFrame;
 globalThis.localStorage = window.localStorage;
 Object.defineProperty(globalThis, 'navigator', { value: window.navigator, configurable: true });
 globalThis.LOGBOOK_SYNC_DELAY = 30;
@@ -122,7 +124,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
 
   // ---- one student's entries
   await click($$('tbody tr', matrix)[0], 600);
-  assert.match($('.sheet').textContent, /CC1001 · 2 logged/);
+  assert.match($('.sheet').textContent, /CC1001 · 2 cases/);
   assert.match($('.sheet').textContent, /Appendectomy/);
   assert.match($('.sheet').textContent, /Not signed/);
   clean();

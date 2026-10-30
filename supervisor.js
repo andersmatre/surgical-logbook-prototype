@@ -9,7 +9,7 @@ import { DETAIL_FIELDS, FOLLOWUP_FIELDS, procName, roleLabel } from './config.js
 import * as core from './core.js';
 import * as api from './api.js';
 import {
-  h, timeAgo, stat, kv, toast, openSheet, closeSheet, passwordForm, privacyCard,
+  h, timeAgo, stat, kv, cases, toast, openSheet, closeSheet, passwordForm, privacyCard,
 } from './ui.js';
 
 const ENDED = Symbol('session ended'); // the server ended the session; app.js shows the login screen
@@ -160,7 +160,7 @@ function studentsView() {
         h('span', { class: 'srow-main' },
           h('strong', {}, s.candidate),
           s.name ? h('span', { class: 'small' }, s.name) : null,
-          h('span', { class: 'muted small' }, `${s.entries} logged · last update ${timeAgo(s.last_received)}`)),
+          h('span', { class: 'muted small' }, `${cases(s.entries)} · last update ${timeAgo(s.last_received)}`)),
         s.unsigned > 0 ? h('span', { class: 'tag warn' }, `${s.unsigned} to sign`) : h('span', { class: 'tag ok' }, 'all signed')))));
   }
   return h('section', {}, h('h2', {}, 'My students'), content);
@@ -217,7 +217,7 @@ function detailView() {
     back,
     h('h2', {}, d.candidate),
     nameOf(d.candidate) ? h('p', { class: 'muted' }, nameOf(d.candidate)) : null,
-    h('div', { class: 'stats' }, stat(d.entries.length, 'logged'), stat(signed.length, 'signed'), stat(unsigned.length, 'to sign')),
+    h('div', { class: 'stats' }, stat(d.entries.length, 'cases'), stat(signed.length, 'signed'), stat(unsigned.length, 'to sign')),
     unsigned.length
       ? h('div', { class: 'card' },
         h('h3', {}, 'Waiting for your signature'),

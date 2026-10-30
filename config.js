@@ -1,7 +1,7 @@
 // config.js — content, not logic. Edit procedure lists, targets and hospitals here.
 // (Supervisors are accounts on the server now, created with `admin.js add-supervisor`.)
 
-export const APP_VERSION = '0.11.0';
+export const APP_VERSION = '0.12.0';
 
 // Where the logbook server lives. '' = the same address the app was loaded from
 // (when the server also serves the app). If the app is hosted elsewhere, for example
@@ -153,7 +153,8 @@ export const TARGETS = {
 // The questions of CapaCare's surgical and obstetric logbooks (Logbook_softcopy_2021.xlsx), as fixed lists and
 // whole numbers only. Not taken over: patient initials and address (they identify the patient), times of day
 // (the operation time in minutes is asked instead) and dates after the operation (days are asked instead).
-// Each field: `label` (in summaries), `ask` (in the form, if different), `options` [id, words] or `number`
+// Each field: `label` (in summaries), `ask` (in the form, if different), `help` (a short grey line under the
+// question, for a word that may be unclear), `options` [id, words] or `number`
 // {min, max} with an optional `unit`, and `showIf` {question: [answers]}: only asked when one of those answers
 // is chosen. Field ids and option ids are stored in entries: never rename or reuse one. To stop asking a field,
 // take it out of the lists further down; old entries keep it.
@@ -166,12 +167,12 @@ function babyFields(n) {
   const who = n === 1 ? 'Baby' : `Baby ${n}`;
   const showIf = n === 1 ? undefined : { babies: n === 2 ? ['2', '3'] : ['3'] };
   return {
-    [`${p}outcome`]: { label: who, ask: 'Born', options: [['alive', 'Alive'], ['fresh_stillbirth', 'Fresh stillbirth'], ['macerated', 'Macerated stillbirth']], showIf },
+    [`${p}outcome`]: { label: who, ask: 'Outcome at birth', help: 'Fresh stillbirth: died during labour. Macerated: died before labour.', options: [['alive', 'Alive'], ['fresh_stillbirth', 'Fresh stillbirth'], ['macerated', 'Macerated stillbirth']], showIf },
     [`${p}presentation`]: { label: `${who}, position`, ask: 'Position', options: [['cephalic', 'Head first'], ['breech', 'Breech'], ['transverse', 'Transverse']], showIf },
     [`${p}sex`]: { label: `${who}, sex`, ask: 'Sex', options: [['male', 'Male'], ['female', 'Female']], showIf },
     [`${p}weight_g`]: { label: `${who}, weight`, ask: 'Weight', unit: 'grams', number: { min: 500, max: 6000 }, showIf },
-    [`${p}apgar1`]: { label: `${who}, Apgar 1 min`, ask: 'Apgar after 1 minute', number: { min: 0, max: 10 }, showIf },
-    [`${p}apgar5`]: { label: `${who}, Apgar 5 min`, ask: 'Apgar after 5 minutes', number: { min: 0, max: 10 }, showIf },
+    [`${p}apgar1`]: { label: `${who}, Apgar 1 min`, ask: 'Apgar at 1 min', unit: 'of 10', number: { min: 0, max: 10 }, showIf },
+    [`${p}apgar5`]: { label: `${who}, Apgar 5 min`, ask: 'Apgar at 5 min', unit: 'of 10', number: { min: 0, max: 10 }, showIf },
   };
 }
 const babyIds = (n) => Object.keys(babyFields(n));
@@ -181,13 +182,13 @@ const babyIds = (n) => Object.keys(babyFields(n));
 export const DETAIL_FIELDS = {
   // the patient, or the mother
   sex: { label: 'Sex', options: [['male', 'Male'], ['female', 'Female']] },
-  age_years: { label: 'Age', ask: 'Age (under 1 year: 0)', unit: 'years', number: { min: 0, max: 120 } },
-  gravida: { label: 'Gravida', ask: 'Gravida (pregnancies, this one too)', number: { min: 1, max: 20 } },
-  para: { label: 'Para', number: { min: 0, max: 20 } },
+  age_years: { label: 'Age', help: 'Under 1 year: 0', unit: 'years', number: { min: 0, max: 120 } },
+  gravida: { label: 'Gravida', help: 'Pregnancies, this one too', number: { min: 1, max: 20 } },
+  para: { label: 'Para', help: 'Births before this one', number: { min: 0, max: 20 } },
   children_alive: { label: 'Children alive', number: { min: 0, max: 20 } },
-  induction: { label: 'Start of labour', options: [['spontaneous', 'Spontaneous'], ['oxytocin', 'Oxytocin'], ['foley', 'Foley catheter'], ['rom', 'Rupture of membranes']] },
+  induction: { label: 'Start of labour', ask: 'How labour started', options: [['spontaneous', 'Spontaneous'], ['oxytocin', 'Oxytocin'], ['foley', 'Foley catheter'], ['rom', 'Rupture of membranes']] },
   // the babies
-  babies: { label: 'Babies', options: [['1', 'One'], ['2', 'Twins'], ['3', 'Triplets']] },
+  babies: { label: 'Babies', ask: 'Number of babies', options: [['1', 'One'], ['2', 'Twins'], ['3', 'Triplets']] },
   ...babyFields(1),
   ...babyFields(2),
   ...babyFields(3),
@@ -195,12 +196,12 @@ export const DETAIL_FIELDS = {
   urgency: { label: 'Urgency', options: [['elective', 'Planned'], ['emergency', 'Emergency']] },
   cs_reason: { label: 'Main reason', options: [['abnormal_presentation', 'Abnormal position'], ['prolonged_labour', 'Prolonged labour'], ['cord_prolapse', 'Cord prolapse'], ['uterine_rupture', 'Uterine rupture'], ['preeclampsia', 'Pre-eclampsia'], ['fetal_infection', 'Fetal infection'], ['placenta', 'Placenta problem'], ['previous_cs', 'Previous caesarean'], ['bicornuate', 'Bicornuate uterus'], ['other', 'Other']] },
   anaesthesia: { label: 'Anaesthesia', options: [['none', 'None'], ['local', 'Local'], ['ketamine', 'Ketamine'], ['spinal', 'Spinal or epidural'], ['general', 'General'], ['local_ketamine', 'Local + ketamine'], ['spinal_ketamine', 'Spinal + ketamine'], ['spinal_local', 'Spinal + local'], ['other', 'Other']] },
-  duration_min: { label: 'Operation time', unit: 'minutes', number: { min: 1, max: 1440 } },
+  duration_min: { label: 'Operation time', help: 'First cut to last stitch', unit: 'minutes', number: { min: 1, max: 1440 } },
   blood_loss_ml: { label: 'Blood loss', unit: 'ml', number: { min: 0, max: 5000 } },
   // Surgical Apgar (Gawande 2007): the option id is the number of points.
   sapgar_blood: { label: 'Surgical Apgar, blood loss', ask: 'Blood loss', options: [['3', '100 ml or less'], ['2', '101–600 ml'], ['1', '601–1000 ml'], ['0', 'More than 1000 ml']] },
-  sapgar_map: { label: 'Surgical Apgar, lowest MAP', ask: 'Lowest mean blood pressure (MAP)', options: [['0', 'Under 40'], ['1', '40–54'], ['2', '55–69'], ['3', '70 or more']] },
-  sapgar_hr: { label: 'Surgical Apgar, lowest heart rate', ask: 'Lowest heart rate', options: [['4', '55 or less'], ['3', '56–65'], ['2', '66–75'], ['1', '76–85'], ['0', 'More than 85']] },
+  sapgar_map: { label: 'Surgical Apgar, lowest MAP', ask: 'Lowest blood pressure', help: 'Mean arterial pressure (MAP), mmHg', options: [['0', 'Under 40'], ['1', '40–54'], ['2', '55–69'], ['3', '70 or more']] },
+  sapgar_hr: { label: 'Surgical Apgar, lowest heart rate', ask: 'Lowest heart rate', help: 'Beats per minute', options: [['4', '55 or less'], ['3', '56–65'], ['2', '66–75'], ['1', '76–85'], ['0', 'More than 85']] },
   // From the first, invented list: no longer asked, kept so old entries still show them.
   side: { label: 'Side', options: [['left', 'Left'], ['right', 'Right'], ['both', 'Both']] },
   mesh: { label: 'Mesh used', options: [['yes', 'Yes'], ['no', 'No']] },
@@ -215,8 +216,8 @@ export const FOLLOWUP_FIELDS = {
   mother: { label: 'Mother', options: [['alive', 'Alive'], ['died', 'Died'], ['unknown', 'Not known']] },
   died_day: { label: 'Died on day', ask: 'Died how many days after?', unit: 'days', number: { min: 0, max: 365 }, showIf: { patient: ['died'], mother: ['died'] } },
   death_cause: { label: 'Cause of death', options: [['hypertensive', 'High blood pressure (eclampsia)'], ['haemorrhage', 'Bleeding'], ['sepsis', 'Sepsis or infection'], ['obstructed_labour', 'Obstructed labour'], ['anaemia', 'Anaemia'], ['hiv', 'HIV/AIDS'], ['embolism', 'Embolism'], ['uterine_rupture', 'Uterine rupture'], ['other_direct', 'Other direct cause'], ['other_indirect', 'Other indirect cause']], showIf: { mother: ['died'] } },
-  wound_infection: { label: 'Wound infection', ask: 'Wound infection (antibiotics started for the wound)', options: YES_NO },
-  reoperation: { label: 'Back to theatre', ask: 'Back to theatre (same stay)', options: YES_NO },
+  wound_infection: { label: 'Wound infection', help: 'Antibiotics started for the wound', options: YES_NO },
+  reoperation: { label: 'Back to theatre', help: 'Another operation during the same stay', options: YES_NO },
   referral: { label: 'Referred', ask: 'Referred to another hospital', options: YES_NO },
   days_in_hospital: { label: 'Days in hospital', ask: 'Days in hospital afterwards', unit: 'days', number: { min: 0, max: 365 } },
   // From the first, invented list: no longer asked, kept so old entries still show them.
@@ -230,8 +231,12 @@ export const FOLLOWUP_DAYS = 42;
 // Which questions are asked, in parts with a heading. An operation asks the surgical logbook's questions, a
 // delivery the obstetric logbook's. A delivery that is also an operation (caesarean, vacuum, destructive) asks
 // both, each question once; there the blood loss in ml also gives the Surgical Apgar's points.
-// A part can word a question differently with `ask`: the mother's age needs no "under 1 year".
-const MOTHER_ASK = { age_years: 'Age' };
+// A part can have a `note` under its heading, and word a question differently with `ask` or `help`
+// ({id: words}, null for none): the mother's age needs no "under 1 year".
+const MOTHER_HELP = { age_years: null };
+// The Surgical Apgar is about the operated patient: at a caesarean, the mother (the baby's is the Apgar under Baby).
+const SAPGAR_NOTE = 'A score for how the operation went.';
+const SAPGAR_NOTE_MOTHER = "The mother's, during the operation. The baby's Apgar is under Baby.";
 const BABIES = [
   { title: 'Baby', ids: ['babies', ...babyIds(1)] },
   { title: 'Second baby', ids: babyIds(2) },
@@ -240,18 +245,17 @@ const BABIES = [
 const DETAILS_OPERATION = [
   { title: 'Patient', ids: ['sex', 'age_years'] },
   { title: 'Operation', ids: ['urgency', 'anaesthesia', 'duration_min'] },
-  { title: 'Surgical Apgar', ids: ['sapgar_blood', 'sapgar_map', 'sapgar_hr'] },
+  { title: 'Surgical Apgar', note: SAPGAR_NOTE, ids: ['sapgar_blood', 'sapgar_map', 'sapgar_hr'] },
 ];
 const DETAILS_BIRTH = [
-  { title: 'Mother', ids: ['age_years', 'gravida', 'para', 'children_alive', 'induction', 'blood_loss_ml'], ask: MOTHER_ASK },
+  { title: 'Mother', ids: ['age_years', 'gravida', 'para', 'children_alive', 'induction', 'blood_loss_ml'], help: MOTHER_HELP },
   ...BABIES,
 ];
 const DETAILS_BIRTH_OPERATION = [
-  { title: 'Mother', ids: ['age_years', 'gravida', 'para', 'children_alive', 'induction'], ask: MOTHER_ASK },
+  { title: 'Mother', ids: ['age_years', 'gravida', 'para', 'children_alive', 'induction'], help: MOTHER_HELP },
   ...BABIES,
   { title: 'Operation', ids: ['urgency', 'anaesthesia', 'duration_min'] },
-  // The Surgical Apgar is about the operated patient: at a caesarean, the mother (the baby's is the Apgar under Baby).
-  { title: 'Surgical Apgar (mother)', ids: ['blood_loss_ml', 'sapgar_map', 'sapgar_hr'] },
+  { title: 'Surgical Apgar', note: SAPGAR_NOTE_MOTHER, ids: ['blood_loss_ml', 'sapgar_map', 'sapgar_hr'] },
 ];
 const DETAILS_BY_PROCEDURE = {
   cs: DETAILS_BIRTH_OPERATION.map((s) => (s.title === 'Operation' ? { ...s, ids: ['urgency', 'cs_reason', 'anaesthesia', 'duration_min'] } : s)),
@@ -324,7 +328,7 @@ export const HOSPITALS = [
   'Waterloo Street Clinic (T. B. Kamara)',
   'Wilberforce Military Hospital',
   'Yangadie Memorial Health Clinic',
-  'Other / testing',
+  'Other',
 ];
 
 // The privacy notice ("Your data"), shown at the first login and under More in all three apps.

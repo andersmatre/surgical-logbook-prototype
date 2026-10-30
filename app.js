@@ -5,12 +5,12 @@
 
 import {
   PROCEDURE_GROUPS, PROCEDURES, ALL_PROCEDURES, LOG_SURGERY, LOG_DELIVERIES, TARGETS, TARGETS_ARE_PLACEHOLDER,
-  HOSPITALS, APP_VERSION, DETAIL_FIELDS, FOLLOWUP_FIELDS, findProcedure, procName, rolesFor, roleDone, detailFieldsFor, followupFieldsFor,
+  HOSPITALS, APP_VERSION, DETAIL_FIELDS, FOLLOWUP_FIELDS, findProcedure, procName, rolesFor, roleDone, detailFieldsFor, followupFieldsFor, surgicalApgar, answerLabel,
 } from './config.js';
 import * as core from './core.js';
 import * as api from './api.js';
 import {
-  h, timeAgo, stat, kv, initUi, toast, hideToast, openSheet, closeSheet, passwordForm, openPrivacy, privacyCard,
+  h, timeAgo, stat, kv, cases, initUi, toast, hideToast, openSheet, closeSheet, confirmOver, scrollHint, passwordForm, openPrivacy, privacyCard,
 } from './ui.js';
 import { mountSupervisor } from './supervisor.js';
 import { mountAdministrator } from './administrator.js';
@@ -331,7 +331,7 @@ function logTab() {
   const button = (p) => h('button', { class: 'proc', onclick: () => openEntrySheet(p) },
     h('span', { class: 'proc-text' },
       h('span', { class: 'proc-name' }, p.name),
-      h('span', { class: 'proc-count' }, `${counts[p.id] || 0} logged`)),
+      h('span', { class: 'proc-count' }, cases(counts[p.id] || 0))),
     h('span', { class: 'proc-add', 'aria-hidden': 'true' }));
   const parts = choices([['surgery', 'Surgery', 'An operation'], ['delivery', 'Delivery', 'A birth you took part in']],
     logPart, (v) => { logPart = v; render(); }, { required: true, wide: true });
@@ -378,53 +378,99 @@ function openMoreProcedures() {
   openSheet([h('h3', {}, 'All operations'), input, list, h('button', { class: 'btn ghost wide', type: 'button', onclick: closeSheet }, 'Close')], { tall: true });
 }
 
-// "Change" opens the calendar at once. The date field lies invisible on top of the button, so a tap opens the
-// picker right there. This is for the keyboard, which reaches the button under it: a browser without
-// showPicker() shows the field instead.
-function openPicker(el) {
-  try {
-    if (typeof el.showPicker === 'function') { el.showPicker(); return; }
-  } catch { /* not allowed here: fall back to showing the field */ }
-  el.classList.add('show');
-  el.focus();
-}
-
-// The hospital list that "Change" folds out under the hospital: a search field and one button per hospital, the
-// current one marked. One tap chooses. Plain buttons, because a phone's own list (a wheel on the iPhone) is slow
-// and needs a second step. toggle() opens or folds it; onPick gets the chosen name.
-function hospitalPicker(onPick) {
-  const search = h('input', { type: 'text', class: 'search', placeholder: 'Search hospital', 'aria-label': 'Search hospital', autocomplete: 'off' });
-  const list = h('div', { class: 'hlist' });
-  const panel = h('div', { class: 'hpick', hidden: true }, search, list);
-  const draw = () => {
-    const q = search.value.trim().toLowerCase();
-    const rows = HOSPITALS.filter((x) => x.toLowerCase().includes(q)).map((x) => h('button', {
-      class: x === state.profile.hospital ? 'row-btn opt on' : 'row-btn opt', type: 'button',
-      onclick: async () => { panel.hidden = true; await core.setMeta('hospital', x); state.profile.hospital = x; onPick(x); },
-    }, x));
-    list.replaceChildren(...(rows.length ? rows : [h('p', { class: 'muted' }, 'No match. Choose "Other / testing".')]));
+// "Change" opens the calendar at once, and a second press closes it again. Returns the button's onpointerdown and
+// onclick. On a touch screen the date field lies invisible on top of the button (style.css), because an iPhone
+// only opens the calendar from a real tap on the field; there the button is only reached with a keyboard, and
+// the tap on the field opens it: by itself on a phone, by showPicker() where it does not (Chrome's tablet mode on
+// a computer). With a mouse the button gets the click (and looks like every other button when the mouse is over it).
+// The press that closes the calendar has closed it before the page hears of it, so whether it was open is
+// remembered: until the browser's :open says it closed in another way (a date chosen, Escape, a click elsewhere).
+// A browser without showPicker() shows the field under the row instead.
+function dateToggle(el) {
+  let open = false;
+  let closedAt = -1e9; // when the watch saw it close: a press just after counts as closing it
+  let wasOpen = false;
+  const watch = () => {
+    if (open) return;
+    try { if (!el.matches(':open')) return; } catch { return; } // a browser without :open: no closing by a second press
+    open = true;
+    const timer = setInterval(() => { if (!el.isConnected || !el.matches(':open')) { open = false; closedAt = performance.now(); clearInterval(timer); } }, 150);
   };
-  search.addEventListener('input', draw);
+  const pressed = () => { wasOpen = open || performance.now() - closedAt < 250; };
+  const closedByThisPress = () => { const was = wasOpen; wasOpen = false; return was; };
+
+  // a tap on the field itself (touch screens)
+  el.addEventListener('pointerdown', pressed);
+  el.addEventListener('click', (ev) => {
+    if (el.classList.contains('show')) return; // the field shown under the row works as a normal field
+    if (closedByThisPress()) { ev.preventDefault(); return; }
+    setTimeout(() => { // after the browser had its chance to open it itself
+      try {
+        if (!el.matches(':open')) el.showPicker();
+        watch();
+      } catch { /* an iPhone opens it in its own way */ }
+    }, 0);
+  });
+
   return {
-    panel,
-    toggle: () => {
-      if (!panel.hidden) { panel.hidden = true; return; }
-      search.value = '';
-      draw();
-      panel.hidden = false;
-      const on = list.querySelector('.on');
-      if (on) list.scrollTop = on.offsetTop - 8; // the current hospital in view (.hlist is positioned)
+    onpointerdown: pressed,
+    onclick: () => {
+      if (closedByThisPress()) return;
+      try {
+        if (typeof el.showPicker === 'function') { el.showPicker(); watch(); return; }
+      } catch { /* not allowed here: fall back to showing the field */ }
+      el.classList.toggle('show');
+      if (el.classList.contains('show')) el.focus();
     },
   };
 }
 
-// The invisible date field lies on top of its "Change" button and gets the tap itself. A phone or tablet opens
-// the picker for that tap; a computer with a mouse does not, so there the click opens it.
-function openPickerOnClick(el) {
-  el.addEventListener('click', () => {
-    if (el.classList.contains('show') || !window.matchMedia?.('(pointer: fine)').matches) return;
-    try { el.showPicker?.(); } catch { /* the browser opens it in its own way */ }
-  });
+// The hospital menu that "Change" opens: a white box over the page, under the button, with a search field and one
+// button per hospital, the current one marked. One tap chooses. Plain buttons, because a phone's own list (a wheel
+// on the iPhone) is slow and needs a second step. It closes with its × button, "Change" again, Escape or a tap
+// outside it. Returns the "Change" button and the menu: put both in one element with position: relative
+// (.fact). onPick gets the chosen name.
+function hospitalPicker(onPick) {
+  const search = h('input', { type: 'text', class: 'search', placeholder: 'Search hospital', 'aria-label': 'Search hospital', autocomplete: 'off' });
+  const list = h('div', { class: 'hlist' });
+  const close = () => {
+    panel.hidden = true;
+    button.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('pointerdown', outside, true);
+    document.removeEventListener('keydown', escape, true);
+  };
+  const outside = (ev) => { if (!panel.contains(ev.target) && !button.contains(ev.target)) close(); };
+  const escape = (ev) => { if (ev.key === 'Escape') { ev.stopPropagation(); close(); button.focus(); } };
+  const panel = h('div', { class: 'hpick', role: 'dialog', 'aria-label': 'Choose hospital', hidden: true },
+    h('div', { class: 'hpick-head' },
+      h('strong', {}, 'Choose hospital'),
+      h('button', { class: 'hpick-x', type: 'button', 'aria-label': 'Close', onclick: () => close() }, '×')),
+    search, list);
+  const draw = () => {
+    const q = search.value.trim().toLowerCase();
+    const rows = HOSPITALS.filter((x) => x.toLowerCase().includes(q)).map((x) => h('button', {
+      class: x === state.profile.hospital ? 'row-btn opt on' : 'row-btn opt', type: 'button',
+      onclick: async () => { close(); await core.setMeta('hospital', x); state.profile.hospital = x; onPick(x); },
+    }, x));
+    list.replaceChildren(...(rows.length ? rows : [h('p', { class: 'muted' }, 'No match. Choose "Other".')]));
+  };
+  search.addEventListener('input', draw);
+  scrollHint(list, panel);
+  const open = () => {
+    search.value = '';
+    draw();
+    panel.hidden = false;
+    button.setAttribute('aria-expanded', 'true');
+    const on = list.querySelector('.on');
+    if (on) list.scrollTop = on.offsetTop - (list.clientHeight - on.offsetHeight) / 2; // the current hospital in the middle (.hlist is positioned)
+    document.addEventListener('pointerdown', outside, true);
+    document.addEventListener('keydown', escape, true);
+  };
+  const button = h('button', {
+    class: 'change', type: 'button', 'aria-label': 'Change hospital', 'aria-haspopup': 'dialog', 'aria-expanded': 'false',
+    onclick: () => (panel.hidden ? open() : close()),
+  }, 'Change');
+  return { button, panel };
 }
 
 // Logging a procedure: one pop-up with everything on it. Hospital and date are filled in, the role is the
@@ -443,13 +489,11 @@ function openEntrySheet(proc) {
     dateLabel.textContent = date === today ? 'Today' : core.fmtDate(date);
     dateInput.classList.remove('show');
   });
-  openPickerOnClick(dateInput);
-  const changeBtn = h('button', { class: 'change', type: 'button', 'aria-label': 'Change date', onclick: () => openPicker(dateInput) }, 'Change');
+  const changeBtn = h('button', { class: 'change', type: 'button', 'aria-label': 'Change date', ...dateToggle(dateInput) }, 'Change');
 
   // The hospital is stored with every entry. It is the one chosen on this tablet; it can be changed right here.
   const hospLabel = h('strong', {}, state.profile.hospital);
   const hosp = hospitalPicker((x) => { hospLabel.textContent = x; });
-  const hospBtn = h('button', { class: 'change', type: 'button', 'aria-label': 'Change hospital', onclick: hosp.toggle }, 'Change');
 
   // Save says what is missing until a role is chosen, so the student is never left wondering why nothing happens.
   const saveBtn = h('button', { class: 'btn save', type: 'button', onclick: () => save() });
@@ -465,10 +509,23 @@ function openEntrySheet(proc) {
   const form = questions(DETAIL_FIELDS, parts, {});
   const err = h('p', { class: 'error', role: 'alert' }, '');
 
-  async function save() {
+  // Save checks the answers first. If some questions have no answer, a question on top asks before saving;
+  // "Go back" shows the first one without an answer.
+  async function save(anyway = false) {
     if (saving || !role) return;
     const v = form.values();
     if (v.error) { err.textContent = v.error; return; }
+    const missing = form.missing();
+    if (missing.length && !anyway) {
+      confirmOver({
+        title: 'Not everything is answered',
+        text: missing.length === 1 ? '1 question has no answer. Save anyway?' : `${missing.length} questions have no answer. Save anyway?`,
+        no: 'Go back', yes: 'Save anyway',
+        onYes: () => save(true),
+      });
+      form.scrollTo(missing[0]);
+      return;
+    }
     saving = true;
     const ms = performance.now() - t0;
     closeSheet();
@@ -481,7 +538,7 @@ function openEntrySheet(proc) {
     const p = core.progress(state.entries)[proc.id] || { performed: 0, total: 0 };
     const target = TARGETS[proc.id];
     toast(`Saved · ${role.label}`, {
-      sub: target ? `${proc.name}: ${p.performed} of ${target} performed` : `${proc.name}: ${p.total} logged`,
+      sub: target ? `${proc.name}: ${p.performed} of ${target} performed` : `${proc.name}: ${cases(p.total)}`,
       action: {
         label: 'Undo',
         fn: async () => {
@@ -498,10 +555,9 @@ function openEntrySheet(proc) {
   openSheet([
     h('h3', {}, proc.name),
     h('div', { class: 'facts' },
-      h('div', { class: 'fact' }, h('span', { class: 'fact-text' }, h('span', {}, 'Hospital'), hospLabel), hospBtn, hosp.panel),
+      h('div', { class: 'fact' }, h('span', { class: 'fact-text' }, h('span', {}, 'Hospital'), hospLabel), hosp.button, hosp.panel),
       h('div', { class: 'fact' }, h('span', { class: 'fact-text' }, h('span', {}, 'Date'), dateLabel), changeBtn, dateInput)),
-    h('div', { class: 'qrow', role: 'group', 'aria-label': 'Your role' }, h('span', { class: 'qpart-title' }, 'Your role'), roleGroup),
-    parts.length ? h('div', { class: 'qpart' }, h('span', { class: 'qpart-title' }, proc.delivery ? 'About the birth' : 'About the operation'), h('span', { class: 'muted' }, 'Answer what you know')) : null,
+    h('section', { class: 'qcard', role: 'group', 'aria-label': 'Your role' }, h('h4', { class: 'qsection' }, 'Your role'), roleGroup),
     form.el,
     err,
     h('div', { class: 'sheet-foot' },
@@ -512,9 +568,11 @@ function openEntrySheet(proc) {
 
 // A set of big buttons where one can be chosen. `options` are [value, label, hint?]. Tapping the chosen one
 // again clears it, unless the answer is required. A chosen button is filled with the main colour.
+// The buttons are in a grid, two per row; three short ones (like One, Twins, Triplets) share one row.
 function choices(options, initial, onChange, { required = false, wide = false } = {}) {
   let chosen = initial;
-  const wrap = h('div', { class: 'choices' + (wide ? ' wide' : '') });
+  const three = !wide && options.length === 3 && options.every(([, label]) => label.length <= 9);
+  const wrap = h('div', { class: 'choices' + (wide ? ' wide' : three ? ' three' : '') });
   const paint = () => {
     for (const b of wrap.children) {
       const on = b.dataset.value === chosen;
@@ -530,10 +588,11 @@ function choices(options, initial, onChange, { required = false, wide = false } 
   return wrap;
 }
 
-// Questions from DETAIL_FIELDS or FOLLOWUP_FIELDS, in parts ([{ title, ids, ask? }], see detailFieldsFor in config.js):
-// big buttons for a list (tap again to clear), a number field for a number. A question with `showIf` (and a part
-// whose questions are all hidden) appears only once a matching answer is chosen; hidden answers are not saved.
-// `initial` preselects answers. values() returns { answers } or { error }.
+// Questions from DETAIL_FIELDS or FOLLOWUP_FIELDS, in parts ([{ title, note?, ids, ask?, help? }], see
+// detailFieldsFor in config.js). A part with a title is a grey card with the title on top. Big buttons for a list
+// (tap again to clear), a number field for a number; number questions that follow each other sit side by side.
+// A question with `showIf` (and a part whose questions are all hidden) appears only once a matching answer is
+// chosen; hidden answers are not saved. `initial` preselects answers. values() returns { answers } or { error }.
 function questions(fields, parts, initial) {
   const chosen = { ...initial };
   const numbers = {};
@@ -551,26 +610,41 @@ function questions(fields, parts, initial) {
   const row = (id, part = {}) => {
     const f = fields[id];
     const ask = (part.ask && part.ask[id]) || f.ask || f.label;
+    const help = part.help && id in part.help ? part.help[id] : f.help;
+    const helpEl = help ? h('span', { class: 'qhelp' }, help) : null;
     if (f.number) {
       numbers[id] = h('input', {
         type: 'number', inputmode: 'numeric', min: String(f.number.min), max: String(f.number.max), step: '1',
         class: 'num', id: `q-${id}`, value: chosen[id] != null ? String(chosen[id]) : '',
       });
-      rows[id] = h('div', { class: 'qrow' },
-        h('label', { class: 'qlabel', for: `q-${id}` }, ask),
+      rows[id] = h('div', { class: 'qrow qnum' },
+        h('label', { class: 'qlabel', for: `q-${id}` }, ask), helpEl,
         h('div', { class: 'numrow' }, numbers[id], f.unit ? h('span', { class: 'muted' }, f.unit) : null));
     } else {
       rows[id] = h('div', { class: 'qrow', role: 'group', 'aria-label': ask },
-        h('span', { class: 'qlabel' }, ask),
+        h('span', { class: 'qlabel' }, ask), helpEl,
         choices(f.options, chosen[id] ?? null, (v) => { chosen[id] = v ?? undefined; update(); }));
     }
     return rows[id];
   };
+  // The rows of a part, with number questions that follow each other put together in one grid.
+  const partRows = (p) => {
+    const out = [];
+    for (const id of p.ids) {
+      const r = row(id, p);
+      if (!fields[id].number) { out.push(r); continue; }
+      const last = out[out.length - 1];
+      if (last && last.classList.contains('numgrid')) last.append(r);
+      else out.push(h('div', { class: 'numgrid' }, r));
+    }
+    return out;
+  };
   const el = h('div', { class: 'questions' }, parts.map((p) => {
-    if (!p.title) return p.ids.map((id) => row(id, p));
-    const title = h('h4', { class: 'qsection' }, p.title);
-    titles.push([title, p.ids]);
-    return [title, ...p.ids.map((id) => row(id, p))];
+    if (!p.title) return partRows(p);
+    const card = h('section', { class: 'qcard' },
+      h('h4', { class: 'qsection' }, p.title), p.note ? h('p', { class: 'qnote' }, p.note) : null, partRows(p));
+    titles.push([card, p.ids]);
+    return card;
   }));
   update();
   const values = () => {
@@ -587,7 +661,10 @@ function questions(fields, parts, initial) {
     }
     return { answers };
   };
-  return { el, values };
+  // The questions on screen that have no answer, in order.
+  const missing = () => ids.filter(shown).filter((id) => (fields[id].number ? !numbers[id].value.trim() : chosen[id] == null));
+  const scrollTo = (id) => rows[id].scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  return { el, values, missing, scrollTo };
 }
 
 // ---- Progress tab ----------------------------------------------------------
@@ -603,7 +680,7 @@ function progressTab() {
   return h('section', {},
     h('h2', {}, 'My progress'),
     h('div', { class: 'stats' },
-      stat(total, 'logged'), stat(signed, 'signed'), stat(wk, 'this week')),
+      stat(total, 'cases'), stat(signed, 'signed'), stat(wk, 'this week')),
     h('div', { class: 'card' },
       Object.entries(TARGETS).map(([id, t]) => {
         const p = { id, name: procName(id) };
@@ -640,13 +717,13 @@ async function copyText(text) {
 
 function historyTab() {
   if (!state.entries.length) {
-    return h('section', {}, h('h2', {}, 'History'), h('p', { class: 'muted' }, 'No entries yet. Log your first procedure on the Log tab.'));
+    return h('section', {}, h('h2', {}, 'My history'), h('p', { class: 'muted' }, 'No entries yet. Log your first procedure on the Log tab.'));
   }
   const f = historyFilter;
   const shown = state.entries.filter((e) => (!f.procedure || e.procedure === f.procedure) && (!f.role || e.role === f.role));
   const filtered = f.procedure || f.role;
   return h('section', {},
-    h('h2', {}, 'History'),
+    h('h2', {}, 'My history'),
     h('div', { class: 'filters' },
       filterButton('Procedure', f.procedure ? procName(f.procedure) : 'All', !!f.procedure, openProcedureFilter),
       filterButton('Role', f.role ? roleDone(f.role, f.procedure) : 'All', !!f.role, openRoleFilter)),
@@ -706,25 +783,63 @@ function openRoleFilter() {
   ]);
 }
 
-function entryRow(e) {
+// A case from History in a pop-up: one calm table. Under the title the date and hospital; then parts with a small
+// heading (Case, then the parts of the form, then Follow-up) and a row per answered question: the question on the
+// left, the answer on the right. Changing it is not possible (the log only grows); a follow-up can be added and an
+// unsigned entry deleted from here, with the buttons at the bottom next to Close.
+function openCase(e) {
+  const row = (label, value) => h('div', { class: 'case-row' }, h('span', {}, label), h('span', {}, value));
+  const part = (title, rows) => (rows.length ? h('section', { class: 'case-part' }, h('h4', {}, title), rows) : null);
+  // The answers in the parts of the form; an answer to a question no longer asked comes last, under "Other".
+  const parts = (fields, list, answers, fallbackTitle, extra = {}) => {
+    const has = (id) => answers && answers[id] != null;
+    const asked = new Set(list.flatMap((p) => p.ids));
+    const rest = Object.keys(fields).filter((id) => has(id) && !asked.has(id));
+    return [...list, ...(rest.length ? [{ title: 'Other', ids: rest }] : [])].map((p) => part(p.title || fallbackTitle, [
+      ...p.ids.filter(has).map((id) => row((p.ask && p.ask[id]) || fields[id].ask || fields[id].label, answerLabel(fields, id, answers[id]))),
+      ...(extra[p.title] && p.ids.some(has) ? [extra[p.title]] : []),
+    ]));
+  };
+  const apgar = surgicalApgar(e.details);
   const late = e.performed_on !== e.entered_on;
-  const details = core.answersText(DETAIL_FIELDS, e.details);
-  const outcome = core.answersText(FOLLOWUP_FIELDS, e.outcome);
   const canFollowUp = core.followUpOpen(e);
-  return h('li', { class: 'entry' },
-    h('div', { class: 'e-main' }, h('strong', {}, procName(e.procedure)), h('span', { class: `role-tag role-${e.role}` }, roleDone(e.role, e.procedure))),
-    h('div', { class: 'e-meta' },
-      h('span', {}, [core.fmtDate(e.performed_on), e.hospital].filter(Boolean).join(' · ')),
-      late ? h('span', { class: 'tag' }, 'late entry') : null,
-      e.sign ? h('span', { class: 'tag ok' }, `Signed · ${e.sign.supervisor_name || e.sign.supervisor}`) : h('span', { class: 'tag warn' }, 'Not signed'),
-      // Bottom right, under the role, so an unsigned entry is no taller than a signed one.
-      e.sign ? null : h('button', { class: 'link danger e-del', onclick: () => confirmDelete(e) }, 'Delete')),
-    details ? h('div', { class: 'e-extra' }, details) : null,
-    outcome || canFollowUp
-      ? h('div', { class: 'e-follow' },
-        h('span', { class: outcome ? 'e-outcome' : 'muted' }, outcome ? `Follow-up: ${outcome}` : 'No follow-up yet'),
-        canFollowUp ? h('button', { class: 'link e-fu', onclick: () => openFollowUp(e) }, outcome ? 'Update' : 'Add follow-up') : null)
-      : null);
+  const hasOutcome = Object.keys(e.outcome || {}).length > 0;
+  const details = parts(DETAIL_FIELDS, detailFieldsFor(e.procedure), e.details, 'Details',
+    apgar == null ? {} : { 'Surgical Apgar': row('Score', `${apgar} of 10`) }).filter(Boolean);
+  const followUp = parts(FOLLOWUP_FIELDS, followupFieldsFor(e.procedure), e.outcome, 'Follow-up').filter(Boolean);
+
+  openSheet([
+    h('div', { class: 'sheet-head' }, // stays at the top while the case scrolls
+      h('h3', { class: 'case-title' }, procName(e.procedure)),
+      h('p', { class: 'case-sub' }, [core.fmtDate(e.performed_on), e.hospital].filter(Boolean).join(' · '))),
+    part('Case', [
+      row('Your role', roleDone(e.role, e.procedure)),
+      row('Signature', e.sign
+        ? `Signed by ${e.sign.supervisor_name || e.sign.supervisor}${e.sign.ts ? ` on ${core.fmtDate(String(e.sign.ts).slice(0, 10))}` : ''}`
+        : 'Not signed yet'),
+      late ? row('Logged', `${core.fmtDate(e.entered_on)} (later)`) : null,
+    ].filter(Boolean)),
+    details.length ? details : part('Details', [h('p', { class: 'muted' }, 'No details were filled in.')]),
+    followUp.length ? followUp : part('Follow-up', [h('p', { class: 'muted' }, canFollowUp ? 'No follow-up yet.' : 'No follow-up was added.')]),
+    h('div', { class: 'sheet-foot case-foot' },
+      h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Close'),
+      canFollowUp ? h('button', { class: 'btn save', type: 'button', onclick: () => openFollowUp(e) }, hasOutcome ? 'Update follow-up' : 'Add follow-up') : null,
+      e.sign ? null : h('button', { class: 'btn ghost danger', type: 'button', onclick: () => confirmDelete(e) }, 'Delete')),
+  ]);
+}
+
+// One case in the list: only the procedure, your role and the date, and whether it is signed. Tapping it opens
+// the whole case in a pop-up (openCase), with the follow-up and Delete.
+function entryRow(e) {
+  return h('li', {
+    class: 'entry tap', role: 'button', tabindex: '0', 'aria-label': `Open ${procName(e.procedure)}, ${core.fmtDate(e.performed_on)}`,
+    onclick: () => openCase(e),
+    onkeydown: (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openCase(e); } },
+  },
+    h('div', { class: 'e-text' },
+      h('strong', {}, procName(e.procedure)),
+      h('span', { class: 'e-sub' }, `${roleDone(e.role, e.procedure)} · ${core.fmtDate(e.performed_on)}`)),
+    e.sign ? h('span', { class: 'tag ok' }, 'Signed') : h('span', { class: 'tag warn' }, 'Not signed'));
 }
 
 // What happened to the patient afterwards, up to FOLLOWUP_DAYS after the operation. Saved as a new
@@ -776,22 +891,24 @@ function confirmDelete(e) {
 // Whether the "Advanced" part of the More tab is open. Kept here so that tapping "Sync now" (which redraws the tab) does not fold it shut.
 let advancedOpen = false;
 
+// A row like the hospital and date when logging: the label in bold, the value under it in plain text, and
+// anything else (a "Change" button) on the right.
+const fact = (label, value, ...extra) => h('div', { class: 'fact' }, h('span', { class: 'fact-text' }, h('span', {}, label), h('strong', {}, value)), ...extra);
+
 function moreTab() {
   const n = core.unsyncedCount(state.events, state.sent);
   const m = core.metrics(state.events, state.meta);
-  // The hospital is shown like the candidate number and the name; "Change" opens the list underneath.
+  // The account is shown like the hospital and date when logging: the label in bold, the value under it in plain
+  // text. "Change" opens the same hospital menu as when logging.
   const hosp = hospitalPicker(() => refresh());
-  const hospitalRow = h('div', { class: 'kv' }, h('span', {}, 'Hospital'),
-    h('span', { class: 'kv-val' },
-      h('button', { class: 'link', type: 'button', onclick: hosp.toggle }, 'Change'),
-      h('strong', {}, state.profile.hospital)));
 
-  return h('section', {},
+  return h('section', { class: 'more-tab' },
     h('h2', {}, 'More'),
     h('div', { class: 'card' }, h('h3', {}, 'Account'),
-      kv('Candidate number', state.profile.student),
-      state.session.name ? kv('Name', state.session.name) : null,
-      hospitalRow, hosp.panel,
+      h('div', { class: 'facts plain' },
+        fact('Candidate number', state.profile.student),
+        state.session.name ? fact('Name', state.session.name) : null,
+        fact('Hospital', state.profile.hospital, hosp.button, hosp.panel)),
       h('div', { class: 'row' },
         h('button', { class: 'btn ghost', onclick: openChangePassword }, 'Change password'),
         h('button', { class: 'btn ghost', onclick: openLogout }, 'Log out'))),
@@ -817,7 +934,7 @@ function supervisorsCard() {
   const sups = state.meta.supervisors || [];
   return h('div', { class: 'card' }, h('h3', {}, 'Your supervisors'),
     sups.length
-      ? sups.map((s) => kv(s.name, `since ${core.fmtDate(String(s.since).slice(0, 10))}`))
+      ? h('div', { class: 'facts plain' }, sups.map((s) => fact(s.name, `since ${core.fmtDate(String(s.since).slice(0, 10))}`)))
       : h('p', { class: 'muted' }, 'No supervisor has added you yet.'),
     h('p', { class: 'muted small' }, 'These supervisors can see your entries and sign them. Nobody else can. If someone is on this list who should not be, tell CapaCare.'));
 }
