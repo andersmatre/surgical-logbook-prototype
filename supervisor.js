@@ -9,7 +9,7 @@ import { DETAIL_FIELDS, FOLLOWUP_FIELDS, procName, roleLabel } from './config.js
 import * as core from './core.js';
 import * as api from './api.js';
 import {
-  h, timeAgo, stat, cases, toast, openSheet, closeSheet, passwordForm, fact, privacyFact, advancedCard,
+  h, timeAgo, stat, cases, appShell, pageScroll, setPageScroll, toast, openSheet, closeSheet, passwordForm, fact, privacyFact, advancedCard,
 } from './ui.js';
 
 const ENDED = Symbol('session ended'); // the server ended the session; app.js shows the login screen
@@ -40,9 +40,9 @@ function draw() {
 }
 
 function paint() {
-  const y = window.scrollY || 0;
-  ctx.root.replaceChildren(h('div', { 'data-sv': '' }, h('div', { class: 'sticky-top' }, header(), nav()), h('main', { class: 'main' }, body())));
-  if (y) window.scrollTo(0, y);
+  const y = pageScroll();
+  ctx.root.replaceChildren(appShell({ 'data-sv': '' }, [header(), nav()], body()));
+  if (y) setPageScroll(y);
 }
 
 function header() {
@@ -71,7 +71,7 @@ function body() {
 function goTab(id) {
   sv.tab = id;
   sv.detail = null;
-  window.scrollTo(0, 0);
+  setPageScroll(0);
   if (id === 'students' && sv.students === null) loadStudents();
   if (id === 'add' && sv.candidates === null) loadCandidates();
   draw();
@@ -156,7 +156,7 @@ function studentsView() {
       h('button', { class: 'btn wide', onclick: () => goTab('add') }, 'Add students'));
   } else {
     content = h('ul', { class: 'list' }, list.map((s) => h('li', {},
-      h('button', { class: 'srow', onclick: () => { window.scrollTo(0, 0); loadDetail(s.candidate); } },
+      h('button', { class: 'srow', onclick: () => { setPageScroll(0); loadDetail(s.candidate); } },
         h('span', { class: 'srow-main' },
           h('strong', {}, s.candidate),
           s.name ? h('span', { class: 'small' }, s.name) : null,
@@ -191,7 +191,7 @@ function extraLines(e) {
 function detailView() {
   const d = sv.detail;
   const back = h('button', {
-    class: 'link', onclick: () => { sv.detail = null; window.scrollTo(0, 0); loadStudents(); },
+    class: 'link', onclick: () => { sv.detail = null; setPageScroll(0); loadStudents(); },
   }, '‹ My students');
   if (d.loading) return h('section', {}, back, h('h2', {}, d.candidate), h('p', { class: 'muted' }, 'Loading entries…'));
   if (d.error) return h('section', {}, back, h('h2', {}, d.candidate), h('div', { class: 'card' }, h('p', { class: 'error' }, d.error), h('button', { class: 'btn', onclick: () => loadDetail(d.candidate) }, 'Try again')));

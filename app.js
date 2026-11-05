@@ -10,7 +10,7 @@ import {
 import * as core from './core.js';
 import * as api from './api.js';
 import {
-  h, timeAgo, stat, cases, initUi, toast, hideToast, openSheet, closeSheet, confirmOver, scrollHint, passwordForm, openPrivacy, fact, privacyFact, advancedCard,
+  h, timeAgo, stat, cases, initUi, appShell, pageScroll, setPageScroll, toast, hideToast, openSheet, closeSheet, confirmOver, scrollHint, passwordForm, openPrivacy, fact, privacyFact, advancedCard,
 } from './ui.js';
 import { mountSupervisor } from './supervisor.js';
 import { mountAdministrator } from './administrator.js';
@@ -66,10 +66,8 @@ async function loadState() {
 }
 
 async function refresh() {
-  const y = window.scrollY || 0;
   await loadState();
   render();
-  if (y) window.scrollTo(0, y);
 }
 
 // ---- syncing with the server -------------------------------------------------
@@ -177,6 +175,7 @@ async function pullAll() {
 const TABS = [['log', 'Log'], ['progress', 'Progress'], ['history', 'History'], ['more', 'More']];
 
 function render() {
+  const y = pageScroll();
   root.replaceChildren();
   if (!state.session) { root.append(loginScreen()); return; }
   if (state.session.must_change) { root.append(forcedPasswordScreen()); return; }
@@ -189,10 +188,8 @@ function render() {
     return;
   }
   if (!state.profile || !state.profile.hospital) { root.append(hospitalScreen()); return; }
-  root.append(
-    h('div', { class: 'sticky-top' }, header(), nav()),
-    h('main', { class: 'main' }, tabContent()),
-  );
+  root.append(appShell({}, [header(), nav()], tabContent()));
+  if (y) setPageScroll(y); // drawn again (a sync, an answer): stay where you were
 }
 
 function tabContent() {
@@ -212,7 +209,7 @@ function header() {
 
 function nav() {
   return h('nav', { class: 'nav' }, TABS.map(([id, label]) =>
-    h('button', { class: 'tab' + (state.tab === id ? ' on' : ''), onclick: () => { state.tab = id; render(); window.scrollTo(0, 0); } }, label)));
+    h('button', { class: 'tab' + (state.tab === id ? ' on' : ''), onclick: () => { state.tab = id; render(); setPageScroll(0); } }, label)));
 }
 
 // ---- login, password, hospital ------------------------------------------------

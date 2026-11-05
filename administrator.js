@@ -7,7 +7,7 @@ import { PROCEDURES_TOP, DETAIL_FIELDS, FOLLOWUP_FIELDS, procName, roleLabel } f
 import * as core from './core.js';
 import * as api from './api.js';
 import {
-  h, timeAgo, stat, kv, cases, toast, openSheet, closeSheet, saveBlob, fact, privacyFact, advancedCard,
+  h, timeAgo, stat, kv, cases, appShell, pageScroll, setPageScroll, toast, openSheet, closeSheet, saveBlob, fact, privacyFact, advancedCard,
 } from './ui.js';
 
 const ENDED = Symbol('session ended'); // the server ended the session; app.js shows the login screen
@@ -42,9 +42,9 @@ function draw() {
 }
 
 function paint() {
-  const y = window.scrollY || 0;
-  ctx.root.replaceChildren(h('div', { 'data-admin': '' }, h('div', { class: 'sticky-top' }, header(), nav()), h('main', { class: 'main' }, body())));
-  if (y) window.scrollTo(0, y);
+  const y = pageScroll();
+  ctx.root.replaceChildren(appShell({ 'data-admin': '' }, [header(), nav()], body()));
+  if (y) setPageScroll(y);
 }
 
 function header() {
@@ -58,7 +58,7 @@ function header() {
 function nav() {
   const tabs = [['overview', 'Overview'], ['users', 'Users'], ['add', 'Add users'], ['more', 'More']];
   return h('nav', { class: 'nav' }, tabs.map(([id, label]) =>
-    h('button', { class: 'tab' + (ad.tab === id ? ' on' : ''), onclick: () => { ad.tab = id; window.scrollTo(0, 0); draw(); } }, label)));
+    h('button', { class: 'tab' + (ad.tab === id ? ' on' : ''), onclick: () => { ad.tab = id; setPageScroll(0); draw(); } }, label)));
 }
 
 function body() {

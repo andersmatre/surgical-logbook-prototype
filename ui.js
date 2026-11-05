@@ -51,6 +51,18 @@ export function saveBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
+// The screen once logged in: the header and tabs at the top, and under them the page, which scrolls on its own
+// (.shell in style.css). The window itself never scrolls, so on an iPhone the header cannot be pulled along when
+// the page is scrolled far or fast, or bounces at its ends. pageScroll and setPageScroll read and set where the
+// page is scrolled to, to keep that when the screen is drawn again, or go back to the top on another tab.
+export const appShell = (attrs, top, page) =>
+  h('div', { ...attrs, class: 'shell' }, h('div', { class: 'top-bar' }, top), h('main', { class: 'main' }, page));
+export const pageScroll = () => document.querySelector('.shell > .main')?.scrollTop || 0;
+export function setPageScroll(y) {
+  const page = document.querySelector('.shell > .main');
+  if (page) page.scrollTop = y;
+}
+
 // ---- toast and sheets ------------------------------------------------------
 
 let overlay;
@@ -69,7 +81,7 @@ export function initUi({ overlayEl, toastElement }) {
 // stay in place while the content moves under them: Cancel and Save at the bottom of a pop-up, the tabs and the
 // sync button at the top, Undo in the message at the bottom, the small scroll arrows. A touch on one of those
 // always means "press", so it is pressed when the finger lifts, at once.
-const STAY_PUT = '.sheet-foot, .sticky-top, #toast, .scroll-hint';
+const STAY_PUT = '.sheet-foot, .top-bar, #toast, .scroll-hint';
 let pressInstalled = false;
 function pressOnTouch() {
   if (pressInstalled) return;
@@ -109,9 +121,11 @@ export function toast(msg, opts = {}) {
 
 // Opens a pop-up in the middle of the screen. { tall: true } gives it a fixed height, for a list that
 // gets shorter while you search, so the pop-up does not jump around.
-// A pop-up that is longer than the screen shows a small arrow down above its Cancel and Save, and an arrow up at
-// its top once scrolled down (scrollHint), under its .sheet-head if it has one (a heading that stays at the top);
-// a tall one shows them over its list.
+// A pop-up with buttons at the bottom (.sheet-foot, like Cancel and Save) and maybe a heading at the top
+// (.sheet-head) scrolls only what is between them (.sheet-body): the buttons and the heading never move, also
+// not when an iPhone bounces at the end of the scrolling. When that part is longer than the screen it shows a
+// small arrow down above the buttons, and an arrow up at its top once scrolled down (scrollHint), under the
+// heading if there is one. A tall one shows them over its list.
 export function openSheet(content, { tall = false } = {}) {
   const sheet = h('div', { class: tall ? 'sheet tall' : 'sheet', role: 'dialog', 'aria-modal': 'true' }, content);
   overlay.replaceChildren(h('div', { class: 'scrim', onclick: closeSheet }), sheet);
@@ -119,11 +133,16 @@ export function openSheet(content, { tall = false } = {}) {
   const foot = sheet.querySelector(':scope > .sheet-foot');
   const list = sheet.querySelector(':scope > .plist');
   const head = sheet.querySelector(':scope > .sheet-head');
-  if (foot && head) scrollHint(sheet, foot, head);
-  else if (foot) {
-    const dock = h('div', { class: 'scroll-dock' }); // stays at the top while the pop-up scrolls
-    sheet.prepend(dock);
-    scrollHint(sheet, foot, dock);
+  if (foot) {
+    const body = h('div', { class: 'sheet-body' }, [...sheet.children].filter((c) => c !== head && c !== foot));
+    sheet.insertBefore(body, foot);
+    sheet.classList.add('split');
+    let top = head;
+    if (!top) {
+      top = h('div', { class: 'scroll-dock' }); // the arrow up, at the top edge
+      sheet.prepend(top);
+    }
+    scrollHint(body, foot, top);
   } else if (tall && list) scrollHint(list, sheet);
 }
 

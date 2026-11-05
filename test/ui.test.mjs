@@ -121,6 +121,7 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   $('#hosp').value = 'Masanga Hospital';
   await submit($('.setup-form'));
   assert.ok($('.top'), 'main screen');
+  assert.ok($('.shell > .top-bar > .top + .nav') && $('.shell > .top-bar + .main'), 'header and tabs at the top, the page under them scrolls on its own');
   assert.match($('.who').textContent, /CC1234 · Mohamed Kamara · Masanga Hospital/);
   assert.doesNotMatch(document.body.textContent, /never type/i, 'no warning about typing patient data: there is nowhere to type it');
   assert.equal($('.banner'), null, 'no version strip on the screens: the version is under More, About');
@@ -434,8 +435,11 @@ test('role and details are on one screen, and a follow-up can be added later fro
   assert.ok(dateField.classList.contains('show'));
   await click($('.sheet [aria-label="Change date"]'));
   assert.ok(!dateField.classList.contains('show'), 'a second press closes it');
+  // only the questions scroll: the buttons are outside that part, so they never move
+  assert.deepEqual([...$('.sheet').children].map((c) => c.className), ['scroll-dock', 'sheet-body', 'sheet-foot']);
+  assert.ok($('.sheet-body .qcard') && !$('.sheet-body .sheet-foot'), 'the questions in the part that scrolls, the buttons not');
   // the arrow down shows while there is more further down, and goes away at the bottom (jsdom has no layout: pretend)
-  const sheet = $('.sheet');
+  const sheet = $('.sheet-body');
   const hint = $('.sheet-foot > .scroll-hint');
   let top = 0;
   Object.defineProperty(sheet, 'scrollHeight', { value: 3000, configurable: true });

@@ -11,9 +11,6 @@
   --radius: 14px;
 }
 * { box-sizing: border-box; }
-/* No bounce at the top or bottom of the page: on iPhone the bounce pulls the header and tabs along (or under the
-   status bar), so they seem to jump. Without it they always stay at the top. */
-html, body { overscroll-behavior-y: none; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0; background: var(--bg); color: var(--ink);
@@ -89,8 +86,17 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 .sheet .setup-form { margin-bottom: 12px; }
 .addrow + .addrow { margin-top: 8px; }
 
-/* Header and tab bar stay at the top while the page scrolls. The tabs are all the same width. */
-.sticky-top { position: sticky; top: 0; z-index: 10; }
+/* Once logged in (appShell in ui.js): the header and tabs at the top, and under them the page, which scrolls on its
+   own. The window does not scroll, so on an iPhone nothing can pull the header away, also not the bounce at the
+   ends (that stays inside the page). The page uses the whole width, so it scrolls wherever the finger or mouse is;
+   its content stays 960 px wide in the middle, like the header. The tabs are all the same width. */
+.shell { position: fixed; inset: 0; display: flex; flex-direction: column; }
+.top-bar { flex: none; z-index: 10; width: 100%; max-width: 960px; margin: 0 auto; }
+.shell > .main {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding: 24px max(16px, calc((100% - 928px) / 2)) calc(40px + env(safe-area-inset-bottom));
+}
+html:has(.shell), html:has(.shell) body { overscroll-behavior: none; } /* the window itself does not bounce either */
 .nav { display: flex; background: var(--card); border-bottom: 1px solid var(--line); }
 .tab { flex: 1 1 0; min-width: 0; min-height: 56px; padding: 6px 4px; border: 0; background: none; font-weight: 600; color: var(--muted); position: relative; }
 .tab.on { color: var(--main-dark); box-shadow: inset 0 -3px 0 var(--main); background: var(--main-light); }
@@ -107,9 +113,10 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 /* The small arrows (scrollHint in ui.js): while there is more further down (or up), that edge of something that
    scrolls fades out to white under a small round button with an arrow. Quiet on purpose: they take little room and
    do not get in the way once someone is used to scrolling. Only the button can be tapped; the fade lets taps through.
-   The arrow down sits on top of Cancel and Save, the arrow up at the top (.scroll-dock stays there while the
-   pop-up scrolls). In the hospital menu and the list of all operations ui.js puts them at the list's edges. */
-.scroll-dock { position: sticky; top: 0; z-index: 3; height: 0; transform: translateY(-24px); } /* -24px: from the very top edge, over the pop-up's padding (sticky stops inside it); the layout under it does not move */
+   The arrow down sits on top of Cancel and Save, the arrow up at the top (in .scroll-dock, or under the heading;
+   the pop-up does not move, only its .sheet-body scrolls). In the hospital menu and the list of all operations
+   ui.js puts them at the list's edges. */
+.scroll-dock { position: relative; z-index: 3; height: 0; transform: translateY(-24px); } /* -24px: from the very top edge, over the pop-up's padding; the layout under it does not move */
 .scroll-hint {
   position: absolute; left: 0; right: 0; z-index: 3; height: 36px; display: flex; justify-content: center;
   pointer-events: none; animation: hint-in .2s ease-out;
@@ -148,8 +155,15 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 .sheet.tall { height: 720px; display: flex; flex-direction: column; overflow: hidden; }
 .sheet.tall > * { flex: none; }
 .sheet.tall > .plist { flex: 1 1 auto; min-height: 0; overflow: auto; margin: 0 -4px 12px; padding: 0 4px; }
+/* A pop-up with buttons at the bottom (openSheet in ui.js): only .sheet-body scrolls, so the heading at the top and
+   the buttons at the bottom never move, also not when an iPhone bounces at the end. The body reaches the edges of
+   the pop-up (-24px), so what scrolls disappears there and not inside the white border. */
+.sheet.split { display: flex; flex-direction: column; overflow: hidden; }
+.sheet.split > * { flex: none; }
+.sheet.split > .sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin: 0 -24px; padding: 0 24px 8px; }
+.sheet.split > .scroll-dock + .sheet-body { margin-top: -24px; padding-top: 24px; }
 @keyframes sheet-in { from { opacity: 0; } } /* only a fade: on iPhone, a pop-up that grows (scale) puts Cancel, Save and the arrow a few pixels off until it has finished, so they jump */
-.sheet > h3:first-of-type { font-size: 24px; margin-bottom: 16px; }
+.sheet > h3:first-of-type, .sheet-body > h3:first-of-type { font-size: 24px; margin-bottom: 16px; }
 .dinput { display: none; margin: 4px 0 8px; min-height: 48px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; }
 .dinput.show { display: block; }
 
@@ -308,8 +322,9 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .e-sub { color: var(--muted); font-size: 15px; }
 /* The case pop-up (openCase in app.js): one table. A small heading in the main colour per part, then a row per
    answer: the question on the left (semi-bold), the answer on the right (plain), a thin line between rows. */
-/* The heading stays at the top while the case scrolls (-24px: over the pop-up's padding, to its very top edge). */
-.sheet-head { position: sticky; top: -24px; z-index: 4; margin: -24px -24px 0; padding: 24px 24px 6px; background: var(--card); }
+/* The heading stays at the top while the rest of the case scrolls (.sheet-body; -24px: over the pop-up's padding,
+   to its very top edge). */
+.sheet-head { position: relative; z-index: 4; margin: -24px -24px 0; padding: 24px 24px 6px; background: var(--card); }
 .sheet-head h3 { font-size: 24px; margin: 0 0 2px; }
 .case-sub { margin: 0; color: var(--muted); }
 .sheet-head > .scroll-hint.up { top: 100%; }
@@ -346,7 +361,7 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .numrow { display: flex; align-items: center; gap: 8px; margin-top: 8px; white-space: nowrap; }
 .num { width: 100%; max-width: 140px; min-width: 0; min-height: 52px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-size: 20px; }
 /* Cancel and Save stay in view at the bottom of a long pop-up. Save is the wide one. */
-.sheet-foot { position: sticky; bottom: -24px; display: flex; gap: 12px; margin: 8px -24px -24px; padding: 12px 24px 24px; background: var(--card); border-top: 1px solid var(--line); }
+.sheet-foot { position: relative; z-index: 3; display: flex; gap: 12px; margin: 0 -24px -24px; padding: 12px 24px 24px; background: var(--card); border-top: 1px solid var(--line); }
 .sheet-foot .btn { flex: 1; padding-left: 12px; padding-right: 12px; white-space: nowrap; }
 .sheet-foot .btn.save { flex: 2; }
 
