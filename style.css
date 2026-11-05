@@ -11,6 +11,9 @@
   --radius: 14px;
 }
 * { box-sizing: border-box; }
+/* No bounce at the top or bottom of the page: on iPhone the bounce pulls the header and tabs along (or under the
+   status bar), so they seem to jump. Without it they always stay at the top. */
+html, body { overscroll-behavior-y: none; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0; background: var(--bg); color: var(--ink);
@@ -145,7 +148,7 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 .sheet.tall { height: 720px; display: flex; flex-direction: column; overflow: hidden; }
 .sheet.tall > * { flex: none; }
 .sheet.tall > .plist { flex: 1 1 auto; min-height: 0; overflow: auto; margin: 0 -4px 12px; padding: 0 4px; }
-@keyframes sheet-in { from { opacity: 0; transform: scale(.96); } }
+@keyframes sheet-in { from { opacity: 0; } } /* only a fade: on iPhone, a pop-up that grows (scale) puts Cancel, Save and the arrow a few pixels off until it has finished, so they jump */
 .sheet > h3:first-of-type { font-size: 24px; margin-bottom: 16px; }
 .dinput { display: none; margin: 4px 0 8px; min-height: 48px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; }
 .dinput.show { display: block; }
