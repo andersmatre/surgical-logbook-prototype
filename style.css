@@ -38,8 +38,7 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 }
 .chip.ok { background: var(--ok-bg); color: var(--ok-ink); }
 .chip.warn { background: var(--warn-bg); color: var(--warn-ink); }
-.banner { background: #FFF6D6; color: #5a4300; font-size: 14px; padding: 6px 16px; text-align: center; }
-.main { padding: 8px 16px 16px; }
+.main { padding: 24px 16px 16px; } /* room between the tabs and the page's heading */
 
 /* Log tab: first Surgery or Delivery, then that part's procedures as two even columns of big rows (one column on a
    phone). Under Surgery, "More operations" follows on its own, a little apart. */
@@ -52,7 +51,7 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
 .proc {
   width: 100%; min-height: 76px; text-align: left; padding: 10px 14px 10px 18px; border-radius: var(--radius);
-  background: var(--card); border: 2px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  background: var(--card); border: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 14px;
 }
 .proc-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .proc-name { font-weight: 600; font-size: 20px; line-height: 1.25; }
@@ -148,7 +147,7 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 .sheet.tall > .plist { flex: 1 1 auto; min-height: 0; overflow: auto; margin: 0 -4px 12px; padding: 0 4px; }
 @keyframes sheet-in { from { opacity: 0; transform: scale(.96); } }
 .sheet > h3:first-of-type { font-size: 24px; margin-bottom: 16px; }
-.dinput { display: none; margin: 4px 0 8px; min-height: 48px; padding: 6px 10px; border: 2px solid var(--line); border-radius: 10px; }
+.dinput { display: none; margin: 4px 0 8px; min-height: 48px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; }
 .dinput.show { display: block; }
 
 /* The pop-up after tapping a procedure: hospital and date in a grey box, then the role and the details. */
@@ -203,7 +202,7 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
 .choices.three { grid-template-columns: 1fr 1fr 1fr; }
 .choice {
-  min-width: 0; min-height: 52px; padding: 8px 12px; border: 2px solid var(--line); border-radius: var(--radius); background: #fff;
+  min-width: 0; min-height: 52px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center;
 }
 .choice strong { font-weight: 600; }
@@ -214,15 +213,15 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 .choice.on span { color: #fff; opacity: .9; }
 @media (max-width: 420px) { .choices.wide { grid-template-columns: 1fr; } }
 .search, .pin, select {
-  width: 100%; min-height: 52px; padding: 8px 12px; border: 2px solid var(--line); border-radius: 10px; background: #fff; margin: 4px 0 12px;
+  width: 100%; min-height: 52px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; margin: 4px 0 12px;
 }
-input[type=text], .setup-form input[type=password] { width: 100%; min-height: 52px; padding: 8px 12px; border: 2px solid var(--line); border-radius: 10px; margin: 4px 0 14px; background: #fff; }
+input[type=text], .setup-form input[type=password] { width: 100%; min-height: 52px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; margin: 4px 0 14px; background: #fff; }
 .pin { letter-spacing: 6px; font-size: 24px; text-align: center; }
 .plist { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 /* A group heading in the list of all operations. */
 .plist-group { margin: 12px 0 0; color: var(--main-dark); }
 .plist-group:first-child { margin-top: 0; }
-.row-btn { text-align: left; min-height: 56px; padding: 10px 14px; border-radius: 10px; border: 2px solid var(--line); background: #fff; }
+.row-btn { text-align: left; min-height: 56px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
 .radio, .check { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 4px; }
 input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-color: var(--main); flex: none; }
 .signlist { max-height: 40vh; overflow: auto; margin-bottom: 8px; }
@@ -257,22 +256,25 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 /* Not "adv-…": ad blockers hide elements with names like that (it happened to this title on the live site). */
 .fold-title { display: flex; flex-direction: column; }
 .fold-title strong { font-size: 20px; }
-.advanced h3 { margin-top: 16px; }
+.advanced h3 { margin: 28px 0 4px; font-size: 18px; color: var(--main-dark); } /* "Data on this device", "About": in the main colour, so they stand apart from the bold rows */
 /* The More tab: the card headings stand out (bigger, in the main colour), and Change password and Log out have
    room above them, apart from the hospital. */
 .more-tab > .card > h3:first-child, .more-tab .fold-title strong { font-size: 22px; color: var(--main-dark); }
 .more-tab > .card > h3:first-child { margin-bottom: 14px; }
 .more-tab .facts.plain + .row { margin-top: 24px; }
+.more-tab .facts.plain + .btn { margin-top: 16px; } /* "Last backup", then "Download backup" */
 .advanced summary:active { background: var(--main-light); }
-.summary { background: #f7f6f2; padding: 12px; border-radius: 10px; white-space: pre-wrap; font: 15px/1.5 ui-monospace, Menlo, monospace; margin: 0 0 8px; }
 
 .list { list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 10px; }
+/* History: a quiet heading above each month's entries. */
+.month { font-size: 14px; font-weight: 400; color: var(--muted); margin: 24px 0 8px 2px; }
+.month + .list { margin-top: 0; }
 
 /* History: "Procedure" and "Role" buttons that open a pop-up to show only some entries. A button with a choice made is coloured. */
 .filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .filter {
   display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 8px 16px; text-align: left;
-  background: var(--card); border: 2px solid var(--line); border-radius: var(--radius);
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); /* thin, like the entries under them */
 }
 .filter::after {
   content: ""; flex: none; width: 10px; height: 10px; margin-left: auto; border-right: 3px solid var(--muted); border-bottom: 3px solid var(--muted);
@@ -296,7 +298,7 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
   content: ''; position: absolute; right: 18px; top: 50%; width: 8px; height: 8px; margin-top: -4px;
   border-right: 2px solid var(--muted); border-top: 2px solid var(--muted); transform: rotate(45deg);
 }
-.entry.tap .tag { flex: none; }
+.entry.tap .e-tags { flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 50%; }
 .entry.tap:active { background: var(--main-light); }
 @media (hover: hover) { .entry.tap:hover { border-color: var(--main); box-shadow: 0 2px 8px rgba(0, 0, 0, .08); } }
 .e-text { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -332,19 +334,14 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .questions { margin: 0 0 4px; }
 .questions [hidden] { display: none; }
 .qcard { background: var(--bg); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
-.qsection { margin: 0 0 12px; font-size: 19px; }
+.qsection { margin: 0 0 14px; font-size: 19px; color: var(--main-dark); } /* in the main colour, like the headings under More, so it stands apart from the bold questions */
 .qnote { margin: -8px 0 12px; color: var(--muted); font-size: 15px; }
 .qrow { margin-bottom: 18px; }
-.qcard > .qrow:last-child, .qcard > .numgrid:last-child, .qcard > .choices:last-child { margin-bottom: 0; }
+.qcard > .qrow:last-child, .qcard > .choices:last-child { margin-bottom: 0; }
 .qlabel { display: block; font-weight: 700; }
 .qhelp { display: block; color: var(--muted); font-size: 15px; }
-/* Number questions that follow each other, side by side: the labels at the top of each cell, the fields in line
-   at the bottom, also when only some have a grey line. */
-.numgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 18px 16px; margin-bottom: 18px; }
-.numgrid .qrow { display: flex; flex-direction: column; margin-bottom: 0; }
-.numgrid .numrow { margin-top: auto; padding-top: 8px; }
 .numrow { display: flex; align-items: center; gap: 8px; margin-top: 8px; white-space: nowrap; }
-.num { width: 100%; max-width: 140px; min-width: 0; min-height: 52px; padding: 6px 12px; border: 2px solid var(--line); border-radius: 10px; background: #fff; font-size: 20px; }
+.num { width: 100%; max-width: 140px; min-width: 0; min-height: 52px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-size: 20px; }
 /* Cancel and Save stay in view at the bottom of a long pop-up. Save is the wide one. */
 .sheet-foot { position: sticky; bottom: -24px; display: flex; gap: 12px; margin: 8px -24px -24px; padding: 12px 24px 24px; background: var(--card); border-top: 1px solid var(--line); }
 .sheet-foot .btn { flex: 1; padding-left: 12px; padding-right: 12px; white-space: nowrap; }
@@ -355,16 +352,16 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 /* supervisor screens */
 .srow {
   width: 100%; min-height: 72px; text-align: left; display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  background: var(--card); border: 2px solid var(--line); border-radius: var(--radius); padding: 12px 16px;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; /* thin, like History and Log */
 }
 .srow:active { background: var(--main-light); border-color: var(--main); }
 .srow-main { display: flex; flex-direction: column; min-width: 0; }
-.addrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; padding: 4px 4px 4px 14px; background: #fff; border: 2px solid var(--line); border-radius: 10px; }
+.addrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; padding: 4px 4px 4px 14px; background: #fff; border: 1px solid var(--line); border-radius: 10px; }
 .btn.small { min-height: 44px; padding: 8px 20px; }
 
 /* administrator screens */
 textarea {
-  width: 100%; padding: 10px 12px; border: 2px solid var(--line); border-radius: 10px; margin: 4px 0 14px; background: #fff;
+  width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin: 4px 0 14px; background: #fff;
   font: 16px/1.5 ui-monospace, Menlo, monospace; resize: vertical;
 }
 .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; }
@@ -380,18 +377,26 @@ textarea {
 .tbl .tag { margin-left: 6px; }
 .mono { font-family: ui-monospace, Menlo, monospace; font-size: 18px; letter-spacing: .5px; }
 .seg { display: flex; gap: 8px; margin: 8px 0 12px; flex-wrap: wrap; }
-.seg-b { flex: 1 1 120px; min-height: 52px; border: 2px solid var(--line); border-radius: var(--radius); background: #fff; font-weight: 600; }
+.seg-b { flex: 1 1 120px; min-height: 52px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; font-weight: 600; }
 .seg-b.on { background: var(--main-light); border-color: var(--main); color: var(--main-dark); }
 .audit { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #efede6; }
 h4 { font-size: 17px; margin: 16px 0 6px; }
-/* The privacy notice ("Your data"): short lines under small headings. */
-.pv-line { margin: 0 0 6px; }
-.pv-close { margin-top: 16px; }
+/* The privacy notice ("Your data"): one grey card per part, like the parts of the entry pop-up. */
+.pv-title { margin-bottom: 4px; }
+.pv-draft { margin: 0 0 16px; }
+.pv-card { background: var(--bg); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px; }
+.pv-card h4 { margin: 0 0 6px; }
+.pv-card p { margin: 0; }
+.pv-list { margin: 0; padding-left: 20px; }
+.pv-list li + li { margin-top: 6px; }
 .setup .pv-link { margin-top: 16px; }
 .block { display: block; }
 .list.tight { margin-top: 8px; }
 
 .setup { max-width: 520px; margin: 0 auto; padding: 48px 20px; }
+/* "Where do you work?": the line under the heading sits close to it, the list a bit further down. */
+.hosp-setup h1 { margin-bottom: 4px; }
+.hosp-setup h1 + p { margin: 0 0 24px; }
 .setup-form label { display: block; font-weight: 600; margin-top: 12px; }
 .setup-form .btn { margin-top: 8px; }
 .setup-form .checkrow { font-weight: 400; display: flex; align-items: center; gap: 12px; min-height: 48px; margin-top: 0; }

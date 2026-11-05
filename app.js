@@ -10,7 +10,7 @@ import {
 import * as core from './core.js';
 import * as api from './api.js';
 import {
-  h, timeAgo, stat, kv, cases, initUi, toast, hideToast, openSheet, closeSheet, confirmOver, scrollHint, passwordForm, openPrivacy, privacyCard,
+  h, timeAgo, stat, cases, initUi, toast, hideToast, openSheet, closeSheet, confirmOver, scrollHint, passwordForm, openPrivacy, fact, privacyFact, advancedCard,
 } from './ui.js';
 import { mountSupervisor } from './supervisor.js';
 import { mountAdministrator } from './administrator.js';
@@ -22,7 +22,7 @@ const SESSION_KEY = 'logbook.session';
 
 const state = {
   tab: 'log', session: null, profile: null, events: [], entries: [], sent: new Set(), meta: {},
-  online: true, swReady: false, syncing: false, sessionNote: '',
+  online: true, syncing: false, sessionNote: '',
 };
 let root, syncTimer;
 
@@ -41,7 +41,7 @@ function writeSession(s) {
 function handleAuthError(e) {
   if (!(e instanceof api.ApiError) || e.status !== 401) return false;
   writeSession(null);
-  state.sessionNote = 'Your session has ended. Please log in again. Your entries on this tablet are kept.';
+  state.sessionNote = 'Your session has ended. Please log in again. Your entries on this device are kept.';
   state.tab = 'log';
   render();
   return true;
@@ -58,7 +58,7 @@ async function loadState() {
   state.entries = core.derive(state.events);
   state.sent = await core.sentIds();
   const meta = {};
-  for (const k of ['hospital', 'last_sync_at', 'cursor', 'sync_warning', 'undo_count', 'open_count', 'first_open_at', 'persisted', 'supervisors']) {
+  for (const k of ['hospital', 'last_sync_at', 'cursor', 'sync_warning', 'supervisors']) {
     meta[k] = await core.getMeta(k);
   }
   state.meta = meta;
@@ -139,7 +139,7 @@ async function syncCore() {
 async function doSync(manual = false) {
   if (!isStudent(state.session) || state.session.must_change || state.syncing) return;
   if (!state.online) {
-    if (manual) toast('No internet right now', { sub: 'Your entries are safe on this tablet and will be sent later.' });
+    if (manual) toast('No internet right now', { sub: 'Your entries are safe on this device and will be sent later.' });
     return;
   }
   state.syncing = true;
@@ -191,7 +191,6 @@ function render() {
   if (!state.profile || !state.profile.hospital) { root.append(hospitalScreen()); return; }
   root.append(
     h('div', { class: 'sticky-top' }, header(), nav()),
-    h('div', { class: 'banner' }, `Prototype v${APP_VERSION} · never type patient names or numbers`),
     h('main', { class: 'main' }, tabContent()),
   );
 }
@@ -232,7 +231,7 @@ function loginScreen() {
   const reset = () => { btn.disabled = false; btn.textContent = 'Log in'; };
 
   const form = h('form', { class: 'setup-form' },
-    h('label', { for: 'cand' }, 'Candidate number or staff ID'), cand,
+    h('label', { for: 'cand' }, 'Candidate number'), cand,
     h('label', { for: 'pw' }, 'Password'), pw,
     h('label', { class: 'checkrow', for: 'showpw' }, show, h('span', {}, 'Show password')),
     err, btn);
@@ -244,7 +243,7 @@ function loginScreen() {
     const candidate = core.normCandidate(cand.value);
     if (!core.validCandidate(candidate)) { err.textContent = 'Enter your candidate number.'; cand.focus(); return; }
     if (!pw.value) { err.textContent = 'Enter your password.'; pw.focus(); return; }
-    if (!state.online) { err.textContent = 'You need internet to log in on this tablet. Connect and try again.'; return; }
+    if (!state.online) { err.textContent = 'You need internet to log in on this device. Connect and try again.'; return; }
     btn.disabled = true;
     btn.textContent = 'Logging in…';
     try {
@@ -255,7 +254,6 @@ function loginScreen() {
       if (role === 'student') {
         // Supervisors keep no logbook on the tablet, so only students get a local database.
         core.useUser(res.candidate);
-        if (!(await core.getMeta('first_open_at'))) await core.setMeta('first_open_at', new Date().toISOString());
         if (!res.must_change_password) {
           btn.textContent = 'Loading your logbook…';
           await pullAll();
@@ -270,9 +268,9 @@ function loginScreen() {
 
   return h('div', { class: 'setup' },
     h('h1', {}, 'CapaCare logbook'),
-    h('p', { class: 'muted' }, 'Log in with the candidate number (students) or staff ID (supervisors and administrators) and the password you got from CapaCare. You need internet the first time you log in on a tablet. After that the student logbook also works without internet.'),
+    h('p', { class: 'muted' }, 'Log in with your candidate number and the password you got from CapaCare. You need internet the first time you log in on this device. After that the student logbook also works without internet.'),
     note, serverNote(), form,
-    h('p', { class: 'muted small' }, `Prototype v${APP_VERSION}. Never type patient names or numbers anywhere.`));
+    h('p', { class: 'muted small' }, `Version ${APP_VERSION}`));
 }
 
 // Tells a tester which server the app talks to, when it is not the address the app was loaded from.
@@ -302,22 +300,23 @@ function forcedPasswordScreen() {
     h('p', { class: 'muted' }, `Welcome, ${state.session.candidate}. The password you were given is only for the first login. Choose a password that only you know, and do not share it with anyone.`),
     form,
     // Everyone (students, supervisors, administrators) passes this screen once: tell them what is stored.
-    h('button', { class: 'btn ghost wide pv-link', type: 'button', onclick: openPrivacy }, 'How your data is used'));
+    h('button', { class: 'btn ghost wide pv-link', type: 'button', onclick: () => openPrivacy(state.session.role) }, 'How your data is used'));
 }
 
+// Asked once on each device, after the first login. Short on purpose: the question, one line, the list and Continue.
 function hospitalScreen() {
-  const sel = h('select', { id: 'hosp' }, HOSPITALS.map((x) => h('option', { value: x }, x)));
+  const sel = h('select', { id: 'hosp', 'aria-label': 'Hospital' }, HOSPITALS.map((x) => h('option', { value: x }, x)));
   const form = h('form', { class: 'setup-form' },
-    h('label', { for: 'hosp' }, 'Where are you working now?'), sel,
+    sel,
     h('button', { class: 'btn wide', type: 'submit' }, 'Continue'));
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
     await core.setMeta('hospital', sel.value);
     await refresh();
   });
-  return h('div', { class: 'setup' },
-    h('h1', {}, 'Almost there'),
-    h('p', { class: 'muted' }, 'This is saved with your entries. You can change it later under More.'),
+  return h('div', { class: 'setup hosp-setup' },
+    h('h1', {}, 'Where do you work?'),
+    h('p', { class: 'muted' }, 'You can change this later.'),
     form);
 }
 
@@ -476,7 +475,6 @@ function hospitalPicker(onPick) {
 // Logging a procedure: one pop-up with everything on it. Hospital and date are filled in, the role is the
 // one thing to choose, the details under it are optional, and Save (always in view at the bottom) stores it.
 function openEntrySheet(proc) {
-  const t0 = performance.now();
   let date = core.localDateISO();
   let role = null;
   let saving = false;
@@ -527,11 +525,10 @@ function openEntrySheet(proc) {
       return;
     }
     saving = true;
-    const ms = performance.now() - t0;
     closeSheet();
     const ev = await core.logEntry({
       student: state.profile.student, hospital: state.profile.hospital,
-      procedure: proc.id, role: role.id, performed_on: date, ms_to_log: ms, online: state.online, details: v.answers,
+      procedure: proc.id, role: role.id, performed_on: date, details: v.answers,
     });
     await refresh();
     scheduleSync();
@@ -543,7 +540,6 @@ function openEntrySheet(proc) {
         label: 'Undo',
         fn: async () => {
           await core.voidEntry(ev.id);
-          await core.setMeta('undo_count', (state.meta.undo_count || 0) + 1);
           await refresh();
           scheduleSync();
           toast('Undone');
@@ -590,7 +586,7 @@ function choices(options, initial, onChange, { required = false, wide = false } 
 
 // Questions from DETAIL_FIELDS or FOLLOWUP_FIELDS, in parts ([{ title, note?, ids, ask?, help? }], see
 // detailFieldsFor in config.js). A part with a title is a grey card with the title on top. Big buttons for a list
-// (tap again to clear), a number field for a number; number questions that follow each other sit side by side.
+// (tap again to clear), a number field for a number; one question per line.
 // A question with `showIf` (and a part whose questions are all hidden) appears only once a matching answer is
 // chosen; hidden answers are not saved. `initial` preselects answers. values() returns { answers } or { error }.
 function questions(fields, parts, initial) {
@@ -627,18 +623,8 @@ function questions(fields, parts, initial) {
     }
     return rows[id];
   };
-  // The rows of a part, with number questions that follow each other put together in one grid.
-  const partRows = (p) => {
-    const out = [];
-    for (const id of p.ids) {
-      const r = row(id, p);
-      if (!fields[id].number) { out.push(r); continue; }
-      const last = out[out.length - 1];
-      if (last && last.classList.contains('numgrid')) last.append(r);
-      else out.push(h('div', { class: 'numgrid' }, r));
-    }
-    return out;
-  };
+  // The rows of a part, one question per line (number questions too).
+  const partRows = (p) => p.ids.map((id) => row(id, p));
   const el = h('div', { class: 'questions' }, parts.map((p) => {
     if (!p.title) return partRows(p);
     const card = h('section', { class: 'qcard' },
@@ -674,7 +660,6 @@ function progressTab() {
   const total = state.entries.length;
   const signed = state.entries.filter((e) => e.sign).length;
   const wk = core.weekEntries(state.entries).length;
-  const text = core.weeklySummary(state.entries, { student: state.profile.student });
   const others = Object.entries(prog).filter(([id]) => !(id in TARGETS));
 
   return h('section', {},
@@ -694,23 +679,7 @@ function progressTab() {
       }),
       TARGETS_ARE_PLACEHOLDER ? h('p', { class: 'muted small' }, 'Targets are examples until the real training-manual targets are added.') : null),
     others.length ? h('div', { class: 'card' }, h('h3', {}, 'Other procedures'),
-      others.map(([id, p]) => h('div', { class: 'orow' }, h('span', {}, procName(id)), h('strong', {}, p.total)))) : null,
-    h('div', { class: 'card' },
-      h('h3', {}, 'Weekly summary'),
-      h('pre', { class: 'summary' }, text),
-      h('p', { class: 'muted small' }, 'Only numbers. No patient information.'),
-      h('div', { class: 'row' },
-        h('button', { class: 'btn', onclick: () => shareWhatsApp(text) }, 'Share on WhatsApp'),
-        h('button', { class: 'btn ghost', onclick: () => copyText(text) }, 'Copy'))));
-}
-
-function shareWhatsApp(text) {
-  window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
-}
-
-async function copyText(text) {
-  try { await navigator.clipboard.writeText(text); toast('Copied'); }
-  catch { toast('Could not copy', { sub: 'Select the text and copy it by hand.' }); }
+      others.map(([id, p]) => h('div', { class: 'orow' }, h('span', {}, procName(id)), h('span', {}, p.total)))) : null);
 }
 
 // ---- History tab -----------------------------------------------------------
@@ -732,8 +701,11 @@ function historyTab() {
         h('span', {}, `Showing ${shown.length} of ${state.entries.length}`),
         h('button', { class: 'change', type: 'button', onclick: () => setHistoryFilter({ procedure: null, role: null }) }, 'Show all'))
       : null,
+    // A small heading per month (by the day it was done), so a long history is easy to scan.
     shown.length
-      ? h('ul', { class: 'list' }, shown.map(entryRow))
+      ? core.byMonth(shown).map((m) => [
+        h('h3', { class: 'month' }, core.fmtMonth(m.month)),
+        h('ul', { class: 'list' }, m.entries.map(entryRow))])
       : h('p', { class: 'muted' }, 'No entries match. Tap "Show all" to see everything.'));
 }
 
@@ -828,9 +800,10 @@ function openCase(e) {
   ]);
 }
 
-// One case in the list: only the procedure, your role and the date, and whether it is signed. Tapping it opens
-// the whole case in a pop-up (openCase), with the follow-up and Delete.
+// One case in the list: only the procedure, your role and the date, whether it is signed and whether it has a
+// follow-up. Tapping it opens the whole case in a pop-up (openCase), with the follow-up and Delete.
 function entryRow(e) {
+  const hasOutcome = Object.keys(e.outcome || {}).length > 0;
   return h('li', {
     class: 'entry tap', role: 'button', tabindex: '0', 'aria-label': `Open ${procName(e.procedure)}, ${core.fmtDate(e.performed_on)}`,
     onclick: () => openCase(e),
@@ -839,7 +812,9 @@ function entryRow(e) {
     h('div', { class: 'e-text' },
       h('strong', {}, procName(e.procedure)),
       h('span', { class: 'e-sub' }, `${roleDone(e.role, e.procedure)} · ${core.fmtDate(e.performed_on)}`)),
-    e.sign ? h('span', { class: 'tag ok' }, 'Signed') : h('span', { class: 'tag warn' }, 'Not signed'));
+    h('div', { class: 'e-tags' },
+      hasOutcome ? h('span', { class: 'tag' }, 'Follow-up') : null,
+      e.sign ? h('span', { class: 'tag ok' }, 'Signed') : h('span', { class: 'tag warn' }, 'Not signed')));
 }
 
 // What happened to the patient afterwards, up to FOLLOWUP_DAYS after the operation. Saved as a new
@@ -887,17 +862,11 @@ function confirmDelete(e) {
 }
 
 // ---- More tab --------------------------------------------------------------
-
-// Whether the "Advanced" part of the More tab is open. Kept here so that tapping "Sync now" (which redraws the tab) does not fold it shut.
-let advancedOpen = false;
-
-// A row like the hospital and date when logging: the label in bold, the value under it in plain text, and
-// anything else (a "Change" button) on the right.
-const fact = (label, value, ...extra) => h('div', { class: 'fact' }, h('span', { class: 'fact-text' }, h('span', {}, label), h('strong', {}, value)), ...extra);
+// Laid out like the supervisor's and administrator's More (fact, advancedCard in ui.js).
 
 function moreTab() {
   const n = core.unsyncedCount(state.events, state.sent);
-  const m = core.metrics(state.events, state.meta);
+  const m = core.metrics(state.events);
   // The account is shown like the hospital and date when logging: the label in bold, the value under it in plain
   // text. "Change" opens the same hospital menu as when logging.
   const hosp = hospitalPicker(() => refresh());
@@ -913,21 +882,14 @@ function moreTab() {
         h('button', { class: 'btn ghost', onclick: openChangePassword }, 'Change password'),
         h('button', { class: 'btn ghost', onclick: openLogout }, 'Log out'))),
     supervisorsCard(),
-    privacyCard(),
     // The things a student rarely needs are folded away, so the first screen stays short and simple.
-    h('details', { class: 'card advanced', open: advancedOpen, ontoggle: (ev) => { advancedOpen = ev.target.open; } },
-      h('summary', {}, h('span', { class: 'fold-title' }, h('strong', {}, 'Advanced'), h('span', { class: 'muted small' }, 'Sync now, export, app details'))),
-      h('h3', {}, 'Data on this tablet'),
-      kv('Entries', m.entries_active),
-      kv('Waiting to be sent', n),
-      kv('Last sync', timeAgo(state.meta.last_sync_at)),
-      kv('Works offline', state.swReady ? 'yes' : 'not yet'),
-      kv('Storage protected', state.meta.persisted === true ? 'yes' : state.meta.persisted === false ? 'no' : 'unknown'),
-      h('div', { class: 'row' },
-        h('button', { class: 'btn', onclick: () => doSync(true) }, 'Sync now'),
-        h('button', { class: 'btn ghost', onclick: exportData }, 'Export test data')),
-      h('p', { class: 'muted small' }, 'Entries are sent to the server automatically when there is internet. "Export test data" saves a file you can send on WhatsApp.'),
-      h('h3', {}, 'About'), kv('Version', APP_VERSION), kv('Server', api.serverLabel())));
+    advancedCard([
+      ['Data on this device', [
+        fact('Entries', m.entries_active),
+        fact('Waiting to be sent', n),
+        fact('Last sync', timeAgo(state.meta.last_sync_at))]],
+      ['About', [fact('Version', APP_VERSION), privacyFact('student')]],
+    ]));
 }
 
 function supervisorsCard() {
@@ -936,7 +898,7 @@ function supervisorsCard() {
     sups.length
       ? h('div', { class: 'facts plain' }, sups.map((s) => fact(s.name, `since ${core.fmtDate(String(s.since).slice(0, 10))}`)))
       : h('p', { class: 'muted' }, 'No supervisor has added you yet.'),
-    h('p', { class: 'muted small' }, 'These supervisors can see your entries and sign them. Nobody else can. If someone is on this list who should not be, tell CapaCare.'));
+    h('p', { class: 'muted small' }, 'These supervisors can see your entries and sign them.'));
 }
 
 function openChangePassword() {
@@ -947,7 +909,7 @@ function openChangePassword() {
       candidate: state.session.candidate,
       token: state.session.token,
       onAuthError: handleAuthError,
-      onDone: async () => { closeSheet(); toast('Password changed', { sub: 'Other tablets were logged out.' }); },
+      onDone: async () => { closeSheet(); toast('Password changed', { sub: 'Other devices were logged out.' }); },
     }),
     h('button', { class: 'btn ghost wide', type: 'button', onclick: closeSheet }, 'Cancel'),
   ]);
@@ -965,7 +927,7 @@ async function openLogout() {
   openSheet([
     h('h3', {}, 'Log out?'),
     n === 0
-      ? h('p', {}, 'Your entries are safe on the server. They are removed from this tablet when you log out. Log in again to see them.')
+      ? h('p', {}, 'Your entries are safe on the server. They are removed from this device when you log out. Log in again to see them.')
       : h('p', { class: 'error' }, `${n} entr${n > 1 ? 'ies have' : 'y has'} NOT been sent to the server. If you log out now, ${n > 1 ? 'they are' : 'it is'} lost for good.${state.online ? '' : ' Connect to the internet and sync first.'}`),
     h('div', { class: 'row' },
       h('button', { class: 'btn danger', onclick: doLogout }, n === 0 ? 'Log out' : 'Log out and lose entries'),
@@ -990,33 +952,12 @@ async function doLogout() {
   await refresh();
 }
 
-async function exportData() {
-  const payload = core.buildExport(state.events, { ...state.meta, profile: state.profile });
-  const name = `logbook-test-data-${core.localDateISO()}.json`; // no candidate number: the file identifies nobody
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  try {
-    const file = new File([blob], name, { type: 'application/json' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], title: 'Logbook test data' });
-      return;
-    }
-  } catch (e) {
-    if (e && e.name === 'AbortError') return;
-  }
-  const a = h('a', { href: URL.createObjectURL(blob), download: name });
-  document.body.append(a);
-  a.click();
-  a.remove();
-  toast('Test data saved', { sub: name });
-}
-
 // ---- startup ---------------------------------------------------------------
 
 function registerSW() {
   if (!('serviceWorker' in navigator)) return;
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.register('./sw.js').catch(() => {});
-  navigator.serviceWorker.ready.then(() => { state.swReady = true; updateChip(); });
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (hadController) toast('App updated', { sub: 'Close and reopen it to use the new version.', sticky: true });
   });
@@ -1025,7 +966,7 @@ function registerSW() {
 async function requestPersist() {
   try {
     if (navigator.storage && navigator.storage.persist) {
-      await core.setMeta('persisted', await navigator.storage.persist());
+      await navigator.storage.persist(); // asks Chrome not to clear the logbook when space runs low
     }
   } catch { /* ignore */ }
 }
@@ -1039,11 +980,15 @@ export async function init() {
   // Only the sync chip changes when the connection changes, so nothing a student is typing is lost.
   window.addEventListener('online', () => { state.online = true; updateChip(); scheduleSync(); });
   window.addEventListener('offline', () => { state.online = false; updateChip(); });
+  // Back on the screen (switched back to the app, screen turned on): sync, so signatures made meanwhile arrive by
+  // themselves. Android often keeps the app open in the background, so "the app opens" is not enough.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && isStudent(state.session) && !state.session.must_change) scheduleSync();
+  });
 
   state.session = readSession();
   if (isStudent(state.session)) {
     core.useUser(state.session.candidate);
-    await core.setMeta('open_count', ((await core.getMeta('open_count', 0)) || 0) + 1);
   }
   await loadState();
   render();

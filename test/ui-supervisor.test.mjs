@@ -39,7 +39,7 @@ async function studentWithEntries(candidate, procedures) {
   const events = procedures.map((procedure) => ({
     id: `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`, type: 'entry', ts: new Date().toISOString(),
     hospital: 'Masanga Hospital', procedure, role: 'supervised', performed_on: '2026-10-20', entered_on: '2026-10-20',
-    ms_to_log: 3000, online: true, schema: 1,
+    schema: 1,
   }));
   await post('/api/sync', token, { events, cursor: 0 });
   return token;
@@ -67,8 +67,9 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   await init();
   await wait();
 
-  // ---- login with a staff ID, then the forced password change
-  assert.match(document.body.textContent, /staff ID/);
+  // ---- a supervisor logs in with a candidate number too (one word for every account), then the forced password change
+  assert.match($('label[for="cand"]').textContent, /^Candidate number$/);
+  assert.doesNotMatch(document.body.textContent, /staff ID/i);
   $('#cand').value = 'sup-anna';
   $('#pw').value = 'sup-initial-1';
   await submit($('.setup-form'), 600);
@@ -148,7 +149,14 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   // ---- More tab, then log out; nothing was stored on the tablet
   await click(byText('.tab', 'More'));
   assert.match($('.main').textContent, /SUP-ANNA/);
-  assert.match($('.main').textContent, /Only the students you added/);
+  // the same More as a student's: Account rows, then "Advanced" with About and "Your data"
+  assert.deepEqual($$('.more-tab .card').map((c) => c.querySelector('h3, summary strong').textContent), ['Account', 'Advanced']);
+  assert.equal($('details.advanced summary .muted').textContent, 'About', 'the line under "Advanced" says what is inside');
+  assert.deepEqual($$('details.advanced .fact-text > span').map((x) => x.textContent), ['Version', 'Your data']);
+  await click(byText('details.advanced .fact', 'Your data').querySelector('.change'));
+  assert.match($('.sheet').textContent, /Which students you added/, 'a supervisor reads what is stored about supervisors');
+  assert.doesNotMatch($('.sheet').textContent, /Each procedure you log/, 'and not what is stored about students');
+  await click(byText('.sheet .btn', 'Close'));
   const dbs = (await indexedDB.databases()).map((d) => d.name);
   assert.deepEqual(dbs.filter((x) => /SUP-ANNA|surgical-logbook/.test(x)), [], 'no local logbook database for a supervisor');
   await click(byText('.btn', 'Log out'), 100);

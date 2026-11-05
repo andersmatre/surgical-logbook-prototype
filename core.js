@@ -5,8 +5,7 @@
 // from the log. This is what makes later server sync conflict-free: sync just
 // means "upload events the server has not seen".
 
-import { TARGETS, TARGETS_ARE_PLACEHOLDER, FOLLOWUP_DAYS, procName, answerLabel } from './config.js';
-import { APP_VERSION } from './config.js';
+import { FOLLOWUP_DAYS, answerLabel } from './config.js';
 
 const DB_VERSION = 2;
 let dbName = 'surgical-logbook';
@@ -103,6 +102,25 @@ export function fmtDate(iso) {
   return new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
+// 'YYYY-MM' -> "November", or "November 2025" when it is not this year (the month headings in History).
+export function fmtMonth(ym, today = localDateISO()) {
+  const sameYear = ym.slice(0, 4) === today.slice(0, 4);
+  return new Date(ym + '-01T00:00:00').toLocaleDateString('en-GB', sameYear ? { month: 'long' } : { month: 'long', year: 'numeric' });
+}
+
+// Entries grouped by the month they were done in, newest first: [{ month: 'YYYY-MM', entries }].
+// Within a month the newest day comes first; entries of the same day keep their order.
+export function byMonth(entries) {
+  const sorted = [...entries].sort((a, b) => (a.performed_on < b.performed_on ? 1 : a.performed_on > b.performed_on ? -1 : 0));
+  const out = [];
+  for (const e of sorted) {
+    const month = e.performed_on.slice(0, 7);
+    if (!out.length || out[out.length - 1].month !== month) out.push({ month, entries: [] });
+    out[out.length - 1].entries.push(e);
+  }
+  return out;
+}
+
 // ---- writing events -------------------------------------------------------
 
 export async function logEntry(f) {
@@ -117,8 +135,6 @@ export async function logEntry(f) {
     role: f.role,
     performed_on: f.performed_on || localDateISO(now),
     entered_on: localDateISO(now),
-    ms_to_log: Math.round(f.ms_to_log || 0), // procedure tap -> saved (the role tap, or Save after the details)
-    online: !!f.online,
     schema: 1,
     // Answers to the procedure's detail questions (DETAIL_FIELDS in config.js). Left out when none were given.
     ...(f.details && Object.keys(f.details).length ? { details: f.details } : {}),
@@ -206,31 +222,6 @@ export function weekEntries(entries, now = new Date(), days = 7) {
   return entries.filter((e) => e.performed_on >= a && e.performed_on <= b);
 }
 
-export function weeklySummary(entries, { student, now = new Date(), days = 7 }) {
-  const start = new Date(now);
-  start.setDate(start.getDate() - (days - 1));
-  const week = weekEntries(entries, now, days);
-  const prog = progress(entries);
-  const lines = [`Logbook summary - ${student}`, `${fmtDate(localDateISO(start))} to ${fmtDate(localDateISO(now))}`, ''];
-  if (!week.length) {
-    lines.push('No procedures logged this week.');
-  } else {
-    const signed = week.filter((e) => e.sign).length;
-    lines.push(`Cases: ${week.length} (${signed} signed)`);
-    const by = {};
-    for (const e of week) by[e.procedure] = (by[e.procedure] || 0) + 1;
-    for (const [id, n] of Object.entries(by).sort((a, b) => b[1] - a[1])) lines.push(`- ${procName(id)}: ${n}`);
-  }
-  const tl = Object.entries(TARGETS)
-    .filter(([id]) => prog[id])
-    .map(([id, t]) => `- ${procName(id)}: ${prog[id].performed}/${t}`);
-  if (tl.length) {
-    lines.push('', 'Performed as surgeon so far:', ...tl);
-    if (TARGETS_ARE_PLACEHOLDER) lines.push('(targets are examples only)');
-  }
-  return lines.join('\n');
-}
-
 // ---- sync bookkeeping ---------------------------------------------------------
 // An event is "sent" once the server has confirmed it (or once it came from the server).
 
@@ -270,16 +261,11 @@ export async function addPulled(events) {
 
 export const unsyncedCount = (events, sentSet) => events.filter((e) => !sentSet.has(e.id)).length;
 
-// ---- test metrics and export ----------------------------------------------
+// ---- counts ------------------------------------------------------------------
 
-export function median(nums) {
-  if (!nums.length) return null;
-  const s = [...nums].sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
-}
-
-export function metrics(events, meta = {}) {
+// Counts of what is in the logbook. How the app is used (seconds to log, offline, undo, app opens) is not
+// measured: entries made before version 0.13.0 still hold ms_to_log and online, which nothing reads.
+export function metrics(events) {
   const all = events.filter((e) => e.type === 'entry');
   const live = derive(events);
   return {
@@ -287,31 +273,9 @@ export function metrics(events, meta = {}) {
     entries_active: live.length,
     entries_voided: all.length - live.length,
     entries_signed: live.filter((e) => e.sign).length,
-    median_ms_procedure_tap_to_saved: median(all.map((e) => e.ms_to_log).filter((n) => n > 0)),
-    entries_logged_offline: all.filter((e) => !e.online).length,
     late_entries: all.filter((e) => e.performed_on !== e.entered_on).length,
     entries_with_details: all.filter((e) => e.details).length,
     followups: events.filter((e) => e.type === 'followup').length,
     days_with_entries: new Set(all.map((e) => e.entered_on)).size,
-    undo_count: meta.undo_count || 0,
-    app_opens: meta.open_count || 0,
-    first_open_at: meta.first_open_at || null,
-  };
-}
-
-// The test data a student sends us (often on WhatsApp). It identifies nobody: no candidate number,
-// no supervisor id or name. The sender is known from the message itself.
-export function buildExport(events, meta = {}) {
-  const strip = (e) => {
-    const { student, supervisor, supervisor_name, ...rest } = e;
-    return rest;
-  };
-  return {
-    app: 'surgical-logbook-prototype',
-    version: APP_VERSION,
-    exported_at: new Date().toISOString(),
-    hospital: (meta.profile && meta.profile.hospital) || null,
-    metrics: metrics(events, meta),
-    events: events.map(strip),
   };
 }

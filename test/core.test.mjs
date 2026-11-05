@@ -5,12 +5,12 @@ import * as core from '../core.js';
 
 test.beforeEach(async () => { await core.wipeAll(); });
 
-const base = { student: 'S01', hospital: 'Masanga Hospital', online: true };
+const base = { student: 'S01', hospital: 'Masanga Hospital' };
 
 test('logging, voiding and signing derive the right state', async () => {
-  const a = await core.logEntry({ ...base, procedure: 'cs', role: 'independent', ms_to_log: 4000 });
-  const b = await core.logEntry({ ...base, procedure: 'cs', role: 'observing', ms_to_log: 6000 });
-  const c = await core.logEntry({ ...base, procedure: 'appendectomy', role: 'supervised', ms_to_log: 5000, online: false });
+  const a = await core.logEntry({ ...base, procedure: 'cs', role: 'independent' });
+  const b = await core.logEntry({ ...base, procedure: 'cs', role: 'observing' });
+  const c = await core.logEntry({ ...base, procedure: 'appendectomy', role: 'supervised' });
   await core.voidEntry(b.id);
   // signatures are made by a supervisor on the server and arrive with the sync
   await core.addPulled([{ id: 'aaaaaaaa-5151-4000-8000-000000000001', type: 'sign', ts: new Date().toISOString(), target: a.id, supervisor: 'SUP-ANNA', supervisor_name: 'Dr Anna' }]);
@@ -27,33 +27,31 @@ test('logging, voiding and signing derive the right state', async () => {
   assert.equal(p.cs.observing, 0); // the voided one is gone
   assert.equal(p.appendectomy.performed, 1);
 
-  const m = core.metrics(events, { undo_count: 1, open_count: 3 });
+  const m = core.metrics(events);
   assert.equal(m.entries_total, 3);
   assert.equal(m.entries_active, 2);
   assert.equal(m.entries_voided, 1);
   assert.equal(m.entries_signed, 1);
-  assert.equal(m.entries_logged_offline, 1);
-  assert.equal(m.median_ms_procedure_tap_to_saved, 5000);
-  assert.equal(m.undo_count, 1);
+  // How the app is used is not measured: no seconds to log, offline flag or undo count anywhere.
+  assert.equal(events[0].ms_to_log, undefined);
+  assert.equal(events[0].online, undefined);
+  assert.deepEqual(Object.keys(m).filter((k) => /ms|offline|undo|open/.test(k)), []);
 });
 
-test('late entries are flagged and the weekly summary only counts the last 7 days', async () => {
+test('late entries are flagged and "this week" only counts the last 7 days', async () => {
   const today = new Date();
   const old = new Date(today); old.setDate(old.getDate() - 20);
-  await core.logEntry({ ...base, procedure: 'cs', role: 'independent', ms_to_log: 1000 });
-  await core.logEntry({ ...base, procedure: 'cs', role: 'supervised', ms_to_log: 1000, performed_on: core.localDateISO(old) });
+  await core.logEntry({ ...base, procedure: 'cs', role: 'independent' });
+  await core.logEntry({ ...base, procedure: 'cs', role: 'supervised', performed_on: core.localDateISO(old) });
   const entries = core.derive(await core.allEvents());
   assert.equal(core.metrics(await core.allEvents()).late_entries, 1);
   assert.equal(core.weekEntries(entries).length, 1);
-  const text = core.weeklySummary(entries, { student: 'S01' });
-  assert.match(text, /Cases: 1 \(0 signed\)/);
-  assert.match(text, /Caesarean section: 2\/30/); // cumulative progress includes the old entry
-  assert.doesNotMatch(text, /patient/i);
+  assert.equal(core.progress(entries).cs.performed, 2, 'progress counts the old entry too');
 });
 
 test('sync bookkeeping: only events the server has not confirmed count as unsynced', async () => {
-  const a = await core.logEntry({ ...base, procedure: 'cs', role: 'observing', ms_to_log: 1 });
-  await core.logEntry({ ...base, procedure: 'cs', role: 'assisting', ms_to_log: 1 });
+  const a = await core.logEntry({ ...base, procedure: 'cs', role: 'observing' });
+  await core.logEntry({ ...base, procedure: 'cs', role: 'assisting' });
   let events = await core.allEvents();
   assert.equal(core.unsyncedCount(events, await core.sentIds()), 2);
   await core.markSent([a.id]);
@@ -76,13 +74,13 @@ test('events pulled from the server are stored once and count as already sent', 
 test('each student has a separate local database', async () => {
   core.useUser('S001');
   await core.wipeAll();
-  await core.logEntry({ ...base, procedure: 'cs', role: 'observing', ms_to_log: 1 });
+  await core.logEntry({ ...base, procedure: 'cs', role: 'observing' });
   assert.equal((await core.allEvents()).length, 1);
 
   core.useUser('S002');
   await core.wipeAll();
   assert.equal((await core.allEvents()).length, 0); // S002 does not see S001's entry
-  await core.logEntry({ ...base, student: 'S002', procedure: 'laparotomy', role: 'assisting', ms_to_log: 1 });
+  await core.logEntry({ ...base, student: 'S002', procedure: 'laparotomy', role: 'assisting' });
 
   core.useUser('S001');
   assert.equal((await core.allEvents()).length, 1);
@@ -93,18 +91,20 @@ test('each student has a separate local database', async () => {
   core.useUser('default-test-user');
 });
 
-test('export contains events and metrics, and wipeAll removes everything', async () => {
+test('History groups entries by the month they were done in, newest first', () => {
+  const e = (id, performed_on) => ({ id, performed_on });
+  // as derive() gives them: newest logged first; c was logged last but done in September
+  const groups = core.byMonth([e('c', '2026-09-30'), e('b', '2026-11-02'), e('a', '2026-11-02'), e('d', '2026-10-15'), e('x', '2025-12-01')]);
+  assert.deepEqual(groups.map((g) => [g.month, g.entries.map((x) => x.id)]),
+    [['2026-11', ['b', 'a']], ['2026-10', ['d']], ['2026-09', ['c']], ['2025-12', ['x']]], 'same day keeps its order');
+  assert.equal(core.fmtMonth('2026-11', '2026-11-05'), 'November', 'this year: the month only');
+  assert.equal(core.fmtMonth('2025-12', '2026-11-05'), 'December 2025', 'an earlier year: with the year');
+});
+
+test('wipeAll removes everything', async () => {
   await core.setMeta('profile', { student: 'S01', hospital: 'Masanga Hospital' });
-  await core.logEntry({ ...base, procedure: 'cs', role: 'observing', ms_to_log: 1 });
-  const events = await core.allEvents();
-  const signed = [...events, { id: 'sg1', type: 'sign', target: events[0].id, supervisor: 'SUP-A', supervisor_name: 'Dr A' }];
-  const out = core.buildExport(signed, { profile: await core.getMeta('profile') });
-  assert.equal(out.events.length, 2);
-  assert.equal(out.hospital, 'Masanga Hospital');
-  assert.equal(out.metrics.entries_active, 1);
-  const text = JSON.stringify(out); // must be serialisable
-  for (const id of ['S01', 'SUP-A', 'Dr A']) assert.ok(!text.includes(id), `the export identifies nobody (found ${id})`);
-  assert.equal(out.events[0].procedure, 'cs', 'what was logged is still there');
+  await core.logEntry({ ...base, procedure: 'cs', role: 'observing' });
+  assert.equal((await core.allEvents()).length, 1);
 
   await core.wipeAll();
   assert.equal((await core.allEvents()).length, 0);
@@ -112,7 +112,7 @@ test('export contains events and metrics, and wipeAll removes everything', async
 });
 
 test('dropEvent removes one event from the log and from the sent list', async () => {
-  const a = await core.logEntry({ ...base, procedure: 'cs', role: 'observing', ms_to_log: 1 });
+  const a = await core.logEntry({ ...base, procedure: 'cs', role: 'observing' });
   const v = await core.voidEntry(a.id);
   await core.markSent([v.id]);
   await core.dropEvent(v.id);
@@ -123,8 +123,8 @@ test('dropEvent removes one event from the log and from the sent list', async ()
 });
 
 test('details are stored with the entry; follow-ups are added on top, newest answer wins, and can be undone', async () => {
-  const a = await core.logEntry({ ...base, procedure: 'cs', role: 'independent', ms_to_log: 9000, details: { anaesthesia: 'spinal', duration_min: 40 } });
-  const b = await core.logEntry({ ...base, procedure: 'cs', role: 'assisting', ms_to_log: 3000, details: {} });
+  const a = await core.logEntry({ ...base, procedure: 'cs', role: 'independent', details: { anaesthesia: 'spinal', duration_min: 40 } });
+  const b = await core.logEntry({ ...base, procedure: 'cs', role: 'assisting', details: {} });
   assert.deepEqual(a.details, { anaesthesia: 'spinal', duration_min: 40 });
   assert.equal('details' in b, false, 'no answers, no details field');
 

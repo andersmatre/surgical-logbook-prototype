@@ -41,7 +41,7 @@ async function studentWithEntries(candidate, procedures) {
   const events = procedures.map((procedure) => ({
     id: `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`, type: 'entry', ts: new Date().toISOString(),
     hospital: 'Masanga Hospital', procedure, role: 'supervised', performed_on: '2026-10-20', entered_on: '2026-10-20',
-    ms_to_log: 3000, online: true, schema: 1,
+    schema: 1,
   }));
   await post('/api/sync', token, { events, cursor: 0 });
   return token;
@@ -262,8 +262,14 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   // ---- More, then log out
   await click(byText('.tab', 'More'));
   assert.match($('.main').textContent, /ADMIN-ANDERS/);
-  assert.match($('.main').textContent, /cannot sign/);
+  assert.deepEqual($$('.more-tab .card').map((c) => c.querySelector('h3, summary strong').textContent), ['Account', 'Backup', 'Advanced']);
+  assert.match($('.main').textContent, /Treat it with care\./);
   assert.match($('.main').textContent, /Last backup\s*never/);
+  // the same More as a student's: "Advanced" with About (version, server) and "Your data"
+  assert.deepEqual($$('details.advanced .fact-text > span').map((x) => x.textContent), ['Version', 'Server', 'Your data']);
+  await click(byText('details.advanced .fact', 'Your data').querySelector('.change'));
+  assert.match($('.sheet h3').textContent, /Your data/);
+  await click(byText('.sheet .btn', 'Close'));
   await click(byText('.btn', 'Download backup'), 600);
   assert.equal(saved.length, 3);
   assert.match(saved[2].filename, /^logbook-backup-\d{4}-\d{2}-\d{2}\.db$/);

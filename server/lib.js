@@ -471,14 +471,13 @@ export function validateEvent(ev, candidate) {
     if (!ROLE_IDS.includes(ev.role)) return { reason: 'bad role' };
     if (!DATE.test(ev.performed_on) || !DATE.test(ev.entered_on)) return { reason: 'bad date' };
     if (typeof ev.hospital !== 'string' || ev.hospital.length > 100) return { reason: 'bad hospital' };
-    if (typeof ev.ms_to_log !== 'number' || !Number.isFinite(ev.ms_to_log) || ev.ms_to_log < 0 || ev.ms_to_log > 1e8) return { reason: 'bad ms_to_log' };
     // A wrong detail answer is dropped rather than refusing the whole entry: the entry itself is worth more.
     const details = cleanAnswers(DETAIL_FIELDS, ev.details);
+    // ms_to_log and online, sent by apps older than 0.13.0, are no longer stored (usage is not measured).
     return {
       clean: {
         ...base, student: candidate, hospital: ev.hospital, procedure: ev.procedure, role: ev.role,
-        performed_on: ev.performed_on, entered_on: ev.entered_on, ms_to_log: Math.round(ev.ms_to_log),
-        online: !!ev.online, schema: 1, ...(details ? { details } : {}),
+        performed_on: ev.performed_on, entered_on: ev.entered_on, schema: 1, ...(details ? { details } : {}),
       },
     };
   }

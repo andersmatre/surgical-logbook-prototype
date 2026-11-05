@@ -60,6 +60,39 @@ let toastTimer;
 export function initUi({ overlayEl, toastElement }) {
   overlay = overlayEl;
   toastEl = toastElement;
+  pressOnTouch();
+}
+
+// On a phone or tablet, a touch while something is still scrolling only stops the scrolling: the browser sends no
+// click, so the button has to be tapped a second time. A finger that moves a little also loses the tap. That is
+// right for buttons that scroll with the page (a touch there may just mean "stop"), but not for the buttons that
+// stay in place while the content moves under them: Cancel and Save at the bottom of a pop-up, the tabs and the
+// sync button at the top, Undo in the message at the bottom, the small scroll arrows. A touch on one of those
+// always means "press", so it is pressed when the finger lifts, at once.
+const STAY_PUT = '.sheet-foot, .sticky-top, #toast, .scroll-hint';
+let pressInstalled = false;
+function pressOnTouch() {
+  if (pressInstalled) return;
+  pressInstalled = true;
+  let start = null;
+  document.addEventListener('touchstart', (ev) => {
+    const btn = ev.touches.length === 1 && ev.target.closest ? ev.target.closest('button') : null;
+    const t = ev.changedTouches[0];
+    start = btn && btn.closest(STAY_PUT) ? { btn, id: t.identifier, x: t.clientX, y: t.clientY } : null;
+  }, { passive: true });
+  document.addEventListener('touchcancel', () => { start = null; }, { passive: true });
+  document.addEventListener('touchend', (ev) => {
+    const s = start;
+    start = null;
+    if (!s) return;
+    const t = [...ev.changedTouches].find((x) => x.identifier === s.id);
+    if (!t || Math.hypot(t.clientX - s.x, t.clientY - s.y) > 16) return; // the finger really moved: a swipe, not a press
+    ev.preventDefault(); // so the browser does not send a click of its own as well
+    if (s.btn.disabled) return;
+    const focused = document.activeElement;
+    if (focused && focused !== s.btn && focused.blur) focused.blur(); // as a normal tap would (closes the keyboard)
+    s.btn.click();
+  }, { passive: false });
 }
 
 export function hideToast() { toastEl.classList.remove('show'); }
@@ -148,26 +181,48 @@ export function closeSheet() {
 }
 
 // ---- privacy notice ("Your data") -------------------------------------------------------
-// The text lives in config.js. Shown from the first-login screen and from a card under More.
+// The text lives in config.js. Shown from the first-login screen and from "Advanced" under More.
 
-export function openPrivacy() {
-  const section = ([title, lines]) => [h('h4', {}, title), lines.map((l) => h('p', { class: 'pv-line' }, l))];
+// Each part is a grey card with its heading, like the parts of the entry pop-up; several lines become a list.
+// A line can be for one role only ({ for: 'student', text }), so each person reads only what is about them.
+export function openPrivacy(role) {
+  const part = ([title, lines]) => {
+    const shown = lines.filter((l) => typeof l === 'string' || l.for === role).map((l) => (typeof l === 'string' ? l : l.text));
+    return h('div', { class: 'pv-card' }, h('h4', {}, title),
+      shown.length > 1 ? h('ul', { class: 'pv-list' }, shown.map((l) => h('li', {}, l))) : h('p', {}, shown[0]));
+  };
   openSheet([
-    h('h3', {}, 'Your data'),
-    PRIVACY_IS_PLACEHOLDER ? h('p', { class: 'note' }, 'Draft: CapaCare still has to confirm parts of this text.') : null,
-    PRIVACY.parts.map(section),
-    section(['How long it is kept', [PRIVACY.keptFor]]),
-    section(['Your rights', [
-      'You can ask to see your data, to have mistakes corrected, or to have your account and your data deleted.',
-      `Ask ${PRIVACY.contact}. Responsible for your data: ${PRIVACY.responsible}.`,
+    h('h3', { class: 'pv-title' }, 'Your data'),
+    PRIVACY_IS_PLACEHOLDER ? h('p', { class: 'muted small pv-draft' }, 'Draft: CapaCare still has to confirm parts of this text.') : null,
+    PRIVACY.parts.map(part),
+    part(['How long it is kept', [PRIVACY.keptFor]]),
+    part(['Your rights', [
+      `You can ask to see your data, to have mistakes corrected, or to have your account and your data deleted. Ask ${PRIVACY.contact}.`,
     ]]),
-    h('button', { class: 'btn ghost wide pv-close', type: 'button', onclick: closeSheet }, 'Close'),
+    h('button', { class: 'btn ghost wide', type: 'button', onclick: closeSheet }, 'Close'),
   ]);
 }
 
-export const privacyCard = () => h('div', { class: 'card' }, h('h3', {}, 'Your data'),
-  h('p', { class: 'muted' }, 'What is stored about you, who can see it, and your rights.'),
-  h('button', { class: 'btn ghost wide', type: 'button', onclick: openPrivacy }, 'How your data is used'));
+// ---- the More tab, the same in all three apps --------------------------------------------
+
+// A row like the hospital and date when logging: the label in bold, the value under it in plain text, and
+// anything else (a "Change" or "Read" button) on the right. Rows go in a .facts.plain box.
+export const fact = (label, value, ...extra) => h('div', { class: 'fact' }, h('span', { class: 'fact-text' }, h('span', {}, label), h('strong', {}, value)), ...extra);
+
+// The "Your data" row: opens the privacy notice for this role.
+export const privacyFact = (role) => fact('Your data', 'What is stored and who can see it',
+  h('button', { class: 'change', type: 'button', onclick: () => openPrivacy(role) }, 'Read'));
+
+// The things rarely needed, folded away at the bottom of More: parts of [heading, rows]. The line under
+// "Advanced" says what is inside: "Data and about", or just "About" when that is the only part. Whether it is
+// open is kept here, so a redraw of the tab (after a sync) does not fold it shut.
+let advancedOpen = false;
+export function advancedCard(parts) {
+  const sub = parts.length === 1 ? parts[0][0] : 'Data and about';
+  return h('details', { class: 'card advanced', open: advancedOpen, ontoggle: (ev) => { advancedOpen = ev.target.open; } },
+    h('summary', {}, h('span', { class: 'fold-title' }, h('strong', {}, 'Advanced'), h('span', { class: 'muted small' }, sub))),
+    parts.map(([title, rows]) => [h('h3', {}, title), h('div', { class: 'facts plain' }, rows)]));
+}
 
 // ---- password form (forced at first login, or chosen from the More tab) --------------
 

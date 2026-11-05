@@ -9,7 +9,7 @@ import { DETAIL_FIELDS, FOLLOWUP_FIELDS, procName, roleLabel } from './config.js
 import * as core from './core.js';
 import * as api from './api.js';
 import {
-  h, timeAgo, stat, kv, cases, toast, openSheet, closeSheet, passwordForm, privacyCard,
+  h, timeAgo, stat, cases, toast, openSheet, closeSheet, passwordForm, fact, privacyFact, advancedCard,
 } from './ui.js';
 
 const ENDED = Symbol('session ended'); // the server ended the session; app.js shows the login screen
@@ -41,7 +41,7 @@ function draw() {
 
 function paint() {
   const y = window.scrollY || 0;
-  ctx.root.replaceChildren(h('div', { 'data-sv': '' }, h('div', { class: 'sticky-top' }, header(), nav()), h('div', { class: 'banner' }, `Prototype v${ctx.version} · supervisor`), h('main', { class: 'main' }, body())));
+  ctx.root.replaceChildren(h('div', { 'data-sv': '' }, h('div', { class: 'sticky-top' }, header(), nav()), h('main', { class: 'main' }, body())));
   if (y) window.scrollTo(0, y);
 }
 
@@ -325,25 +325,24 @@ async function addStudent(c, drawList) {
 
 // ---- More -----------------------------------------------------------------------------
 
+// Laid out like the student's More (fact, advancedCard in ui.js).
 function moreView() {
-  return h('section', {},
+  return h('section', { class: 'more-tab' },
     h('h2', {}, 'More'),
     h('div', { class: 'card' }, h('h3', {}, 'Account'),
-      kv('Staff ID', ctx.session.candidate),
-      kv('Name shown to students', ctx.session.name || ctx.session.candidate),
+      h('div', { class: 'facts plain' },
+        fact('Candidate number', ctx.session.candidate),
+        fact('Name shown to students', ctx.session.name || ctx.session.candidate)),
       h('div', { class: 'row' },
         h('button', { class: 'btn ghost', onclick: ctx.openChangePassword }, 'Change password'),
         h('button', { class: 'btn ghost', onclick: confirmLogout }, 'Log out'))),
-    h('div', { class: 'card' }, h('h3', {}, 'What you can see'),
-      h('p', { class: 'muted' }, 'Only the students you added, and only what is needed to check and sign their procedures: procedure, role, date and hospital. You need internet to use the supervisor screens.')),
-    privacyCard(),
-    h('div', { class: 'card' }, h('h3', {}, 'About'), kv('Version', ctx.version)));
+    advancedCard([['About', [fact('Version', ctx.version), privacyFact('supervisor')]]]));
 }
 
 function confirmLogout() {
   openSheet([
     h('h3', {}, 'Log out?'),
-    h('p', {}, 'You will need your staff ID and password to log in again.'),
+    h('p', {}, 'You will need your candidate number and password to log in again.'),
     h('div', { class: 'row' },
       h('button', { class: 'btn danger', type: 'button', onclick: ctx.onLogout }, 'Log out'),
       h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Cancel')),

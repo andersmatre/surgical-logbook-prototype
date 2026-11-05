@@ -25,26 +25,26 @@ The context that shaped every decision:
 | Low IT literacy | Big buttons, a few taps to log, no jargon, no e-mail flows, no settings |
 | Unreliable power and internet | Offline-first: the student app works for weeks without a connection and syncs when it can |
 | Everyone has a personal Samsung tablet | An installable web app (PWA) in Chrome, no app store |
-| E-mail is little used, WhatsApp is preferred | Accounts use candidate numbers, not e-mail. WhatsApp is only used to *share* a numbers-only weekly summary |
+| E-mail is little used, WhatsApp is preferred | Accounts use candidate numbers, not e-mail. The app needs neither e-mail nor WhatsApp |
 | Earlier systems lacked motivation | Logging must take seconds; students see their own progress towards targets |
 | Privacy matters, data is for research | No patient identifiers and no free text anywhere; the server stamps ownership itself; supervisors see only what they need |
 
 ## 2. Status
 
-Version **0.12.0**. A working prototype, tested automatically and **deployed on Fly.io** (see [11](#11-running-it)), but **not yet used on a Samsung tablet**.
+Version **0.13.0**. A working prototype, tested automatically and **deployed on Fly.io** (see [11](#11-running-it)), but **not yet used on a Samsung tablet**.
 
 Works:
 
-- Student app: login with candidate number and password, forced own password at first login, the Log tab has a choice of Surgery (chosen from the start) or Delivery, like CapaCare's two logbooks (Surgery: the ten most common operations, then "More operations" with every operation from CapaCare's logbook under its group; Delivery: every way of giving birth; the choice is kept while the app is open), log a procedure in one pop-up (tap the procedure; then the role, the optional questions of the logbook in parts, each a grey card with one heading (Your role, Patient or Mother, Baby, Operation, Surgical Apgar; a second and third baby only for twins and triplets; choices two per row, three short ones in a row; number questions side by side; a short grey line explains an unclear word, `help` in `config.js`), and Save), undo, a follow-up on an entry for 6 weeks after the operation (the outcome questions of the logbook), history (can show only one procedure and/or one role; each case is one short row: procedure, your role, date and whether it is signed; tapping it opens the whole case in a pop-up, one table with a small heading per part and a row per answer, with the follow-up, Add follow-up and Delete: `openCase` in `app.js`), progress against targets, weekly summary to share on WhatsApp, works offline, installable.
-- Sync to the server with automatic retry; log in on any tablet and the history comes back.
-- Supervisor accounts: a supervisor logs in with a staff ID, adds students, sees their entries and signs selected ones. The server verifies every signature.
+- Student app: login with candidate number and password, forced own password at first login, the Log tab has a choice of Surgery (chosen from the start) or Delivery, like CapaCare's two logbooks (Surgery: the ten most common operations, then "More operations" with every operation from CapaCare's logbook under its group; Delivery: every way of giving birth; the choice is kept while the app is open), log a procedure in one pop-up (tap the procedure; then the role, the optional questions of the logbook in parts, each a grey card with one heading (Your role, Patient or Mother, Baby, Operation, Surgical Apgar; a second and third baby only for twins and triplets; choices two per row, three short ones in a row; number questions one per line; a short grey line explains an unclear word, `help` in `config.js`), and Save), undo, a follow-up on an entry for 6 weeks after the operation (the outcome questions of the logbook), history (can show only one procedure and/or one role; newest first by the day it was done, under a small heading per month, `byMonth` in `core.js`; each case is one short row: procedure, your role, date, whether it is signed and, if it has one, a Follow-up tag; tapping it opens the whole case in a pop-up, one table with a small heading per part and a row per answer, with the follow-up, Add follow-up and Delete: `openCase` in `app.js`), progress against targets, works offline, installable.
+- Sync to the server with automatic retry, and whenever the app comes back on the screen (so signatures arrive without a button); log in on any tablet and the history comes back.
+- Supervisor accounts: a supervisor logs in with a candidate number (for example `SUP-ANNA`), adds students, sees their entries and signs selected ones. The server verifies every signature.
 - Administrator accounts and screens (no shell needed): overview of every procedure across all students, a matrix per student, user list, add many students at once, new password, disable, log out everywhere, assign supervisors, a log of recent changes. The first administrator is created from environment variables (`ADMIN_ID`, `ADMIN_PASSWORD`, see `DEPLOY.md`).
 - Students can have a name next to the candidate number (administrators set it; the student, their supervisors and administrators see it).
-- The hospital is stored in every entry. The student sees it when logging (and can change it there) and in the history; administrators get a hospital table and CSV downloads (procedures per student, per hospital, every entry).
+- The hospital is stored in every entry. After the first login on a device the student chooses their hospital ("Where do you work?", a drop-down list and Continue, `hospitalScreen` in `app.js`). The student sees it when logging (and can change it there) and in the history; administrators get a hospital table and CSV downloads (procedures per student, per hospital, every entry).
 - Administrators download a complete database backup from the app and are reminded when none has been taken for a week.
 - Admin from the command line as a fallback: create accounts, assign, reset, disable, revoke, delete, list, backup.
-- Privacy: a notice ("Your data") on the first-login screen and under More in all three apps, with what is stored, why, who sees it, where, how long and the person's rights. Its text is in `config.js` and is still a draft (`PRIVACY_IS_PLACEHOLDER`). Administrators can erase a disabled account and all its data for good. The "Export test data" file identifies nobody.
-- 61 automated tests, including whole-flow tests of both apps in a simulated browser against a real server.
+- Privacy: a notice ("Your data") on the first-login screen and under More in all three apps (the row "Your data" with a Read button, under About in "Advanced"), with what is stored, why, who sees it, where, how long and the person's rights, one grey card per part (`openPrivacy` in `ui.js`; a line can be for one role only, so each person reads what is about them). Its text is in `config.js` and is still a draft (`PRIVACY_IS_PLACEHOLDER`). Administrators can erase a disabled account and all its data for good.
+- 64 automated tests, including whole-flow tests of both apps in a simulated browser against a real server.
 - A development server with live reload and demo data for front-end work (`npm run dev`, see [3](#3-get-it-running) and [10.9](#109-front-end-work-with-the-dev-server)). It is a tool for the developer, not part of the app.
 
 Placeholders you must replace before real use: the target numbers in `config.js`. The procedure list, the hospital list, the role definitions and the detail and follow-up questions (`DETAIL_FIELDS`, `FOLLOWUP_FIELDS`: everything the surgical and obstetric logbooks asked, except what identifies the patient; to be cut down after trying it) now come from CapaCare's logbook (`Logbook_softcopy_2021.xlsx`, not in the repository); the hospital list is from 2021 and should be checked.
@@ -57,7 +57,7 @@ Needs **Node 22.13 or newer**. Nothing else: the server has no runtime dependenc
 
 ```
 npm install                                   # test tools only
-npm test                                      # 60 tests, about 1 minute
+npm test                                      # 64 tests, about 1 minute
 
 npm run admin -- add-admin ADMIN-ANDERS --name "Anders"            # prints an initial password; then do everything else in the app
 npm run admin -- add-supervisor SUP-ANNA --name "Dr Anna Kamara"   # prints an initial password
@@ -119,7 +119,7 @@ Read these before changing anything. Most bugs in this kind of system come from 
 |---|---|
 | `index.html`, `manifest.webmanifest`, `icon-*.png` | The page that loads the app; install metadata. |
 | `config.js` | **Content to edit**: version, server address, procedures, roles, targets, hospitals. |
-| `core.js` | Student data layer. IndexedDB event log, `derive`, progress, weekly summary, sync bookkeeping, test metrics and export. No DOM, so it can be tested in Node. |
+| `core.js` | Student data layer. IndexedDB event log, `derive`, progress, sync bookkeeping, counts. No DOM, so it can be tested in Node. |
 | `api.js` | Every call to the server, as a function. Turns failures into `ApiError` with a message that can be shown as is. Also the `?api=http://localhost:...` override that lets the hosted app talk to a server on the tester's own computer (localhost only, by design). |
 | `ui.js` | Shared interface pieces: the `h()` DOM helper, toast, sheets (modals), the password form. |
 | `app.js` | Entry point. Decides what to show (login, forced password, hospital, student tabs, or the supervisor screens). Student screens and sync live here. |
@@ -146,7 +146,7 @@ Rough size: about 2,300 lines of code (plus 160 lines of CSS) and 1,000 lines of
 
 | Table | Holds |
 |---|---|
-| `users` | `candidate` (the account id: candidate number for students, staff ID for supervisors; the column keeps its first name), `pw_hash` (scrypt), `must_change` (initial password still in use), `disabled`, `role` (`student` or `supervisor`), `display_name` (supervisors only, shown to students next to a signature), `created_at`, `last_login_at`. |
+| `users` | `candidate` (the account id, called "candidate number" in the app for everyone, also supervisors and administrators; the column keeps its first name), `pw_hash` (scrypt), `must_change` (initial password still in use), `disabled`, `role` (`student` or `supervisor`), `display_name` (supervisors only, shown to students next to a signature), `created_at`, `last_login_at`. |
 | `sessions` | `token_hash` (SHA-256 of a random token; the token itself is never stored), `candidate`, `created_at`, `last_seen`. |
 | `events` | `seq` (increasing number, the sync cursor), `owner` (always the **student** the event is about), `id`, `type`, `target`, `payload` (the whole event as JSON), `received_at`. `UNIQUE(owner, id)`. `type` and `target` are copies of fields inside `payload`, kept so they can be queried. |
 | `assignments` | `supervisor`, `student`, `created_at`. Many-to-many: a student can have several supervisors. |
@@ -157,7 +157,7 @@ Every fact is an event. All have `id`, `type`, `ts` (device clock, ISO time).
 
 | Type | Made by | Extra fields |
 |---|---|---|
-| `entry` | student tablet | `student`, `hospital`, `procedure`, `role` (`observing`, `assisting`, `supervised`, `independent`), `performed_on` (date the student says), `entered_on` (date it was logged), `ms_to_log` (procedure tap to saved, a usability measurement), `online`, `schema` (1), `details` (optional: `{question id: option id or whole number}`, questions from `DETAIL_FIELDS`; left out when nothing was answered; a question hidden by `showIf` is not saved) |
+| `entry` | student tablet | `student`, `hospital`, `procedure`, `role` (`observing`, `assisting`, `supervised`, `independent`), `performed_on` (date the student says), `entered_on` (date it was logged), `schema` (1), `details` (optional: `{question id: option id or whole number}`, questions from `DETAIL_FIELDS`; left out when nothing was answered; a question hidden by `showIf` is not saved). Entries made by apps older than 0.13.0 also hold `ms_to_log` and `online` (how the app was used); they are no longer collected, stored or shown anywhere, and the server ignores them if an old app still sends them. An app from 0.13.0 on needs a server from 0.13.0 on (older servers refused an entry without `ms_to_log`); they are deployed together, so this only matters with the `?api=` override against an older local server. |
 | `followup` | student tablet | `target` (an entry id), `known_on` (the day the student learnt it), `answers` (`{question id: option id}`, questions from `FOLLOWUP_FIELDS`, at least one). Only the answers that changed. |
 | `void` | student tablet | `target` (an entry or follow-up id). "Delete", or Undo of a follow-up. |
 | `sign` | **server only** | `target` (an entry id), `supervisor` (account id), `supervisor_name` (name at the time of signing) |
@@ -167,7 +167,7 @@ Three clocks exist: `ts` and `entered_on` come from the tablet (can be wrong), `
 
 ### 7.3 On the tablet (IndexedDB)
 
-One database per student: `surgical-logbook-<CANDIDATE>`, version 2, stores `events`, `meta` (hospital, sync cursor, last sync, supervisors list, usage counters) and `sent` (ids the server has confirmed or that came from the server). The login session is in `localStorage` under `logbook.session` as `{candidate, token, must_change, role, name}`.
+One database per student: `surgical-logbook-<CANDIDATE>`, version 2, stores `events`, `meta` (hospital, sync cursor, last sync, supervisors list) and `sent` (ids the server has confirmed or that came from the server). The login session is in `localStorage` under `logbook.session` as `{candidate, token, must_change, role, name}`.
 **Supervisors keep no database**: nothing about students is stored on a supervisor's tablet.
 Logging out wipes that student's database (after warning if something was not sent).
 
@@ -202,7 +202,7 @@ All calls are `POST` with a JSON body, except `GET /api/health`. Authenticated c
 | `POST /api/admin/assign` / `unassign` | admin | `supervisor`, `student` | `{ok}` |
 | `POST /api/admin/entries` | admin | `candidate`, `cursor` | `events`, `cursor`, `has_more` |
 
-Rejection reasons from `/api/sync`: `bad id`, `bad ts`, `bad procedure`, `bad role`, `bad date`, `bad hospital`, `bad ms_to_log`, `bad target`, `bad answers` (a follow-up with no valid answer), `unknown type`, `sign_not_allowed`, `signed_locked`.
+Rejection reasons from `/api/sync`: `bad id`, `bad ts`, `bad procedure`, `bad role`, `bad date`, `bad hospital`, `bad target`, `bad answers` (a follow-up with no valid answer), `unknown type`, `sign_not_allowed`, `signed_locked`.
 A detail answer that is not allowed (unknown question, option not on the list, number out of range) is dropped from the entry; the entry itself is kept.
 
 ## 9. Security and privacy
@@ -213,7 +213,7 @@ What protects what:
 - **Sessions**: random 256-bit tokens, stored only as SHA-256 hashes, valid 365 days since last use (long on purpose: tablets are offline for weeks). When a session is refused, the message says why (ended on the server, account disabled, unused for a year). `disable` and `revoke` end sessions at once.
 - **Login attempts**: 5 wrong passwords lock that account id for 10 minutes. The lock is in server memory (lost on restart) and per account id, not per address. Unknown ids take as long to answer as known ones and get the same error message.
 - **Isolation**: every query on student data filters on the logged-in account; supervisor calls first check the assignment. Tests cover cross-student and cross-supervisor access.
-- **Minimum data**: no patient identifiers. A supervisor sees procedure, role, dates, hospital, details and follow-ups, not `ms_to_log` or `online`.
+- **Minimum data**: no patient identifiers. A supervisor sees procedure, role, dates, hospital, details and follow-ups. How the app is used (seconds to log, offline, undo) is not measured.
 - **Outcomes are health data about patients.** Detail and follow-up answers identify no patient on their own, but an operation on a known day at a small hospital with a death recorded could be linked to a person by someone who was there. Keep the questions coarse (fixed lists, no exact times), and settle the ethics and data-protection position on outcomes before real use ([14](#14-open-questions-for-capacare)).
 - **Transparency**: a student sees the list of supervisors who can see their entries (More tab) and who signed what.
 - **Transport**: HTTPS is required. Passwords travel in the request body, protected only by HTTPS. Never run the server on the open internet over plain HTTP.
@@ -226,14 +226,13 @@ What is *not* protected, honestly:
 - Any supervisor can add any student without the student's approval (the student can see it, and an admin can remove it). Whether that is acceptable is a question for CapaCare ([14](#14-open-questions-for-capacare)).
 - Every supervisor can list all candidate numbers (to pick students to add).
 - A student's "Delete" is a soft delete: voided entries stay in the database. To erase a person, an administrator disables the account and then deletes it for good (Users tab, or `admin.js delete`). That removes the account, its sessions, its supervisor links and, for a student, every event in their stream including signatures. A supervisor's signatures stay in the students' records, with the supervisor's id and name. SQLite runs with `secure_delete`, so removed data is overwritten in the file. **Backups taken earlier still contain it**, and so do entries still on the student's tablet until they log out there. The audit log keeps the id of the deleted account (who deleted whom, and when).
-- The privacy notice (`PRIVACY` in `config.js`) is a draft: who is responsible, the contact and how long data is kept must be decided ([14](#14-open-questions-for-capacare)). Then set `PRIVACY_IS_PLACEHOLDER` to false.
-- The student's "Export test data" file holds no candidate number, supervisor id or name (it is often sent on WhatsApp). The sender is still known from the message.
+- The privacy notice (`PRIVACY` in `config.js`) is a draft: the contact and how long data is kept must be decided, and who is responsible (the data controller) must be decided and then named in it ([14](#14-open-questions-for-capacare)). Then set `PRIVACY_IS_PLACEHOLDER` to false.
 - Backups contain everything (names, entries, password hashes) and must be protected as much as the live database. An administrator can download one from the app; that download is written to the audit log.
 - Student names are personal data about staff-in-training. They are shown to administrators, to the student themselves and to the supervisors who can find or have added the student. They appear in the CSV files. Decide with CapaCare whether names are needed in research exports; the "procedures per hospital" file contains no names.
 - The audit log records account changes (create, reset, disable, enable, log out, rename, assign, unassign) with who did it and when; it never holds passwords. It does not record who *read* data.
 - An administrator can see every student's entries and give any account (except their own) a new initial password, which is shown once. Keep the number of administrators small and give each person their own account.
 
-Legal and ethical status (not legal advice): the server holds performance data about people identified by candidate number. Before real data is collected someone must be named as data controller; the host must be chosen with data location in mind (EU/EEA recommended); and research use needs ethics approval (in Sierra Leone through the SLESRC) and consent. As of the last check Sierra Leone had a data protection policy (April 2026) but no data protection act; the details should be confirmed locally. WhatsApp Business policy restricts health information, so WhatsApp is used only to share a short numbers-only text.
+Legal and ethical status (not legal advice): the server holds performance data about people identified by candidate number. Before real data is collected someone must be named as data controller; the host must be chosen with data location in mind (EU/EEA recommended); and research use needs ethics approval (in Sierra Leone through the SLESRC) and consent. As of the last check Sierra Leone had a data protection policy (April 2026) but no data protection act; the details should be confirmed locally.
 
 ## 10. How to make changes
 
@@ -248,7 +247,7 @@ When the real targets are known set `TARGETS_ARE_PLACEHOLDER = false`. Then rele
 
 ### 10.2 Release a new version
 
-1. Change the version in **four** places: `APP_VERSION` in `config.js`, `version` in `package.json`, `CACHE` in `sw.js` (`logbook-v<version>`), and the line `Version **x.y.z**` in section 2 of this file (check at the same time that the status text there is still true). `test/files.test.mjs` fails if they differ.
+1. Change the version in **four** places: `APP_VERSION` in `config.js`, `version` in `package.json`, `CACHE` in `sw.js` (`logbook-v<version>`), and the line `Version **x.y.z**` in section 2 of this file (check at the same time that the status text there is still true). `test/files.test.mjs` fails if they differ. The app shows the version only under the login form and under More, About (no strip on every screen, so it looks like a finished product).
 2. **Why `CACHE` matters:** the browser only installs a new service worker if `sw.js` itself changed. If you forget, tablets keep serving the old app files from the old cache. This also means: **every deploy that changes an app file needs a new version**, even a small fix. Deploying changed files twice under the same version leaves devices that already have that version on their old files. The new cache is always filled with fresh files from the server (`cache: 'reload'` in `sw.js`), never with copies the browser still holds, so old and new files are not mixed.
 3. If you added an app file: add it to `ASSETS` in `sw.js`, to `STATIC` in `server/app.js` and to the `COPY` line in `Dockerfile`. The same test checks this.
 4. `npm test`, commit, deploy (`DEPLOY.md`).
@@ -288,7 +287,7 @@ In `server/app.js` add a branch in `api()`. Use `authenticate(req)` or `requireS
 
 ### 10.7 Add a screen
 
-Student: add to `TABS` and `tabContent()` in `app.js`. Supervisor: add to the `tabs` array in `nav()` and to `body()` in `supervisor.js`. Use classes from `style.css`; keep touch targets at least 44 px. The tab bar sits at the top, under the header (both stay in view while scrolling, `.sticky-top`); all tabs are equally wide. Do not add `viewport-fit=cover` to `index.html`: on Android Chrome it draws the page under the system gesture bar and leaves an empty white strip at the bottom (a test checks this). Strings are written inline in English; there is no translation layer yet (adding one means extracting the strings first). Do not give elements class names that look like advertising (`ad`, `adv-…`, `ads`, `sponsor`, `promo`): ad blockers hide them, but usually not on `localhost`, so it only shows up on the live site (this happened to the "Advanced" title, class `adv-text`, in 0.7.1).
+Student: add to `TABS` and `tabContent()` in `app.js`. Supervisor: add to the `tabs` array in `nav()` and to `body()` in `supervisor.js`. Use classes from `style.css`; keep touch targets at least 44 px. The tab bar sits at the top, under the header (both stay in view while scrolling, `.sticky-top`); all tabs are equally wide. On a phone or tablet a touch while the page or a pop-up is still scrolling only stops it and the browser sends no click; buttons that stay in place (in `.sheet-foot`, `.sticky-top`, `#toast` or a scroll arrow) are therefore pressed by the touch itself (`pressOnTouch` in `ui.js`), so Cancel and Save always work at once. Put a new button of that kind inside one of these; buttons that scroll with the content keep the browser's normal behaviour. The More tab looks the same in all three apps: cards with rows (the label in bold, the value under it: `fact` in `ui.js`), and the rarely needed things folded away at the bottom under "Advanced" (`advancedCard`, with About and "Your data", `privacyFact`). Do not add `viewport-fit=cover` to `index.html`: on Android Chrome it draws the page under the system gesture bar and leaves an empty white strip at the bottom (a test checks this). Strings are written inline in English; there is no translation layer yet (adding one means extracting the strings first). Do not give elements class names that look like advertising (`ad`, `adv-…`, `ads`, `sponsor`, `promo`): ad blockers hide them, but usually not on `localhost`, so it only shows up on the live site (this happened to the "Advanced" title, class `adv-text`, in 0.7.1).
 
 ### 10.8 Manage accounts (administrator)
 
@@ -313,7 +312,7 @@ backup /data/backups/logbook-2026-11-01.db
 ```
 
 Hand initial passwords to each person through CapaCare, one at a time, not in a group chat. They only work for the first login.
-Account ids: 2 to 20 characters, letters, digits, `/`, `_`, `-`. Candidate numbers are case- and space-insensitive (`cc 1234` is `CC1234`). Suggested staff ids: `SUP-` plus a short name.
+Account ids: 2 to 20 characters, letters, digits, `/`, `_`, `-`. Candidate numbers are case- and space-insensitive (`cc 1234` is `CC1234`). The app calls every account id a "candidate number", also for supervisors and administrators; suggested ids for them: `SUP-` or `ADMIN-` plus a short name.
 
 ### 10.9 Front-end work with the dev server
 
@@ -375,7 +374,7 @@ Hosting, updating, backups, restoring and costs are in **`DEPLOY.md`**. The curr
 | Supervisors online only, nothing stored on their tablets | Simple, verifiable, no student data on supervisor devices | Supervisors in poor-signal places cannot sign. See [15](#15-next-steps). |
 | Supervisors add students themselves | Asked for by the product owner; low admin work | No approval step. See [14](#14-open-questions-for-capacare). |
 | No patient data, no free text | Privacy; keeps the system outside the hardest data rules | Less detail for research; add structured fields instead. |
-| WhatsApp only as a share target | WhatsApp is preferred, but its Business policy restricts health information | A summary is plain text the user sends themselves. |
+| No WhatsApp sharing (removed in 0.13.0, with the weekly summary) | Not needed; WhatsApp's Business policy also restricts health information | Students see their progress in the app; nothing is shared from it. |
 
 ## 13. Known limits
 
@@ -411,7 +410,7 @@ These need people, not code. Record the answers here.
    **The questions:** which are needed, which may be dropped, and which should be required? Is the Surgical Apgar scale right (the 2021 file had typos in the heart rate bands; the app uses Gawande 2007)? Is district of residence needed (it was left out, it helps to identify a patient)?
    **Outcome data**: may patient outcomes (complications, deaths) be collected, under which ethics approval, and who may see them?
 7. **Languages.** English only, or also Krio?
-8. **What does "better than the CheckWare logbook" mean?** Suggested measures, most already collected: share of students who log weekly, entries per student per week, median seconds to log (`ms_to_log`), share of entries signed within 14 days, and interviews (questions in `TESTER-GUIDE.md`). Agree thresholds before the trial.
+8. **What does "better than the CheckWare logbook" mean?** Suggested measures, already collected: share of students who log weekly, entries per student per week, share of entries signed within 14 days, and interviews (questions in `TESTER-GUIDE.md`). Agree thresholds before the trial.
 9. **Who runs and pays for the server** after the prototype, and who holds the accounts and backups.
 10. **A contact person in Sierra Leone** for remote testing, first set-up and feedback.
 
@@ -424,9 +423,8 @@ In rough order:
 3. Settle the questions in section 14, especially data ownership and ethics.
 4. If supervisors cannot rely on internet: let them queue signatures offline and send them later (the token already authorises the call, so the server rule stays the same).
 5. Pseudonymised research export, once ethics allows.
-6. A supervisor "waiting for signature" summary they can share on WhatsApp.
-8. Automated backups to a second location, plus uptime monitoring.
-9. Split `app.js` by screen and consider translations if the project grows.
+6. Automated backups to a second location, plus uptime monitoring.
+7. Split `app.js` by screen and consider translations if the project grows.
 
 ## 16. Handing the project over
 

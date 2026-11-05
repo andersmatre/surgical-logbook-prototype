@@ -31,7 +31,7 @@ const entry = (over = {}) => ({
   id: `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`,
   type: 'entry', ts: new Date().toISOString(), student: 'SOMEONE-ELSE', hospital: 'Masanga Hospital',
   procedure: 'cs', role: 'independent', performed_on: '2026-10-20', entered_on: '2026-10-20',
-  ms_to_log: 4200, online: true, schema: 1, ...over,
+  schema: 1, ...over,
 });
 
 // Logs in; if the account still has its initial password, changes it to `newPw`.
@@ -181,7 +181,7 @@ test('invalid events are rejected individually and never stored', async () => {
     const good = entry();
     const bad = [
       entry({ role: 'god' }), entry({ performed_on: 'yesterday' }), entry({ procedure: 'DROP TABLE' }),
-      entry({ ms_to_log: -5 }), { id: 'short', type: 'entry' }, entry({ type: 'explode' }), null,
+      { id: 'short', type: 'entry' }, entry({ type: 'explode' }), null,
     ];
     const r = await t.call('/api/sync', { token, body: { events: [good, ...bad], cursor: 0 } });
     assert.equal(r.status, 200);
@@ -190,6 +190,23 @@ test('invalid events are rejected individually and never stored', async () => {
     assert.equal(r.body.events.length, 1);
     const tooMany = await t.call('/api/sync', { token, body: { events: Array.from({ length: 201 }, () => entry()), cursor: 0 } });
     assert.equal(tooMany.status, 413);
+  } finally { await t.s.close(); }
+});
+
+test('entries from apps older than 0.13.0 are accepted, but how the app was used is not stored', async () => {
+  const t = await start();
+  try {
+    const token = await ready(t, 'S001', 'initial-pw-1', 'second-pw-22');
+    const old = entry({ ms_to_log: 4200, online: true });
+    const odd = entry({ ms_to_log: -5, online: 'yes' }); // once refused as "bad ms_to_log"; now simply ignored
+    const r = await t.call('/api/sync', { token, body: { events: [old, odd], cursor: 0 } });
+    assert.deepEqual(r.body.accepted, [old.id, odd.id]);
+    for (const e of r.body.events) {
+      assert.equal(e.ms_to_log, undefined);
+      assert.equal(e.online, undefined);
+    }
+    const stored = t.s.db.prepare("SELECT payload FROM events WHERE type = 'entry'").all().map((x) => x.payload).join();
+    assert.doesNotMatch(stored, /ms_to_log|online/);
   } finally { await t.s.close(); }
 });
 
@@ -326,7 +343,7 @@ test('supervisor: add a student, see the entries, sign them; the student receive
     assert.equal(students[0].entries, 2, 'the deleted entry is not counted');
     assert.equal(students[0].unsigned, 2);
 
-    // the supervisor sees what is needed to judge an entry, not usage measurements
+    // the supervisor sees what is needed to judge an entry, nothing else
     const view = (await sup(t, supToken, 'entries', { candidate: 'S001', cursor: 0 })).body;
     assert.equal(view.events.length, 4);
     const seen = view.events.find((e) => e.id === e1.id);

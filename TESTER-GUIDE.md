@@ -2,8 +2,6 @@
 
 Thank you for helping. This is a test version of a new logbook app. We are testing the app, not you. If something is confusing, that is the app's fault, and we want to hear about it.
 
-Please do not type patient names or numbers anywhere in the app.
-
 ## Set-up (5 minutes, internet needed)
 
 1. Open the link we sent you in Chrome.
@@ -23,9 +21,9 @@ Please try these in order. Do not ask anyone for help. If you get stuck, note wh
 2. Log two more procedures, one of them from "More operations" and one under Delivery.
 3. Make a mistake on purpose and undo it.
 4. Switch on airplane mode. Log two procedures. Switch airplane mode off. Watch the top right: while entries wait it shows "Offline" or "N to sync"; after a short time the button disappears, which means everything is sent.
-5. Open "Progress" and look at your numbers. Send the weekly summary to yourself on WhatsApp.
+5. Open "Progress" and look at your numbers.
 6. Open "History" and add a follow-up to one of your operations: what happened to the patient afterwards.
-7. Ask your supervisor to add your candidate number in their app and sign your entries. Your entries must be synced first (no sync button is shown at the top right). Then open the More tab, open "Advanced" and tap "Sync now": the signatures appear in the History tab, and your supervisor's name appears under More, "Your supervisors".
+7. Ask your supervisor to add your candidate number in their app and sign your entries. Your entries must be synced first (no sync button is shown at the top right). When your supervisor has signed, switch to another app and back (or turn the screen off and on): the signatures appear in the History tab, and your supervisor's name appears under More, "Your supervisors".
 
 ## Use it for real for one to two weeks
 
@@ -39,8 +37,7 @@ If you forget your password, tell us. We cannot read it, but we can give you a n
 
 ## Then
 
-1. Open the app, More tab, "Advanced", "Export test data". Send the file to us on WhatsApp.
-2. Answer these questions (voice message is fine):
+Answer these questions (voice message is fine):
    - What was confusing or slow?
    - What was missing?
    - Was logging in easy? Would you manage it without help?
@@ -52,10 +49,10 @@ Tip for us: if you can, record your screen while doing the tasks (swipe down fro
 
 ## For supervisors
 
-You need internet for all of this (the supervisor screens do not work offline). Please do not type patient names or numbers anywhere.
+You need internet for all of this (the supervisor screens do not work offline).
 
 1. Open the link in Chrome, add it to the Home screen, and open it from there.
-2. Log in with your **staff ID** and the password you were given. Choose your own password and keep it to yourself.
+2. Log in with your **candidate number** and the password you were given. Choose your own password and keep it to yourself.
 3. Tap **Add students**, find the candidate numbers of the students you supervise and tap **Add**. The student can see your name, so nobody is added in secret.
 4. Tap **My students**. A student with entries waiting shows "to sign". Tap the student.
 5. Look at the list. **Untick anything that is not correct**, then tap **Sign**. Only sign procedures you supervised. A signature cannot be undone.

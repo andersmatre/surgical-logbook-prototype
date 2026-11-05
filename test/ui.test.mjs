@@ -9,6 +9,7 @@ import { JSDOM } from 'jsdom';
 import { createServer } from '../server/app.js';
 import { addUser } from '../server/lib.js';
 import { HOSPITALS } from '../config.js';
+import * as core from '../core.js';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const dom = new JSDOM(html, { url: 'https://localhost/', pretendToBeVisual: true });
@@ -65,7 +66,8 @@ async function supervisorToken() { // a fresh login each time: other tests clear
 
 test.after(async () => { await server.close(); });
 
-const syncNow = async (back) => { await click(byText('.tab', 'More')); await click(byText('.btn', 'Sync now'), 500); await click(byText('.tab', back)); };
+// The app comes back on the screen (switched back to it, screen turned on): it syncs by itself.
+const comeBack = async () => { document.dispatchEvent(new window.Event('visibilitychange')); await wait(500); };
 
 test('login, first password, logging, sync, logout, login on a new tablet', async () => {
   await init();
@@ -73,6 +75,7 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
 
   // ---- login screen
   assert.ok($('#cand'), 'login screen shown when nobody is logged in');
+  assert.match($('.setup').textContent, /Version \d+\.\d+\.\d+$/, 'the version is shown quietly under the login form');
   await submit($('.setup-form'));
   assert.match($('.error').textContent, /Enter your candidate number/);
   $('#cand').value = 'cc1234';
@@ -90,7 +93,11 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   assert.match($('h1').textContent, /Choose your own password/);
   await click(byText('.setup .btn', 'How your data is used'));
   assert.match($('.sheet h3').textContent, /Your data/);
-  assert.match($('.sheet').textContent, /Patient names or numbers/);
+  assert.match($('.sheet').textContent, /What is stored/);
+  assert.doesNotMatch($('.sheet').textContent, /What is never stored/);
+  assert.deepEqual($$('.sheet .pv-card h4').map((x) => x.textContent), ['What is stored', 'Why', 'Who can see it', 'Where it is kept', 'How long it is kept', 'Your rights'], 'one grey card per part');
+  assert.match($('.sheet').textContent, /Each procedure you log/, 'a student reads what is stored about students');
+  assert.doesNotMatch($('.sheet').textContent, /Which students you added/, 'and not what is stored about supervisors');
   assert.match($('.sheet').textContent, /Who can see it/);
   assert.match($('.sheet').textContent, /have your account and your data deleted/);
   await click(byText('.sheet .btn', 'Close'));
@@ -109,10 +116,16 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
 
   // ---- hospital, then the main screen
   assert.ok($('#hosp'), 'hospital question is shown once per tablet');
+  assert.equal($('.setup h1').textContent, 'Where do you work?');
+  assert.equal($$('#hosp option').length, HOSPITALS.length, 'every hospital is in the list');
   $('#hosp').value = 'Masanga Hospital';
   await submit($('.setup-form'));
   assert.ok($('.top'), 'main screen');
   assert.match($('.who').textContent, /CC1234 · Mohamed Kamara · Masanga Hospital/);
+  assert.doesNotMatch(document.body.textContent, /never type/i, 'no warning about typing patient data: there is nowhere to type it');
+  assert.equal($('.banner'), null, 'no version strip on the screens: the version is under More, About');
+  assert.doesNotMatch(document.body.textContent, /Version \d/);
+  assert.doesNotMatch(document.body.textContent, /prototype/i);
   assert.equal(JSON.parse(localStorage.getItem('logbook.session')).must_change, false);
 
   // ---- the Log tab: Surgery or Delivery, like CapaCare's two logbooks; Surgery is chosen from the start
@@ -195,7 +208,7 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
     ['appendectomy@Masanga Hospital', 'cs@Masanga Hospital', 'laparotomy@Bo Government Hospital'],
   );
   server.db.prepare("UPDATE users SET display_name = 'Mohamed Sorie Kamara' WHERE candidate = 'CC1234'").run();
-  await syncNow('Log');
+  await comeBack();
   assert.match($('.who').textContent, /Mohamed Sorie Kamara/, 'a changed name arrives with the next sync');
 
   // ---- no supervisor yet: nothing is signed, and there is no sign-off button.
@@ -204,6 +217,7 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   assert.equal($('.nav .badge'), null, 'no count on the History tab');
   assert.equal($('.note-info'), null, 'no message about signatures at the top of History');
   assert.match($('.entry .e-sub').textContent, /^Assisted · \d+ \w+$/, 'the row: your role · date');
+  assert.deepEqual($$('.month').map((x) => x.textContent), [core.fmtMonth(core.localDateISO().slice(0, 7))], 'a heading for the month, above its entries');
   await click($('.entry'));
   assert.match($('.sheet .case-sub').textContent, /^\d+ \w+ · Bo Government Hospital$/, 'the case shows where it was done');
   await click(byText('.sheet .btn', 'Close'));
@@ -221,10 +235,17 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   assert.equal((await post('/api/sup/sign', sup, { candidate: 'CC1234', ids })).signed, 3);
   assert.equal(serverEvents(), 6); // 3 entries + 3 signatures
 
-  // ---- the student sees the signatures after the next sync (tap the sync button)
-  await syncNow('History');
+  // ---- the student sees the signatures when the app comes back on the screen, without tapping anything
+  await comeBack();
   assert.equal($$('.tag.ok').length, 3);
   assert.match($('.entry').textContent, /Signed/);
+
+  // ---- the Progress tab counts them; there is no weekly summary to share
+  await click(byText('.tab', 'Progress'));
+  assert.match($('.stats').textContent, /3\s*cases/);
+  assert.match($('.stats').textContent, /3\s*signed/);
+  assert.doesNotMatch(document.body.textContent, /WhatsApp|Weekly summary/);
+  await click(byText('.tab', 'History'));
   await click($('.entry'));
   assert.match(byText('.sheet .case-row', 'Signature').textContent, /Signed by Dr Anna Kamara/);
   assert.equal(byText('.sheet-foot .btn', 'Delete'), undefined, 'signed entries cannot be deleted');
@@ -234,8 +255,8 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   await click(byText('.tab', 'More'));
   assert.match(document.body.textContent, /Your supervisors/);
   assert.match(document.body.textContent, /Dr Anna Kamara/);
-  await click(byText('.card .btn', 'How your data is used'));
-  assert.match($('.sheet h3').textContent, /Your data/, 'the privacy notice is also under More');
+  await click(byText('details.advanced .fact', 'Your data').querySelector('.change'));
+  assert.match($('.sheet h3').textContent, /Your data/, 'the privacy notice is also under More, in Advanced');
   await click(byText('.sheet .btn', 'Close'));
 
   // ---- the hospital is a row like candidate number and name, and can still be changed from there
@@ -268,14 +289,21 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   assert.match($('.who').textContent, /Kenema Government Hospital/);
   assert.ok($('.hpick').hidden, 'the list closes after choosing');
 
-  // ---- the More tab: account, supervisors, your data, then the rarely needed things folded away under "Advanced"
-  assert.deepEqual($$('section .card').map((c) => c.querySelector('h3, summary strong').textContent), ['Account', 'Your supervisors', 'Your data', 'Advanced']);
+  // ---- the More tab: account, supervisors, then the rarely needed things (your data too) folded away under "Advanced"
+  assert.deepEqual($$('section .card').map((c) => c.querySelector('h3, summary strong').textContent), ['Account', 'Your supervisors', 'Advanced']);
+  assert.deepEqual($$('details.advanced h3').map((x) => x.textContent), ['Data on this device', 'About'], 'no separate "Your data" part');
+  assert.deepEqual($$('details.advanced .fact-text > span').map((x) => x.textContent), ['Entries', 'Waiting to be sent', 'Last sync', 'Version', 'Your data'],
+    'the same rows as the account: label in bold, value under it; "Your data" is one row under About, with a button');
   assert.ok(!$('details.advanced').open, 'Advanced is folded when the tab is opened');
-  assert.ok(byText('details.advanced .btn', 'Sync now') && byText('details.advanced', 'Version'), 'sync, export and app details are inside it');
+  assert.match(document.body.textContent, /Data on this device/);
+  assert.doesNotMatch(document.body.textContent, /tablet/i, 'the app works on any device, so the screens say "device"');
+  assert.ok(byText('details.advanced', 'Version'), 'app details are inside it');
+  assert.equal(byText('.btn', 'Export test data'), undefined, 'no test-data export');
+  assert.equal(byText('.btn', 'Sync now'), undefined, 'no Sync now button: syncing is automatic');
   $('details.advanced').open = true;
   $('details.advanced').dispatchEvent(new window.Event('toggle'));
-  await click(byText('.btn', 'Sync now'), 500);
-  assert.ok($('details.advanced').open, 'tapping Sync now redraws the tab but keeps Advanced open');
+  await comeBack();
+  assert.ok($('details.advanced').open, 'a sync redraws the tab but keeps Advanced open');
 
   // ---- change password from the More tab
   await click(byText('.btn', 'Change password'));
@@ -436,9 +464,10 @@ test('role and details are on one screen, and a follow-up can be added later fro
   assert.deepEqual(visible('.sheet .qcard .qsection').map((x) => x.textContent), ['Your role', 'Mother', 'Baby', 'Operation', 'Surgical Apgar']);
   assert.match(byText('.sheet .qcard', 'Surgical Apgar').querySelector('.qnote').textContent, /mother's/, 'says whose Surgical Apgar it is');
   assert.equal($('.sheet label[for="q-age_years"]').textContent, 'Age');
-  assert.equal($('.sheet label[for="q-age_years"]').nextElementSibling.className, 'numrow', 'the mother\'s age needs no "under 1 year"');
+  assert.equal($('.sheet label[for="q-age_years"]').nextElementSibling.className, 'numrow', 'age has no grey line under it');
   assert.match(byText('.sheet .qrow', 'Gravida').querySelector('.qhelp').textContent, /Pregnancies/, 'an unclear word is explained');
-  assert.equal($('#q-gravida').closest('.numgrid'), $('#q-para').closest('.numgrid'), 'number questions that follow each other sit together');
+  assert.equal($('.sheet .numgrid'), null, 'number questions are not side by side');
+  assert.equal($('#q-gravida').closest('.qrow').nextElementSibling, $('#q-para').closest('.qrow'), 'each on its own line, one under the other');
   assert.ok(byText('.sheet .qrow', 'Number of babies').querySelector('.choices.three'), 'three short choices share one row');
   await click(byText('.choice', 'Twins'));
   assert.deepEqual(visible('.sheet .qcard .qsection').map((x) => x.textContent), ['Your role', 'Mother', 'Baby', 'Second baby', 'Operation', 'Surgical Apgar']);
@@ -474,6 +503,7 @@ test('role and details are on one screen, and a follow-up can be added later fro
   assert.doesNotMatch(row().textContent, /Anaesthesia/, 'the row shows only the most important; the answers are in the pop-up');
   assert.match(row().textContent, /Operated with supervisor · \d+ \w+/);
   assert.match(row().textContent, /Not signed/);
+  assert.deepEqual($$('.tag', row()).map((t) => t.textContent), ['Not signed'], 'no follow-up tag yet');
 
   // tapping the case opens it in a pop-up: one table, with a part per heading and only what was answered
   await click(row());
@@ -506,6 +536,7 @@ test('role and details are on one screen, and a follow-up can be added later fro
     return out;
   };
   assert.deepEqual(await caseFollowUp(), ['Mother: Alive'], 'the follow-up answers are in the pop-up');
+  assert.deepEqual($$('.tag', row()).map((t) => t.textContent), ['Follow-up', 'Not signed'], 'the row shows that it has a follow-up');
   assert.deepEqual(JSON.parse(stored().get('followup').payload).answers, { mother: 'alive' });
 
   // later: a wound infection. The earlier answer is shown and kept; only the new one is sent.
@@ -518,4 +549,34 @@ test('role and details are on one screen, and a follow-up can be added later fro
   assert.deepEqual(await caseFollowUp(), ['Mother: Alive', 'Wound infection: Yes']);
   assert.deepEqual(JSON.parse(stored().get('followup').payload).answers, { wound_infection: 'yes' });
   assert.equal($('.chip'), null, 'everything was sent');
+});
+
+test('a touch on Cancel works at once, also while the pop-up is still scrolling', async () => {
+  // The browser sends no click for a touch that stops scrolling; the buttons that stay in place act on the touch itself.
+  const touch = (type, el, x, y) => {
+    const ev = new window.Event(type, { bubbles: true, cancelable: true });
+    const t = { identifier: 7, clientX: x, clientY: y, target: el };
+    Object.defineProperty(ev, 'touches', { value: type === 'touchend' ? [] : [t] });
+    Object.defineProperty(ev, 'changedTouches', { value: [t] });
+    el.dispatchEvent(ev);
+    return ev;
+  };
+  await click(byText('.tab', 'Log'));
+  await openProc('Caesarean section');
+  const cancel = () => byText('.sheet-foot .btn', 'Cancel');
+  touch('touchstart', cancel(), 100, 500);
+  touch('touchend', cancel(), 100, 540); // the finger moved: a swipe, not a press
+  assert.ok($('.sheet'), 'a swipe over Cancel does not close the pop-up');
+  touch('touchstart', cancel(), 100, 500);
+  const end = touch('touchend', cancel(), 103, 502); // a press, without any click from the browser
+  await wait(50);
+  assert.equal($('.sheet'), null, 'the press closes the pop-up');
+  assert.ok(end.defaultPrevented, 'the browser is told not to send its own click as well');
+
+  // a button that scrolls with the page keeps the normal behaviour: a touch alone does not open a procedure
+  const proc = byText('.proc', 'Caesarean section');
+  touch('touchstart', proc, 100, 300);
+  touch('touchend', proc, 100, 300);
+  await wait(50);
+  assert.equal($('.sheet'), null);
 });

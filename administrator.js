@@ -7,7 +7,7 @@ import { PROCEDURES_TOP, DETAIL_FIELDS, FOLLOWUP_FIELDS, procName, roleLabel } f
 import * as core from './core.js';
 import * as api from './api.js';
 import {
-  h, timeAgo, stat, kv, cases, toast, openSheet, closeSheet, saveBlob, privacyCard,
+  h, timeAgo, stat, kv, cases, toast, openSheet, closeSheet, saveBlob, fact, privacyFact, advancedCard,
 } from './ui.js';
 
 const ENDED = Symbol('session ended'); // the server ended the session; app.js shows the login screen
@@ -43,7 +43,7 @@ function draw() {
 
 function paint() {
   const y = window.scrollY || 0;
-  ctx.root.replaceChildren(h('div', { 'data-admin': '' }, h('div', { class: 'sticky-top' }, header(), nav()), h('div', { class: 'banner' }, `Prototype v${ctx.version} · administrator`), h('main', { class: 'main' }, body())));
+  ctx.root.replaceChildren(h('div', { 'data-admin': '' }, h('div', { class: 'sticky-top' }, header(), nav()), h('main', { class: 'main' }, body())));
   if (y) window.scrollTo(0, y);
 }
 
@@ -379,7 +379,7 @@ function openRename(u) {
 function confirmReset(u) {
   openSheet([
     h('h3', {}, `New password for ${u.id}?`),
-    h('p', {}, 'They are logged out on all tablets and must choose their own password at the next login. You will see the new initial password once.'),
+    h('p', {}, 'They are logged out on all devices and must choose their own password at the next login. You will see the new initial password once.'),
     h('div', { class: 'row' },
       h('button', {
         class: 'btn', type: 'button',
@@ -466,7 +466,7 @@ function addView() {
     const name = h('input', { id: 'newname', type: 'text', placeholder: 'e.g. Dr Anna Kamara', value: ad.draft.name, autocomplete: 'off' });
     [id, name].forEach((i) => i.addEventListener('input', () => { ad.draft.id = id.value; ad.draft.name = name.value; err.textContent = ''; }));
     form = h('form', { class: 'setup-form' },
-      h('label', { for: 'newid' }, 'Staff ID'), id,
+      h('label', { for: 'newid' }, 'Candidate number'), id,
       h('label', { for: 'newname' }, 'Name (students see it next to a signature)'), name,
       err, h('button', { class: 'btn wide', type: 'submit' }, 'Create account'));
     form.addEventListener('submit', async (ev) => {
@@ -515,40 +515,37 @@ async function create(err, run) {
 
 // ---- More ------------------------------------------------------------------------------------------
 
+// Laid out like the student's More (fact, advancedCard in ui.js).
 function moreView() {
-  return h('section', {},
+  return h('section', { class: 'more-tab' },
     h('h2', {}, 'More'),
     h('div', { class: 'card' }, h('h3', {}, 'Account'),
-      kv('Staff ID', ctx.session.candidate),
-      kv('Name', ctx.session.name || ctx.session.candidate),
+      h('div', { class: 'facts plain' },
+        fact('Candidate number', ctx.session.candidate),
+        fact('Name', ctx.session.name || ctx.session.candidate)),
       h('div', { class: 'row' },
         h('button', { class: 'btn ghost', onclick: ctx.openChangePassword }, 'Change password'),
         h('button', { class: 'btn ghost', onclick: confirmLogout }, 'Log out'))),
     backupCard(),
-    h('div', { class: 'card' }, h('h3', {}, 'What an administrator can do'),
-      h('p', { class: 'muted' }, 'See all students and their procedures, add accounts, give new passwords, disable accounts and choose which supervisor sees which student. You cannot sign procedures. Every change is listed under "Recent changes" on the Overview tab, with who made it. Initial passwords are shown once and never stored.')),
-    h('div', { class: 'card' }, h('h3', {}, 'When someone asks to see or delete their data'),
-      h('p', { class: 'muted' }, 'To show a student their data: "See entries" on their account (Users tab). To delete it: disable the account, then "Delete account and data for good". Keep a note of the request and the date outside the app.')),
-    privacyCard(),
-    h('div', { class: 'card' }, h('h3', {}, 'About'), kv('Version', ctx.version), kv('Server', api.serverLabel())));
+    advancedCard([['About', [fact('Version', ctx.version), fact('Server', api.serverLabel()), privacyFact('admin')]]]));
 }
 
 function backupCard() {
   const last = ad.stats && ad.stats.last_backup;
   return h('div', { class: 'card' }, h('h3', {}, 'Backup'),
     h('p', { class: 'muted' }, 'A complete copy of all data, in one file. If the server disk is ever lost, this file is the only way to get the data back. Download one every week and keep it somewhere safe that is not this server, for example on a USB stick or in CapaCare\'s own storage.'),
-    kv('Last backup', last ? timeAgo(last) : 'never'),
+    h('div', { class: 'facts plain' }, fact('Last backup', last ? timeAgo(last) : 'never')),
     h('button', {
       class: 'btn wide', type: 'button',
       onclick: () => downloadFile('Backup', (t) => api.adminBackup(t), `logbook-backup-${today()}.db`),
     }, 'Download backup'),
-    h('p', { class: 'muted small' }, 'The file contains all names, entries and the scrambled passwords of every account. Treat it like the live data: do not send it by WhatsApp or e-mail.'));
+    h('p', { class: 'muted small' }, 'The file contains all names, entries and the scrambled passwords of every account. Treat it with care.'));
 }
 
 function confirmLogout() {
   openSheet([
     h('h3', {}, 'Log out?'),
-    h('p', {}, 'You will need your staff ID and password to log in again.'),
+    h('p', {}, 'You will need your candidate number and password to log in again.'),
     h('div', { class: 'row' },
       h('button', { class: 'btn danger', type: 'button', onclick: ctx.onLogout }, 'Log out'),
       h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Cancel')),

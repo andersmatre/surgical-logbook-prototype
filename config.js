@@ -1,7 +1,7 @@
 // config.js — content, not logic. Edit procedure lists, targets and hospitals here.
 // (Supervisors are accounts on the server now, created with `admin.js add-supervisor`.)
 
-export const APP_VERSION = '0.12.0';
+export const APP_VERSION = '0.13.0';
 
 // Where the logbook server lives. '' = the same address the app was loaded from
 // (when the server also serves the app). If the app is hosted elsewhere, for example
@@ -167,7 +167,7 @@ function babyFields(n) {
   const who = n === 1 ? 'Baby' : `Baby ${n}`;
   const showIf = n === 1 ? undefined : { babies: n === 2 ? ['2', '3'] : ['3'] };
   return {
-    [`${p}outcome`]: { label: who, ask: 'Outcome at birth', help: 'Fresh stillbirth: died during labour. Macerated: died before labour.', options: [['alive', 'Alive'], ['fresh_stillbirth', 'Fresh stillbirth'], ['macerated', 'Macerated stillbirth']], showIf },
+    [`${p}outcome`]: { label: who, ask: 'Outcome at birth', options: [['alive', 'Alive'], ['fresh_stillbirth', 'Died during labour'], ['macerated', 'Died before labour']], showIf },
     [`${p}presentation`]: { label: `${who}, position`, ask: 'Position', options: [['cephalic', 'Head first'], ['breech', 'Breech'], ['transverse', 'Transverse']], showIf },
     [`${p}sex`]: { label: `${who}, sex`, ask: 'Sex', options: [['male', 'Male'], ['female', 'Female']], showIf },
     [`${p}weight_g`]: { label: `${who}, weight`, ask: 'Weight', unit: 'grams', number: { min: 500, max: 6000 }, showIf },
@@ -182,7 +182,7 @@ const babyIds = (n) => Object.keys(babyFields(n));
 export const DETAIL_FIELDS = {
   // the patient, or the mother
   sex: { label: 'Sex', options: [['male', 'Male'], ['female', 'Female']] },
-  age_years: { label: 'Age', help: 'Under 1 year: 0', unit: 'years', number: { min: 0, max: 120 } },
+  age_years: { label: 'Age', unit: 'years', number: { min: 0, max: 120 } },
   gravida: { label: 'Gravida', help: 'Pregnancies, this one too', number: { min: 1, max: 20 } },
   para: { label: 'Para', help: 'Births before this one', number: { min: 0, max: 20 } },
   children_alive: { label: 'Children alive', number: { min: 0, max: 20 } },
@@ -232,8 +232,7 @@ export const FOLLOWUP_DAYS = 42;
 // delivery the obstetric logbook's. A delivery that is also an operation (caesarean, vacuum, destructive) asks
 // both, each question once; there the blood loss in ml also gives the Surgical Apgar's points.
 // A part can have a `note` under its heading, and word a question differently with `ask` or `help`
-// ({id: words}, null for none): the mother's age needs no "under 1 year".
-const MOTHER_HELP = { age_years: null };
+// ({id: words}, null for none).
 // The Surgical Apgar is about the operated patient: at a caesarean, the mother (the baby's is the Apgar under Baby).
 const SAPGAR_NOTE = 'A score for how the operation went.';
 const SAPGAR_NOTE_MOTHER = "The mother's, during the operation. The baby's Apgar is under Baby.";
@@ -248,11 +247,11 @@ const DETAILS_OPERATION = [
   { title: 'Surgical Apgar', note: SAPGAR_NOTE, ids: ['sapgar_blood', 'sapgar_map', 'sapgar_hr'] },
 ];
 const DETAILS_BIRTH = [
-  { title: 'Mother', ids: ['age_years', 'gravida', 'para', 'children_alive', 'induction', 'blood_loss_ml'], help: MOTHER_HELP },
+  { title: 'Mother', ids: ['age_years', 'gravida', 'para', 'children_alive', 'induction', 'blood_loss_ml'] },
   ...BABIES,
 ];
 const DETAILS_BIRTH_OPERATION = [
-  { title: 'Mother', ids: ['age_years', 'gravida', 'para', 'children_alive', 'induction'], help: MOTHER_HELP },
+  { title: 'Mother', ids: ['age_years', 'gravida', 'para', 'children_alive', 'induction'] },
   ...BABIES,
   { title: 'Operation', ids: ['urgency', 'anaesthesia', 'duration_min'] },
   { title: 'Surgical Apgar', note: SAPGAR_NOTE_MOTHER, ids: ['blood_loss_ml', 'sapgar_map', 'sapgar_hr'] },
@@ -331,30 +330,28 @@ export const HOSPITALS = [
   'Other',
 ];
 
-// The privacy notice ("Your data"), shown at the first login and under More in all three apps.
-// PLACEHOLDER: who is responsible, whom to contact and how long data is kept are not decided yet
+// The privacy notice ("Your data"), shown at the first login and under More, "Advanced", in all three apps.
+// PLACEHOLDER: whom to contact and how long data is kept are not decided yet, and who is responsible is not named
 // (PROJECT.md, section 14). While PRIVACY_IS_PLACEHOLDER is true the notice says it is a draft.
 export const PRIVACY_IS_PLACEHOLDER = true;
 export const PRIVACY = {
-  responsible: 'CapaCare (to be confirmed)',
   contact: 'your CapaCare coordinator',
-  keptFor: 'While you are in the training programme. After that, for as long as CapaCare needs it for the programme (to be decided). Then it is deleted.',
-  // Each part: a heading and one or more short lines in plain words.
+  keptFor: 'While you are in the training programme. After that, for as long as CapaCare needs it for the programme.',
+  // Each part: a heading and one or more short lines in plain words. A line only for one role is
+  // { for: 'student' | 'supervisor' | 'admin', text }; the others see it nowhere.
   parts: [
     ['What is stored', [
-      'Your candidate number or staff ID, and your name if CapaCare added it.',
+      'Your candidate number and name.',
       'Your password, scrambled so that nobody can read it, not even CapaCare.',
-      'Students: each procedure you log, with your role, the date, the hospital, details about the operation (such as the anaesthesia), what happened to the patient afterwards, and if a supervisor signed it. Never who the patient is.',
-      'Supervisors: which students you added, and which entries you signed.',
-      'How the app is used: how many seconds logging takes, if you were offline, and how often you tap Undo. This shows us if the app is easy to use.',
+      { for: 'student', text: 'Each procedure you log.' },
+      { for: 'supervisor', text: 'Which students you added, and which entries you signed.' },
     ]],
-    ['What is never stored', ['Patient names or numbers. Never type them anywhere in the app.']],
     ['Why', [
       'So you can keep your logbook, your supervisor can sign it, and CapaCare can follow the training programme.',
       'Your data is only used for research if an ethics committee has approved it and you have agreed.',
     ]],
-    ['Who can see it', ['You. The supervisors who added you (students see their names under More). CapaCare administrators. Nobody else.']],
-    ['Where it is kept', ['On your own tablet, and on a server in Stockholm, Sweden (in the EU), run by the company Fly.io.']],
+    ['Who can see it', ['You.', 'The supervisors who added you.', 'CapaCare administrators.']],
+    ['Where it is kept', ['On your own device, and on a server in Stockholm, Sweden, run by the company Fly.io.']],
   ],
 };
 

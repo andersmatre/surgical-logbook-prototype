@@ -54,7 +54,6 @@ function addEntries(db, student, count, seed, now) {
       hospital: hospitals[Math.floor(i / Math.max(1, count / hospitals.length)) % hospitals.length] ?? pick(hospitals),
       procedure: pick(procedures).id, role: pick(roles),
       performed_on: day(ago, now), entered_on: day(ago, now),
-      ms_to_log: 4000 + Math.floor(rand() * 14000), online: rand() > 0.15,
     };
     const { clean, reason } = validateEvent(raw, student);
     if (!clean) throw new Error(`Seed entry rejected (${reason}); has validateEvent changed?`);
