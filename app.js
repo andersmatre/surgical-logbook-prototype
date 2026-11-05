@@ -265,7 +265,7 @@ function loginScreen() {
 
   return h('div', { class: 'setup' },
     h('h1', {}, 'CapaCare logbook'),
-    h('p', { class: 'muted' }, 'Log in with your candidate number and the password you got from CapaCare. You need internet the first time you log in on this device. After that the student logbook also works without internet.'),
+    h('p', { class: 'muted' }, 'Log in with your candidate number and the password you got from CapaCare. You need internet the first time you log in on this device. After that the logbook also works without internet.'),
     note, serverNote(), form,
     h('p', { class: 'muted small' }, `Version ${APP_VERSION}`));
 }
