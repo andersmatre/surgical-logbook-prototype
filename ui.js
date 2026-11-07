@@ -3,7 +3,11 @@
 // Plain JavaScript, no build step.
 
 import * as api from './api.js';
-import { PRIVACY, PRIVACY_IS_PLACEHOLDER } from './config.js';
+import {
+  PRIVACY, PRIVACY_IS_PLACEHOLDER, DETAIL_FIELDS, FOLLOWUP_FIELDS, FOLLOWUP_DAYS, procName, roleDone, detailFieldsFor, followupFieldsFor,
+  surgicalApgar, answerLabel,
+} from './config.js';
+import * as core from './core.js';
 
 // ---- tiny DOM helper -------------------------------------------------------
 
@@ -63,6 +67,21 @@ export const pageScroll = () => document.querySelector('.shell > .main')?.scroll
 export function setPageScroll(y) {
   const page = document.querySelector('.shell > .main');
   if (page) page.scrollTop = y;
+}
+
+// Before a screen is drawn again (a fresh answer from the server): if a search field in it has the keyboard,
+// returns a function that gives it back to the new search field, with the cursor where it was, so typing is
+// never interrupted. Call it after drawing.
+export function keepTyping(root) {
+  const el = document.activeElement;
+  if (!el || !root.contains(el) || !el.classList.contains('search')) return () => {};
+  const { selectionStart: a, selectionEnd: b } = el;
+  return () => {
+    const next = root.querySelector('input.search');
+    if (!next) return;
+    next.focus();
+    try { next.setSelectionRange(a, b); } catch { /* not every input type has a cursor */ }
+  };
 }
 
 // ---- toast and sheets ------------------------------------------------------
@@ -290,4 +309,109 @@ export function passwordForm({ forced, candidate, token, onDone, onAuthError }) 
     }
   });
   return form;
+}
+
+// ---- a case in a pop-up --------------------------------------------------------
+
+// A case in a pop-up (a student's History, a supervisor's student page), kept quiet on purpose. At the top what
+// matters most: the procedure, the date and hospital, and the role with Signed / Not signed (like the row in the list). Under it two plain tabs: "Details"
+// (the answers of the form) and "Follow-up". The answers are in grey cards, a row per answered question (the
+// question on the left, the answer on the right); a card only has a heading when the tab has several (Mother, Baby,
+// Operation ...). Changing a case is not possible (the log only grows). With onDelete an unsigned entry can be deleted
+// with a quiet link at the bottom of Details; with onFollowUp a follow-up can be added on the Follow-up tab next to
+// Close. A supervisor gets neither: they only read.
+// roleText: how the role is worded (roleDone for the student; a supervisor passes roleDoneBy).
+export function openCase(e, { onDelete = null, onFollowUp = null, roleText = roleDone } = {}) {
+  const row = (label, value) => h('div', { class: 'case-row' }, h('span', {}, label), h('span', {}, value));
+  // A heading that only repeats the tab's name ("Details", "Follow-up") is left out.
+  const part = (title, rows) => (rows.length
+    ? h('section', { class: 'case-part' }, title === 'Details' || title === 'Follow-up' ? null : h('h4', {}, title), rows)
+    : null);
+  // The answers in the parts of the form; an answer to a question no longer asked comes last, under "Other".
+  const parts = (fields, list, answers, fallbackTitle, extra = {}) => {
+    const has = (id) => answers && answers[id] != null;
+    const asked = new Set(list.flatMap((p) => p.ids));
+    const rest = Object.keys(fields).filter((id) => has(id) && !asked.has(id));
+    return [...list, ...(rest.length ? [{ title: 'Other', ids: rest }] : [])].map((p) => part(p.title || fallbackTitle, [
+      ...p.ids.filter(has).map((id) => row((p.ask && p.ask[id]) || fields[id].ask || fields[id].label, answerLabel(fields, id, answers[id]))),
+      ...(extra[p.title] && p.ids.some(has) ? [extra[p.title]] : []),
+    ]));
+  };
+  const apgar = surgicalApgar(e.details);
+  const late = e.performed_on !== e.entered_on;
+  const canFollowUp = core.followUpOpen(e);
+  const hasOutcome = Object.keys(e.outcome || {}).length > 0;
+  const details = parts(DETAIL_FIELDS, detailFieldsFor(e.procedure), e.details, 'Details',
+    apgar == null ? {} : { 'Surgical Apgar': row('Score', `${apgar} of 10`) }).filter(Boolean);
+  const followUp = parts(FOLLOWUP_FIELDS, followupFieldsFor(e.procedure), e.outcome, 'Follow-up').filter(Boolean);
+  // Why there is no follow-up button: the time for it is over (not the signature: a signed case can get one too).
+  const limit = FOLLOWUP_DAYS % 7 === 0 ? `${FOLLOWUP_DAYS / 7} weeks` : `${FOLLOWUP_DAYS} days`;
+  const closed = canFollowUp ? null : h('p', { class: 'muted case-note' }, `Follow-up is closed: more than ${limit} after the operation.`);
+
+  const caseTab = h('div', { class: 'case-tab', id: 'case-tab-details', role: 'tabpanel' },
+    details.length ? details : h('p', { class: 'muted case-note' }, 'No details were filled in.'),
+    // Delete: rarely needed, so a quiet red link at the bottom, not a button that catches the eye (it asks first)
+    e.sign || !onDelete ? null : h('div', { class: 'case-del-row' },
+      h('button', { class: 'link danger case-del', type: 'button', onclick: () => onDelete(e) }, 'Delete this case')));
+  const followTab = h('div', { class: 'case-tab', id: 'case-tab-followup', role: 'tabpanel', hidden: true },
+    followUp.length ? followUp : null,
+    followUp.length && !closed ? null : closed || h('p', { class: 'muted case-note' }, 'No follow-up yet.'));
+  // Add or update the follow-up: only on the Follow-up tab, next to Close (bigger, like Save elsewhere)
+  const followBtn = canFollowUp && onFollowUp
+    ? h('button', { class: 'btn save', type: 'button', hidden: true, onclick: () => onFollowUp(e) }, hasOutcome ? 'Update follow-up' : 'Add follow-up')
+    : null;
+  const tab = (id, label) => h('button', {
+    class: 'ctab', type: 'button', role: 'tab', 'data-tab': id, 'aria-controls': `case-tab-${id}`, onclick: () => show(id),
+  }, label);
+  const tabs = h('div', { class: 'ctabs', role: 'tablist', 'aria-label': 'Details or follow-up' }, tab('details', 'Details'), tab('followup', 'Follow-up'));
+  const show = (id) => {
+    const sheet = caseTab.closest('.sheet');
+    const top = sheet ? sheet.getBoundingClientRect().top : null;
+    for (const b of tabs.children) {
+      b.classList.toggle('on', b.dataset.tab === id);
+      b.setAttribute('aria-selected', String(b.dataset.tab === id));
+    }
+    caseTab.hidden = id !== 'details';
+    followTab.hidden = id !== 'followup';
+    if (followBtn) followBtn.hidden = id !== 'followup';
+    if (caseTab.parentNode) caseTab.parentNode.scrollTop = 0; // the other tab starts at its top
+    if (sheet) keepTop(sheet, top);
+  };
+  show('details');
+
+  const signedBy = e.sign
+    ? `Signed by ${e.sign.supervisor_name || e.sign.supervisor}${e.sign.ts ? ` on ${core.fmtDate(String(e.sign.ts).slice(0, 10))}` : ''}`
+    : null;
+  openSheet([
+    h('div', { class: 'sheet-head' }, // stays at the top while the case scrolls
+      // like the row in the list: the procedure, under it in grey your role, the date (and hospital), and the tags on
+      // the right (Follow-up, Signed or Not signed); who signed it and when in a grey line under it
+      h('div', { class: 'case-top' },
+        h('div', { class: 'case-top-text' },
+          h('h3', { class: 'case-title' }, procName(e.procedure)),
+          h('p', { class: 'case-sub' }, [
+            roleText(e.role, e.procedure),
+            late ? `${core.fmtDate(e.performed_on)} (logged ${core.fmtDate(e.entered_on)})` : core.fmtDate(e.performed_on),
+            e.hospital,
+          ].filter(Boolean).join(' · '))),
+        h('div', { class: 'e-tags' },
+          hasOutcome ? h('span', { class: 'tag fu' }, 'Follow-up added') : null,
+          e.sign ? h('span', { class: 'tag ok' }, 'Signed') : h('span', { class: 'tag warn' }, 'Not signed'))),
+      signedBy ? h('p', { class: 'case-sub case-signed' }, signedBy) : null,
+      tabs),
+    caseTab,
+    followTab,
+    h('div', { class: 'sheet-foot' },
+      h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Close'),
+      followBtn),
+  ]);
+}
+
+// When the case pop-up changes tab it fits its new content, but its top edge stays where it was, so the heading and
+// the tabs do not jump; only the bottom moves. It only moves up when a taller tab needs the room.
+function keepTop(sheet, top) {
+  const h = sheet.offsetHeight;
+  const t = Math.max(16, Math.min(top, window.innerHeight - 16 - h)); // 16: the space around a pop-up (#overlay)
+  sheet.style.alignSelf = 'flex-start';
+  sheet.style.marginTop = `${t - 16}px`;
 }

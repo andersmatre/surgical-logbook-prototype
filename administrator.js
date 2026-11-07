@@ -7,7 +7,7 @@ import { PROCEDURES_TOP, DETAIL_FIELDS, FOLLOWUP_FIELDS, procName, roleLabel } f
 import * as core from './core.js';
 import * as api from './api.js';
 import {
-  h, timeAgo, stat, kv, cases, appShell, pageScroll, setPageScroll, toast, openSheet, closeSheet, saveBlob, fact, privacyFact, advancedCard,
+  h, timeAgo, stat, kv, cases, appShell, pageScroll, setPageScroll, keepTyping, toast, openSheet, closeSheet, saveBlob, fact, privacyFact, advancedCard,
 } from './ui.js';
 
 const ENDED = Symbol('session ended'); // the server ended the session; app.js shows the login screen
@@ -31,6 +31,7 @@ export function mountAdministrator(c) {
     });
   }
   paint();
+  watchVisibility();
   if (ad.users === null && !ad.loading) loadAll();
 }
 
@@ -43,22 +44,45 @@ function draw() {
 
 function paint() {
   const y = pageScroll();
+  const typing = keepTyping(ctx.root);
   ctx.root.replaceChildren(appShell({ 'data-admin': '' }, [header(), nav()], body()));
   if (y) setPageScroll(y);
+  typing();
 }
 
 function header() {
   return h('header', { class: 'top' },
     h('div', { class: 'brand' },
       h('strong', {}, 'CapaCare logbook'),
-      h('span', { class: 'who' }, `Administrator · ${ctx.session.name || ctx.session.candidate}`)),
-    h('button', { class: 'chip ok', onclick: () => loadAll(), 'aria-label': 'Refresh from the server' }, ad.loading ? 'Loading…' : 'Refresh'));
+      h('span', { class: 'who' }, `Administrator · ${ctx.session.name || ctx.session.candidate}`)));
 }
 
 function nav() {
   const tabs = [['overview', 'Overview'], ['users', 'Users'], ['add', 'Add users'], ['more', 'More']];
   return h('nav', { class: 'nav' }, tabs.map(([id, label]) =>
-    h('button', { class: 'tab' + (ad.tab === id ? ' on' : ''), onclick: () => { ad.tab = id; setPageScroll(0); draw(); } }, label)));
+    h('button', { class: 'tab' + (ad.tab === id ? ' on' : ''), onclick: () => goTab(id) }, label)));
+}
+
+// There is no Refresh button: Overview and Users are fetched again each time they are opened, and when the
+// app comes back on the screen (switched back to, screen turned on) while one of them is on show; what was
+// there stays on show until the answer comes. Not while a pop-up is open, and not on Add users or More,
+// where nothing from the server changes and a redraw could disturb typing.
+function goTab(id) {
+  ad.tab = id;
+  setPageScroll(0);
+  draw();
+  if ((id === 'overview' || id === 'users') && !ad.loading) loadAll({ quiet: true });
+}
+
+let watching = false;
+function watchVisibility() {
+  if (watching) return;
+  watching = true;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || !ctx || !ctx.root.querySelector('[data-admin]')) return;
+    if (document.getElementById('overlay')?.classList.contains('open') || ad.loading) return;
+    if (ad.tab === 'overview' || ad.tab === 'users') loadAll({ quiet: true });
+  });
 }
 
 function body() {

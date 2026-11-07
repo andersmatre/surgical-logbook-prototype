@@ -52,6 +52,8 @@ h1, h2, h3, h4, strong, b { font-weight: 600; }
    raised button in it (dark blue text), the other plain grey text. It stands apart from the heading above and the
    white procedures below. */
 .ctabs.log-parts { gap: 4px; margin: 12px 0 16px; padding: 4px; background: #e9e6dc; border: 0; border-radius: 16px; }
+.log-parts + .list { margin-top: 0; }
+ /* a supervisor's student page: the list right under the switch */
 .log-parts .ctab { flex: 1 1 0; font-size: 18px; min-height: 48px; margin: 0; border: 0; border-radius: 12px; }
 .log-parts .ctab.on { background: var(--card); color: var(--main-dark); box-shadow: 0 1px 4px rgba(0, 0, 0, .14); }
 .proc-more { margin-top: 10px; }
@@ -87,6 +89,11 @@ h1, h2, h3, h4, strong, b { font-weight: 600; }
 .btn.wide { width: 100%; }
 .link { background: none; border: 0; color: var(--main-dark); text-decoration: underline; padding: 10px 6px; min-height: 44px; }
 .link.danger { color: var(--danger); }
+/* A supervisor's student page: "‹ My students" on the left, "Remove student" on the right */
+h2 + .detail-name { margin-top: -10px; } /* the name close under the candidate number */
+.detail-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.detail-top .btn { min-height: 48px; padding: 10px 14px; } /* a little smaller, so both fit on one line on a phone */
+.detail-top .btn.ghost, .detail-top .btn.ghost.danger { background: var(--card); } /* white, also the red one */
 .row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
 .row > .btn { flex: 1 1 200px; }
 /* Full-width buttons (and list rows) stacked directly under each other or under a list get a gap, like .row. */
@@ -134,22 +141,20 @@ html:has(.shell), html:has(.shell) body { overscroll-behavior: none; } /* the wi
 #overlay.open, .layer { animation: sheet-in .16s ease-out; }
 @keyframes sheet-in { from { opacity: 0; } }
 .scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, .5); }
-/* The fades (scrollHint in ui.js): while there is more further down (or up), that edge of something that scrolls
-   fades out to white, so it is clear that the content goes on. No arrow or button: only the fade, tall enough to be
-   seen. Nothing in them can be tapped; a tap goes through to what is under them. The fade at the bottom sits on top
-   of Cancel and Save, the one at the top in .scroll-dock or under the heading (the pop-up does not move, only its
-   .sheet-body scrolls). In the hospital menu and the list of all operations ui.js puts them at the list's edges. */
+/* The edge lines (scrollHint in ui.js): while there is more further down (or up), a thin grey line marks that edge
+   of something that scrolls, so it is clear that the content goes on under it. The same line as on top of the white
+   bar on a supervisor's To sign page: no fade, the content is cut off cleanly at the line. Nothing in them can be
+   tapped. The line at the bottom sits on top of Cancel and Save, the one at the top under the heading (the pop-up
+   does not move, only its .sheet-body scrolls). In the hospital menu and the list of all operations ui.js puts them
+   at the list's edges. A pop-up without a fixed heading scrolls up to its very top edge, so it has no line there. */
 .scroll-dock { position: relative; z-index: 3; height: 0; transform: translateY(-24px); } /* -24px: from the very top edge, over the pop-up's padding; the layout under it does not move */
-.scroll-hint { position: absolute; left: 0; right: 0; z-index: 3; height: 56px; pointer-events: none; }
+.scroll-hint { position: absolute; left: 0; right: 0; z-index: 3; height: 1px; background: var(--line); pointer-events: none; }
 .scroll-hint.fade { animation: hint-in .2s ease-out; } /* only when it comes later (scrolled back, more questions), not with the pop-up */
-.scroll-hint.down { transform: translateY(-100%); background: linear-gradient(to bottom, rgba(255, 255, 255, 0), var(--card) 75%); }
-.scroll-hint.up { background: linear-gradient(to top, rgba(255, 255, 255, 0), var(--card) 75%); }
+.scroll-hint.down { transform: translateY(-100%); }
 .scroll-hint[hidden] { display: none; }
-.sheet-foot > .scroll-hint { top: 0; }
-.scroll-dock > .scroll-hint { top: 0; left: -24px; right: -24px; height: 80px; } /* 24px of it over the pop-up's padding */
-.sheet:has(.hpick:not([hidden])) .scroll-dock, .sheet:has(.hpick:not([hidden])) > .sheet-foot > .scroll-hint { display: none; } /* one menu at a time */
-.hpick > .scroll-hint { left: 2px; right: 2px; height: 44px; }
-.hpick > .scroll-hint.up { background: linear-gradient(to top, rgba(255, 255, 255, 0), var(--card) 60%); } /* covers the edge of the hospital above */
+.sheet-foot > .scroll-hint { display: none; } /* the buttons always have their line */
+.scroll-dock > .scroll-hint { display: none; }
+.hpick > .scroll-hint { left: 2px; right: 2px; }
 .sheet.tall > .scroll-hint { left: 24px; right: 24px; }
 @keyframes hint-in { from { opacity: 0; } }
 /* A question on top of an open pop-up (confirmOver in ui.js). */
@@ -170,7 +175,7 @@ html:has(.shell), html:has(.shell) body { overscroll-behavior: none; } /* the wi
 .sheet.split > * { flex: none; }
 .sheet.split > .sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin: 0 -24px; padding: 0 24px 8px; }
 .sheet.split > .scroll-dock + .sheet-body { margin-top: -24px; padding-top: 24px; }
-.sheet > h3:first-of-type, .sheet-body > h3:first-of-type { font-size: 24px; margin-bottom: 16px; }
+.sheet > h3:first-of-type, .sheet-body > h3:first-of-type { font-size: 24px; font-weight: 500; margin-bottom: 16px; } /* the pop-up's title: medium, not bold */
 .dinput { display: none; margin: 4px 0 8px; min-height: 48px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; }
 .dinput.show { display: block; }
 
@@ -218,7 +223,7 @@ html:has(.shell), html:has(.shell) body { overscroll-behavior: none; } /* the wi
 /* The label small and grey, the value under it in plain text: the value is what matters. */
 .fact-text span { font-size: 15px; color: var(--muted); }
 .fact-text strong { font-weight: 400; }
-.change { flex: none; min-height: 48px; padding: 8px 18px; border-radius: 999px; border: 2px solid var(--main); background: var(--card); color: var(--main-dark); font-weight: 600; }
+.change { flex: none; min-height: 48px; padding: 8px 18px; border-radius: 999px; border: 2px solid var(--main); background: var(--card); color: var(--main-dark); font-weight: 500; }
 /* Choices (the role, details, follow-up): white buttons, two per row (three short ones in one row: .three), all the
    same size. The chosen one is filled with the main colour, so what is chosen is the only colour in the form.
    The role buttons (.wide) have a hint under the label. */
@@ -228,8 +233,10 @@ html:has(.shell), html:has(.shell) body { overscroll-behavior: none; } /* the wi
   min-width: 0; min-height: 52px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center;
 }
-.choice strong { font-weight: 500; }
-.choice.on strong { font-weight: 600; }
+/* the answers: between normal and medium, the chosen one a step more (450 and 550 need a font with every weight, as on an
+   iPad, an iPhone and Windows; a font with only some weights shows the nearest one, normal and medium) */
+.choice strong { font-weight: 450; }
+.choice.on strong { font-weight: 550; }
 .choices.wide { display: grid; grid-template-columns: 1fr 1fr; }
 .choices.wide .choice { min-height: 72px; align-items: flex-start; text-align: left; padding: 10px 16px; }
 .choice-hint { font-size: 15px; color: var(--muted); }
@@ -263,7 +270,23 @@ input[type=text], .setup-form input[type=password] { width: 100%; min-height: 52
 .row-btn { text-align: left; min-height: 56px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
 .radio, .check { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 4px; }
 input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-color: var(--main); flex: none; }
-.signlist { max-height: 40vh; overflow: auto; margin-bottom: 8px; }
+.sign-bar .btn { flex: 1 1 auto; } .sign-bar .btn.ghost { flex: 0 0 auto; background: var(--card); } /* Tick all as wide as its word, Sign the rest */
+/* A supervisor's student page, To sign: short rows with a tick box on the left (tapping the row opens the case),
+   and the Sign button in a bar that stays at the bottom of the screen while the list scrolls under it. */
+.entry.tap.has-box { padding-left: 0; }
+.pick { align-self: stretch; display: flex; align-items: center; padding: 0 4px 0 14px; cursor: pointer; }
+/* The bar is white across the whole screen with a thin line on top, like the tab bar at the top: the border-image
+   paints it out to the sides without making the page wider. It sits at the bottom of the screen, also when the list
+   is short (the page and the section fill the screen and the bar takes what is left). */
+.sign-bar {
+  display: flex; gap: 10px; position: sticky; bottom: 0; z-index: 1; margin-top: auto;
+  padding: 16px 0 calc(16px + env(safe-area-inset-bottom));
+  border-image: linear-gradient(var(--line) 0 1px, var(--card) 0) fill 0 / 0 / 0 100vmax;
+}
+.signlist { margin-bottom: 16px; } /* room above the bar when scrolled to the end */
+.shell > .main > .page:has(> section > .sign-bar) { padding-bottom: 0; min-height: 100%; display: flex; flex-direction: column; }
+@media (pointer: coarse) { .shell > .main > .page:has(> section > .sign-bar) { min-height: calc(100% + 1px); } }
+.page > section:has(> .sign-bar) { flex: 1 0 auto; display: flex; flex-direction: column; }
 
 .card { background: var(--card); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; border: 1px solid var(--line); }
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
@@ -276,6 +299,10 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
    tab: the name and the count on top, the bar, then assisted and observed in grey. */
 .prog-title { margin: 24px 0 2px; }
 .prog-note { margin: 0 0 12px; }
+.prog-title + .prows { margin-top: 10px; } /* a heading without a note: same gap as with one */
+.prows { display: grid; gap: 8px; }
+.prows .ptile { padding: 12px 16px; }
+.prows .prow-top > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ptile { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px 12px; min-width: 0; }
 .pcount { flex: none; color: var(--main-dark); font-weight: 500; }
 .prow-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
@@ -316,7 +343,7 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 
 .list { list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 10px; }
 /* History: a quiet heading above each month's entries. */
-.day-head { font-size: 14px; font-weight: 400; color: var(--muted); margin: 20px 0 8px 2px; } /* History: a small heading per day */
+.day-head { font-size: 14px; font-weight: 400; color: var(--muted); margin: 20px 0 8px 2px; } /* History: a small heading per week */
 .day-head + .list { margin-top: 0; }
 
 /* History: "Procedure" and "Role" buttons that open a pop-up to show only some entries. A button with a choice made is coloured. */
@@ -392,6 +419,8 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .tag { font-size: 13px; padding: 2px 10px; border-radius: 999px; background: #ece9df; color: var(--ink); }
 .tag.ok { background: var(--ok-bg); color: var(--ok-ink); }
 .tag.warn { background: var(--warn-bg); color: var(--warn-ink); }
+.tag.fu { background: var(--main-light); color: var(--main-dark); } /* "Follow-up added" */
+.tag.closed { background: none; box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); } /* History: too old for a follow-up */
 /* Details and follow-up under an entry: one line each, the follow-up button on the right. */
 .e-extra { margin-top: 4px; color: var(--muted); font-size: 15px; }
 
@@ -400,17 +429,28 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .questions { margin: 0 0 4px; }
 .questions [hidden] { display: none; }
 .qcard { background: var(--bg); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
-.qsection { margin: 0 0 14px; font-size: 19px; color: var(--main-dark); } /* in the main colour, like the headings under More, so it stands apart from the questions */
-.qnote { margin: -8px 0 12px; color: var(--muted); font-size: 15px; }
+.qsection { margin: 0 0 14px; font-size: 19px; font-weight: 500; color: var(--main-dark); } /* in the main colour, like the headings under More, so it stands apart from the questions */
+.qsection-wrap { margin: 0 0 14px; } .qsection-wrap .qsection { margin: 0; } /* the part's heading, maybe with a "?" */
 .qrow { margin-bottom: 18px; }
 .qcard > .qrow:last-child, .qcard > .choices:last-child { margin-bottom: 0; }
-.qlabel { display: block; font-weight: 500; }
-.qhelp { display: block; color: var(--muted); font-size: 15px; }
+.qlabel { display: block; font-weight: 475; } /* the questions ("Number of babies"): a little above the answers (450) */
+/* A question and, if its words need explaining, a small round "?" right after it (a 44px touch area around a 26px
+   circle). Tapping it shows the explanation in a small light blue bubble under the question (helpTip in app.js). */
+.qhead { display: flex; align-items: center; }
+.qtip-btn {
+  position: relative; flex: none; display: grid; place-items: center; width: 26px; height: 26px; margin-left: 6px; padding: 0;
+  border: 1.5px solid var(--main); border-radius: 50%; background: var(--card); color: var(--main-dark);
+  font-size: 15px; font-weight: 600; line-height: 1; cursor: pointer;
+}
+.qtip-btn::after { content: ''; position: absolute; inset: -9px; } /* the touch area: 44px */
+.qtip-btn.on { background: var(--main); color: #fff; }
+.qhelp { display: block; width: fit-content; max-width: 100%; margin: 6px 0 2px; padding: 8px 12px; border-radius: 10px; background: var(--main-light); color: var(--main-dark); font-size: 15px; }
+.qhelp[hidden] { display: none; }
 .numrow { display: flex; align-items: center; gap: 8px; margin-top: 8px; white-space: nowrap; }
 .num { width: 100%; max-width: 140px; min-width: 0; min-height: 52px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-size: 20px; }
 /* Cancel and Save stay in view at the bottom of a long pop-up. Save is the wide one. */
 /* No line above the buttons: while there is more further down the content fades out above them instead. */
-.sheet-foot { position: relative; z-index: 3; display: flex; gap: 12px; margin: 0 -24px -24px; padding: 12px 24px 24px; background: var(--card); }
+.sheet-foot { position: relative; z-index: 3; display: flex; gap: 12px; margin: 0 -24px -24px; padding: 16px 24px; background: var(--card); box-shadow: inset 0 1px 0 var(--line); } /* a thin line on top, always, like the bar on a supervisor's To sign page */
 .sheet-foot .btn { flex: 1; padding-left: 12px; padding-right: 12px; white-space: nowrap; }
 .sheet-foot .btn.save { flex: 2; }
 

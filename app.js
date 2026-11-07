@@ -5,12 +5,12 @@
 
 import {
   PROCEDURE_GROUPS, PROCEDURES, ALL_PROCEDURES, LOG_SURGERY, LOG_DELIVERIES, TARGET_PROCEDURES,
-  HOSPITALS, APP_VERSION, DETAIL_FIELDS, FOLLOWUP_FIELDS, FOLLOWUP_DAYS, findProcedure, procName, rolesFor, roleDone, detailFieldsFor, followupFieldsFor, surgicalApgar, answerLabel,
+  HOSPITALS, APP_VERSION, DETAIL_FIELDS, FOLLOWUP_FIELDS, FOLLOWUP_DAYS, findProcedure, procName, rolesFor, roleDone, detailFieldsFor, followupFieldsFor,
 } from './config.js';
 import * as core from './core.js';
 import * as api from './api.js';
 import {
-  h, timeAgo, stat, cases, initUi, appShell, pageScroll, setPageScroll, toast, hideToast, openSheet, closeSheet, confirmOver, scrollHint, passwordForm, openPrivacy, fact, privacyFact, advancedCard,
+  h, timeAgo, stat, cases, initUi, appShell, pageScroll, setPageScroll, toast, hideToast, openSheet, closeSheet, openCase, confirmOver, scrollHint, passwordForm, openPrivacy, fact, privacyFact, advancedCard,
 } from './ui.js';
 import { mountSupervisor } from './supervisor.js';
 import { mountAdministrator } from './administrator.js';
@@ -636,6 +636,23 @@ function stackTagsTogether(wrap) {
   document.fonts?.ready.then(() => { lastWidth = -1; update(); });
 }
 
+// A small round "?" after a question whose words need explaining ("Para"), and the explanation in a small bubble
+// under it ("Births before this one"), only while it is open: tap "?" again to close it. Returns [button, bubble].
+function helpTip(ask, text) {
+  // it stays open until "?" is tapped again: closing by itself would move what is under it while the student uses it
+  const tip = h('p', { class: 'qhelp', hidden: true }, text);
+  const show = (on) => {
+    tip.hidden = !on;
+    btn.setAttribute('aria-expanded', String(on));
+    btn.classList.toggle('on', on);
+  };
+  const btn = h('button', {
+    class: 'qtip-btn', type: 'button', 'aria-label': `What does "${ask}" mean?`, 'aria-expanded': 'false',
+    onclick: () => show(tip.hidden),
+  }, '?');
+  return [btn, tip];
+}
+
 // Questions from DETAIL_FIELDS or FOLLOWUP_FIELDS, in parts ([{ title, note?, ids, ask?, help? }], see
 // detailFieldsFor in config.js). A part with a title is a grey card with the title on top. Big buttons for a list
 // (tap again to clear), a number field for a number; one question per line.
@@ -659,18 +676,18 @@ function questions(fields, parts, initial) {
     const f = fields[id];
     const ask = (part.ask && part.ask[id]) || f.ask || f.label;
     const help = part.help && id in part.help ? part.help[id] : f.help;
-    const helpEl = help ? h('span', { class: 'qhelp' }, help) : null;
+    const [tipBtn, tip] = help ? helpTip(ask, help) : [null, null];
     if (f.number) {
       numbers[id] = h('input', {
         type: 'number', inputmode: 'numeric', min: String(f.number.min), max: String(f.number.max), step: '1',
         class: 'num', id: `q-${id}`, value: chosen[id] != null ? String(chosen[id]) : '',
       });
       rows[id] = h('div', { class: 'qrow qnum' },
-        h('label', { class: 'qlabel', for: `q-${id}` }, ask), helpEl,
+        h('div', { class: 'qhead' }, h('label', { class: 'qlabel', for: `q-${id}` }, ask), tipBtn), tip,
         h('div', { class: 'numrow' }, numbers[id], f.unit ? h('span', { class: 'muted' }, f.unit) : null));
     } else {
       rows[id] = h('div', { class: 'qrow', role: 'group', 'aria-label': ask },
-        h('span', { class: 'qlabel' }, ask), helpEl,
+        h('div', { class: 'qhead' }, h('span', { class: 'qlabel' }, ask), tipBtn), tip,
         choices(f.options, chosen[id] ?? null, (v) => { chosen[id] = v ?? undefined; update(); }));
     }
     return rows[id];
@@ -679,8 +696,11 @@ function questions(fields, parts, initial) {
   const partRows = (p) => p.ids.map((id) => row(id, p));
   const el = h('div', { class: 'questions' }, parts.map((p) => {
     if (!p.title) return partRows(p);
+    // a note about the part (whose Surgical Apgar it is) behind a "?" after the heading, like the questions' help
+    const [tipBtn, tip] = p.note ? helpTip(p.title, p.note) : [null, null];
     const card = h('section', { class: 'qcard' },
-      h('h4', { class: 'qsection' }, p.title), p.note ? h('p', { class: 'qnote' }, p.note) : null, partRows(p));
+      h('div', { class: 'qsection-wrap' }, h('div', { class: 'qhead' }, h('h4', { class: 'qsection' }, p.title), tipBtn), tip),
+      partRows(p));
     titles.push([card, p.ids]);
     return card;
   }));
@@ -728,25 +748,25 @@ function progressTab() {
       h('div', { class: 'prow-top' }, h('strong', {}, name), h('span', { class: 'pcount' }, `${pr.performed} / ${t}`)),
       h('div', { class: 'bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(t), 'aria-valuenow': String(pr.performed), 'aria-label': name },
         h('div', { class: 'fill', style: `width:${pct}%` })),
-      h('div', { class: 'proc-count' }, `Assisted ${pr.assisting} · Observed ${pr.observing}`));
+      h('div', { class: 'proc-count' }, `Observed ${pr.observing} · Assisted ${pr.assisting}`));
   };
+  // without a target: one per row, the name and how many cases, and how many in each role under it
   const caseTile = ([id, p]) => h('div', { class: 'ptile' },
     h('div', { class: 'prow-top' }, h('strong', {}, procName(id)), h('span', { class: 'pcount' }, cases(p.total))),
-    h('div', { class: 'proc-count' }, `Performed ${p.performed} · Assisted ${p.assisting} · Observed ${p.observing}`));
+    h('div', { class: 'proc-count' }, `Observed ${p.observing} · Assisted ${p.assisting} · Performed ${p.performed}`));
 
   return h('section', {},
     h('h2', {}, 'My progress'),
     h('div', { class: 'stats' },
       stat(total, 'cases'), stat(signed, 'signed'), stat(wk, 'this week')),
-    h('h3', { class: 'prog-title' }, 'Targets'),
+    h('h3', { class: 'prog-title' }, 'Procedures with a target'),
     withTarget.length
-      ? [h('p', { class: 'muted small prog-note' }, 'Set by your supervisor. How many you performed, out of the target.'),
+      ? [h('p', { class: 'muted small prog-note' }, 'Set by your supervisor.'),
         h('div', { class: 'grid ptiles' }, TARGET_ORDER(withTarget).map((id) => targetTile(id, targets[id])))]
       : h('p', { class: 'muted small prog-note' }, 'No targets yet. Your supervisor sets them.'),
     others.length
-      ? [h('h3', { class: 'prog-title' }, withTarget.length ? 'Other procedures' : 'Your procedures'),
-        h('p', { class: 'muted small prog-note' }, withTarget.length ? 'No target. How many cases you logged.' : 'How many cases you logged.'),
-        h('div', { class: 'grid ptiles' }, others.map(caseTile))]
+      ? [h('h3', { class: 'prog-title' }, 'Procedures without a target'),
+        h('div', { class: 'prows' }, others.map(caseTile))]
       : null);
 }
 
@@ -775,11 +795,11 @@ function historyTab() {
         h('span', {}, `Showing ${shown.length} of ${state.entries.length}`),
         h('button', { class: 'change', type: 'button', onclick: () => setHistoryFilter({ procedure: null, role: null }) }, 'Show all'))
       : null,
-    // A small heading per day it was done ("Today", "Yesterday", "Friday 6 Nov"), so a long history is easy to scan.
+    // A small heading per week it was done ("This week", "Last week", "2 – 8 Nov"), so a long history is easy to scan.
     shown.length
-      ? core.byDay(shown).map((d) => [
-        h('h3', { class: 'day-head' }, core.fmtDay(d.day)),
-        h('ul', { class: 'list' }, d.entries.map(entryRow))])
+      ? core.byWeek(shown).map((w) => [
+        h('h3', { class: 'day-head' }, core.fmtWeek(w.week)),
+        h('ul', { class: 'list' }, w.entries.map(entryRow))])
       : h('p', { class: 'muted' }, 'No entries match. Tap "Show all" to see everything.'));
 }
 
@@ -829,121 +849,24 @@ function openRoleFilter() {
   ]);
 }
 
-// A case from History in a pop-up, kept quiet on purpose. At the top what matters most: the procedure, the date and
-// hospital, and your role with Signed / Not signed (like the row in the list). Under it two plain tabs: "Details"
-// (the answers of the form) and "Follow-up". The answers are in grey cards, a row per answered question (the
-// question on the left, the answer on the right); a card only has a heading when the tab has several (Mother, Baby,
-// Operation ...). Changing a case is not possible (the log only grows). An unsigned entry can be deleted with a
-// quiet link at the bottom of Details; on the Follow-up tab a follow-up can be added next to Close.
-function openCase(e) {
-  const row = (label, value) => h('div', { class: 'case-row' }, h('span', {}, label), h('span', {}, value));
-  // A heading that only repeats the tab's name ("Details", "Follow-up") is left out.
-  const part = (title, rows) => (rows.length
-    ? h('section', { class: 'case-part' }, title === 'Details' || title === 'Follow-up' ? null : h('h4', {}, title), rows)
-    : null);
-  // The answers in the parts of the form; an answer to a question no longer asked comes last, under "Other".
-  const parts = (fields, list, answers, fallbackTitle, extra = {}) => {
-    const has = (id) => answers && answers[id] != null;
-    const asked = new Set(list.flatMap((p) => p.ids));
-    const rest = Object.keys(fields).filter((id) => has(id) && !asked.has(id));
-    return [...list, ...(rest.length ? [{ title: 'Other', ids: rest }] : [])].map((p) => part(p.title || fallbackTitle, [
-      ...p.ids.filter(has).map((id) => row((p.ask && p.ask[id]) || fields[id].ask || fields[id].label, answerLabel(fields, id, answers[id]))),
-      ...(extra[p.title] && p.ids.some(has) ? [extra[p.title]] : []),
-    ]));
-  };
-  const apgar = surgicalApgar(e.details);
-  const late = e.performed_on !== e.entered_on;
-  const canFollowUp = core.followUpOpen(e);
-  const hasOutcome = Object.keys(e.outcome || {}).length > 0;
-  const details = parts(DETAIL_FIELDS, detailFieldsFor(e.procedure), e.details, 'Details',
-    apgar == null ? {} : { 'Surgical Apgar': row('Score', `${apgar} of 10`) }).filter(Boolean);
-  const followUp = parts(FOLLOWUP_FIELDS, followupFieldsFor(e.procedure), e.outcome, 'Follow-up').filter(Boolean);
-  // Why there is no follow-up button: the time for it is over (not the signature: a signed case can get one too).
-  const limit = FOLLOWUP_DAYS % 7 === 0 ? `${FOLLOWUP_DAYS / 7} weeks` : `${FOLLOWUP_DAYS} days`;
-  const closed = canFollowUp ? null : h('p', { class: 'muted case-note' }, `Follow-up is closed: more than ${limit} after the operation.`);
+// What a student can do in the case pop-up (openCase in ui.js): delete an unsigned case, add or update the follow-up.
+const caseActions = { onDelete: (e) => confirmDelete(e), onFollowUp: (e) => openFollowUp(e) };
 
-  const caseTab = h('div', { class: 'case-tab', id: 'case-tab-details', role: 'tabpanel' },
-    details.length ? details : h('p', { class: 'muted case-note' }, 'No details were filled in.'),
-    // Delete: rarely needed, so a quiet red link at the bottom, not a button that catches the eye (it asks first)
-    e.sign ? null : h('div', { class: 'case-del-row' },
-      h('button', { class: 'link danger case-del', type: 'button', onclick: () => confirmDelete(e) }, 'Delete this case')));
-  const followTab = h('div', { class: 'case-tab', id: 'case-tab-followup', role: 'tabpanel', hidden: true },
-    followUp.length ? followUp : null,
-    followUp.length && !closed ? null : closed || h('p', { class: 'muted case-note' }, 'No follow-up yet.'));
-  // Add or update the follow-up: only on the Follow-up tab, next to Close (bigger, like Save elsewhere)
-  const followBtn = canFollowUp
-    ? h('button', { class: 'btn save', type: 'button', hidden: true, onclick: () => openFollowUp(e) }, hasOutcome ? 'Update follow-up' : 'Add follow-up')
-    : null;
-  const tab = (id, label) => h('button', {
-    class: 'ctab', type: 'button', role: 'tab', 'data-tab': id, 'aria-controls': `case-tab-${id}`, onclick: () => show(id),
-  }, label);
-  const tabs = h('div', { class: 'ctabs', role: 'tablist', 'aria-label': 'Details or follow-up' }, tab('details', 'Details'), tab('followup', 'Follow-up'));
-  const show = (id) => {
-    const sheet = caseTab.closest('.sheet');
-    const top = sheet ? sheet.getBoundingClientRect().top : null;
-    for (const b of tabs.children) {
-      b.classList.toggle('on', b.dataset.tab === id);
-      b.setAttribute('aria-selected', String(b.dataset.tab === id));
-    }
-    caseTab.hidden = id !== 'details';
-    followTab.hidden = id !== 'followup';
-    if (followBtn) followBtn.hidden = id !== 'followup';
-    if (caseTab.parentNode) caseTab.parentNode.scrollTop = 0; // the other tab starts at its top
-    if (sheet) keepTop(sheet, top);
-  };
-  show('details');
-
-  const signedBy = e.sign
-    ? `Signed by ${e.sign.supervisor_name || e.sign.supervisor}${e.sign.ts ? ` on ${core.fmtDate(String(e.sign.ts).slice(0, 10))}` : ''}`
-    : null;
-  openSheet([
-    h('div', { class: 'sheet-head' }, // stays at the top while the case scrolls
-      // like the row in the list: the procedure, under it in grey your role, the date (and hospital), and the tags on
-      // the right (Follow-up, Signed or Not signed); who signed it and when in a grey line under it
-      h('div', { class: 'case-top' },
-        h('div', { class: 'case-top-text' },
-          h('h3', { class: 'case-title' }, procName(e.procedure)),
-          h('p', { class: 'case-sub' }, [
-            roleDone(e.role, e.procedure),
-            late ? `${core.fmtDate(e.performed_on)} (logged ${core.fmtDate(e.entered_on)})` : core.fmtDate(e.performed_on),
-            e.hospital,
-          ].filter(Boolean).join(' · '))),
-        h('div', { class: 'e-tags' },
-          hasOutcome ? h('span', { class: 'tag' }, 'Follow-up') : null,
-          e.sign ? h('span', { class: 'tag ok' }, 'Signed') : h('span', { class: 'tag warn' }, 'Not signed'))),
-      signedBy ? h('p', { class: 'case-sub case-signed' }, signedBy) : null,
-      tabs),
-    caseTab,
-    followTab,
-    h('div', { class: 'sheet-foot' },
-      h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Close'),
-      followBtn),
-  ]);
-}
-
-// When the case pop-up changes tab it fits its new content, but its top edge stays where it was, so the heading and
-// the tabs do not jump; only the bottom moves. It only moves up when a taller tab needs the room.
-function keepTop(sheet, top) {
-  const h = sheet.offsetHeight;
-  const t = Math.max(16, Math.min(top, window.innerHeight - 16 - h)); // 16: the space around a pop-up (#overlay)
-  sheet.style.alignSelf = 'flex-start';
-  sheet.style.marginTop = `${t - 16}px`;
-}
-
-// One case in the list (under the heading of its day): only the procedure, your role, whether it is signed and whether it has a
+// One case in the list (under the heading of its week): only the procedure, your role and the date, whether it is signed and whether it has a
 // follow-up. Tapping it opens the whole case in a pop-up (openCase), with the follow-up and Delete.
 function entryRow(e) {
   const hasOutcome = Object.keys(e.outcome || {}).length > 0;
   return h('li', {
     class: 'entry tap', role: 'button', tabindex: '0', 'aria-label': `Open ${procName(e.procedure)}, ${core.fmtDate(e.performed_on)}`,
-    onclick: () => openCase(e),
-    onkeydown: (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openCase(e); } },
+    onclick: () => openCase(e, caseActions),
+    onkeydown: (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openCase(e, caseActions); } },
   },
     h('div', { class: 'e-text' },
       h('strong', {}, procName(e.procedure)),
-      h('span', { class: 'e-sub' }, roleDone(e.role, e.procedure))), // the date is in the day heading above
+      h('span', { class: 'e-sub' }, `${roleDone(e.role, e.procedure)} · ${core.fmtDate(e.performed_on)}`)),
     h('div', { class: 'e-tags' },
-      hasOutcome ? h('span', { class: 'tag' }, 'Follow-up') : null,
+      hasOutcome ? h('span', { class: 'tag fu' }, 'Follow-up added')
+        : core.followUpOpen(e) ? null : h('span', { class: 'tag closed' }, 'Follow-up closed'), // too old to add one
       e.sign ? h('span', { class: 'tag ok' }, 'Signed') : h('span', { class: 'tag warn' }, 'Not signed')));
 }
 

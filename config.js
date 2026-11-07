@@ -1,7 +1,7 @@
 // config.js — content, not logic. Edit procedure lists, targets and hospitals here.
 // (Supervisors are accounts on the server now, created with `admin.js add-supervisor`.)
 
-export const APP_VERSION = '0.13.8';
+export const APP_VERSION = '0.13.9';
 
 // Where the logbook server lives. '' = the same address the app was loaded from
 // (when the server also serves the app). If the app is hosted elsewhere, for example
@@ -126,6 +126,8 @@ export const PROCEDURES_TOP = [...new Set([...LOG_SURGERY, ...LOG_DELIVERIES])].
 // `hint` is the line under the choice when logging, always in two short sentences: what I did, then what the
 // senior did. `tag` is the small box on the right of the choice: whether I was scrubbed (for a delivery that is
 // not an operation: whether I touched the mother), `tagOn` true when I was.
+// `doneBy` is `done` as someone else reads it (a supervisor looking at a student's case), where `done` would say
+// "my own"; without it `done` is used.
 // `birth` is the wording for a delivery that is not an operation (the obstetric logbook's definitions).
 export const ROLES = [
   { id: 'observing', label: 'Observed', hint: 'I watched. Others operated.', tag: 'Not scrubbed', tagOn: false, done: 'Observed',
@@ -134,8 +136,8 @@ export const ROLES = [
     birth: { hint: 'I helped. A colleague delivered.', tag: 'Hands on' } },
   { id: 'supervised', label: 'Surgeon, supervised', hint: 'I operated. A senior surgeon helped.', tag: 'Scrubbed', tagOn: true, done: 'Operated with supervisor',
     birth: { label: 'Delivered, supervised', hint: 'I delivered. A supervisor was in the room.', tag: 'Hands on', done: 'Delivered with supervisor' } },
-  { id: 'independent', label: 'Surgeon, independent', hint: 'I operated. No one more senior was scrubbed.', tag: 'Scrubbed', tagOn: true, done: 'Operated on my own',
-    birth: { label: 'Delivered alone', hint: 'I delivered. No supervisor was in the room.', tag: 'Hands on', done: 'Delivered on my own' } },
+  { id: 'independent', label: 'Surgeon, independent', hint: 'I operated. No one more senior was scrubbed.', tag: 'Scrubbed', tagOn: true, done: 'Operated on my own', doneBy: 'Operated alone',
+    birth: { label: 'Delivered alone', hint: 'I delivered. No supervisor was in the room.', tag: 'Hands on', done: 'Delivered on my own', doneBy: 'Delivered alone' } },
 ];
 
 // Targets (how many a student should perform) are set per student by a supervisor in the app, not here: they
@@ -195,8 +197,8 @@ export const DETAIL_FIELDS = {
   blood_loss_ml: { label: 'Blood loss', unit: 'ml', number: { min: 0, max: 5000 } },
   // Surgical Apgar (Gawande 2007): the option id is the number of points.
   sapgar_blood: { label: 'Surgical Apgar, blood loss', ask: 'Blood loss', options: [['3', '100 ml or less'], ['2', '101–600 ml'], ['1', '601–1000 ml'], ['0', 'More than 1000 ml']] },
-  sapgar_map: { label: 'Surgical Apgar, lowest MAP', ask: 'Lowest blood pressure', help: 'Mean arterial pressure (MAP), mmHg', options: [['0', 'Under 40'], ['1', '40–54'], ['2', '55–69'], ['3', '70 or more']] },
-  sapgar_hr: { label: 'Surgical Apgar, lowest heart rate', ask: 'Lowest heart rate', help: 'Beats per minute', options: [['4', '55 or less'], ['3', '56–65'], ['2', '66–75'], ['1', '76–85'], ['0', 'More than 85']] },
+  sapgar_map: { label: 'Surgical Apgar, lowest MAP', ask: 'Lowest blood pressure (MAP)', options: [['0', 'Under 40'], ['1', '40–54'], ['2', '55–69'], ['3', '70 or more']] },
+  sapgar_hr: { label: 'Surgical Apgar, lowest heart rate', ask: 'Lowest heart rate (BPM)', options: [['4', '55 or less'], ['3', '56–65'], ['2', '66–75'], ['1', '76–85'], ['0', 'More than 85']] },
   // From the first, invented list: no longer asked, kept so old entries still show them.
   side: { label: 'Side', options: [['left', 'Left'], ['right', 'Right'], ['both', 'Both']] },
   mesh: { label: 'Mesh used', options: [['yes', 'Yes'], ['no', 'No']] },
@@ -226,10 +228,9 @@ export const FOLLOWUP_DAYS = 42;
 // Which questions are asked, in parts with a heading. An operation asks the surgical logbook's questions, a
 // delivery the obstetric logbook's. A delivery that is also an operation (caesarean, vacuum, destructive) asks
 // both, each question once; there the blood loss in ml also gives the Surgical Apgar's points.
-// A part can have a `note` under its heading, and word a question differently with `ask` or `help`
+// A part can have a `note`, shown behind a "?" after its heading, and word a question differently with `ask` or `help`
 // ({id: words}, null for none).
 // The Surgical Apgar is about the operated patient: at a caesarean, the mother (the baby's is the Apgar under Baby).
-const SAPGAR_NOTE = 'A score for how the operation went.';
 const SAPGAR_NOTE_MOTHER = "The mother's, during the operation. The baby's Apgar is under Baby.";
 const BABIES = [
   { title: 'Baby', ids: ['babies', ...babyIds(1)] },
@@ -239,7 +240,7 @@ const BABIES = [
 const DETAILS_OPERATION = [
   { title: 'Patient', ids: ['sex', 'age_years'] },
   { title: 'Operation', ids: ['urgency', 'anaesthesia', 'duration_min'] },
-  { title: 'Surgical Apgar', note: SAPGAR_NOTE, ids: ['sapgar_blood', 'sapgar_map', 'sapgar_hr'] },
+  { title: 'Surgical Apgar', ids: ['sapgar_blood', 'sapgar_map', 'sapgar_hr'] }, // one patient: nothing to explain
 ];
 const DETAILS_BIRTH = [
   { title: 'Mother', ids: ['age_years', 'gravida', 'para', 'children_alive', 'induction', 'blood_loss_ml'] },
@@ -358,6 +359,11 @@ export function rolesFor(procedure) {
 }
 export const roleLabel = (id, procedure) => (rolesFor(procedure).find((r) => r.id === id) || { label: id }).label;
 export const roleDone = (id, procedure) => (rolesFor(procedure).find((r) => r.id === id) || { done: id }).done;
+// The same for a supervisor: "Operated alone", not "Operated on my own".
+export const roleDoneBy = (id, procedure) => {
+  const r = rolesFor(procedure).find((x) => x.id === id);
+  return r ? r.doneBy || r.done : id;
+};
 // The questions for a procedure, as parts: [{ title, ids }]. An unknown procedure is treated as an operation.
 // The two `kind`s: is it a delivery, is it an operation (a caesarean is both).
 function kind(procedure) {

@@ -123,6 +123,32 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   const boxes = $$('.signlist input[type=checkbox]');
   assert.equal(boxes.length, 3);
   assert.ok(boxes.every((b) => b.checked), 'everything unsigned starts ticked');
+  // each case is a short row; tapping it opens the case to read (no Delete, no follow-up button)
+  const firstRow = $('.signlist .entry');
+  assert.match(firstRow.querySelector('.e-sub').textContent, /^Operated with supervisor · \d+ \w+$/, 'the role and the date, like in History');
+  assert.doesNotMatch(firstRow.textContent, /Masanga/, 'the rest is in the pop-up');
+  await click(firstRow, 100);
+  assert.ok($('.sheet .case-title'), 'the case opens');
+  assert.equal(byText('.sheet .link', 'Delete'), undefined, 'a supervisor cannot delete');
+  await click(byText('.sheet-head .ctab', 'Follow-up'), 50);
+  assert.equal(byText('.sheet .btn', 'follow-up'), undefined, 'a supervisor cannot add a follow-up');
+  await click(byText('.sheet .btn', 'Close'), 100);
+  // tapping the tick box only ticks
+  $('.signlist .pick').click();
+  await wait(50);
+  assert.equal($('#overlay').classList.contains('open'), false, 'the tick box does not open the case');
+  assert.equal(byText('.btn', 'Sign 2 selected').textContent, 'Sign 2 selected');
+  // "Tick all" / "Untick all" next to the Sign button
+  const all = () => $('.sign-bar .btn.ghost');
+  assert.equal(all().textContent, 'Tick all', 'not everything is ticked');
+  await click(all(), 50);
+  assert.ok(boxes.every((b) => b.checked));
+  assert.equal(byText('.btn', 'Sign 3 selected').textContent, 'Sign 3 selected');
+  assert.equal(all().textContent, 'Untick all');
+  await click(all(), 50);
+  assert.ok(boxes.every((b) => !b.checked));
+  assert.equal(byText('.btn', 'Select entries to sign').disabled, true);
+  await click(all(), 50);
   boxes[2].checked = false;
   boxes[2].dispatchEvent(new window.Event('change'));
   assert.equal(byText('.btn', 'Sign 2 selected').textContent, 'Sign 2 selected');
@@ -133,15 +159,38 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   assert.match($('#toast').textContent, /Signed 2 entries/);
   assert.equal(signsOf('CC1001'), 2);
   assert.equal($$('.signlist input[type=checkbox]').length, 1, 'one entry is still waiting');
+  // the page has three tabs: To sign (open), Signed and Targets
+  assert.deepEqual($$('.ctab').map((x) => x.textContent), ['To sign', 'Signed', 'Targets']);
+  assert.equal($('.ctab.on').textContent, 'To sign');
+  assert.equal($$('.entry .tag.ok').length, 0, 'the signed ones are under Signed');
+  await click(byText('.ctab', 'Signed'), 50);
   assert.equal($$('.entry .tag.ok').length, 2);
   assert.match($('.entry .tag.ok').textContent, /Signed · Dr Anna Kamara/);
+  assert.equal($('.signlist'), null);
+  await click(byText('.ctab', 'To sign'), 50);
 
   // the student's tablet would receive the signatures with its next sync
   const pulled = await post('/api/sync', s1, { events: [], cursor: 0 });
   assert.equal(pulled.events.filter((e) => e.type === 'sign').length, 2);
 
+  // ---- no Refresh button: the page on show is fetched again when the app comes back on the screen,
+  // and what the supervisor unticked stays unticked; a new entry comes in ticked
+  assert.equal(byText('.top button', 'Refresh'), undefined, 'no Refresh button');
+  const left = $('.signlist input[type=checkbox]');
+  left.checked = false;
+  left.dispatchEvent(new window.Event('change'));
+  await post('/api/sync', s1, { events: [{
+    id: '00000000-0000-4000-8000-000000000999', type: 'entry', ts: new Date().toISOString(), hospital: 'Masanga Hospital',
+    procedure: 'hydrocele', role: 'supervised', performed_on: '2026-10-21', entered_on: '2026-10-21', schema: 1,
+  }], cursor: pulled.cursor });
+  document.dispatchEvent(new window.Event('visibilitychange'));
+  await wait(500);
+  assert.deepEqual($$('.signlist input[type=checkbox]').map((b) => b.checked).sort(), [false, true], 'the new entry shows up by itself, ticked');
+  assert.equal(byText('.btn', 'Sign 1 selected').textContent, 'Sign 1 selected');
+
   // ---- targets: none at first; set two in the pop-up, see them with how many were performed
   const tcard = () => byText('.card', 'Targets');
+  await click(byText('.ctab', 'Targets'), 50);
   assert.match(tcard().textContent, /No targets yet/);
   await click(byText('.btn', 'Set targets', tcard()), 100);
   assert.match($('.sheet h3').textContent, /Targets for CC1001/);
@@ -166,12 +215,13 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   type($('#t-appendectomy'), '');
   await click(byText('.sheet .btn', 'Save'), 700);
   assert.deepEqual($$('.orow', tcard()).map((r) => r.textContent), ['Caesarean section1 / 25']);
+  assert.equal($('.ctab.on').textContent, 'Targets', 'after saving, the Targets tab is still open');
   // the student's tablet gets them with its next sync
   const targetsPulled = (await post('/api/sync', s1, { events: [], cursor: 0 })).events.filter((e) => e.type === 'target');
   assert.deepEqual(targetsPulled.map((e) => [e.procedure, e.count]), [['cs', 30], ['appendectomy', 10], ['cs', 25], ['appendectomy', 0]]);
 
   // ---- remove the student: access ends
-  await click(byText('.link', 'Remove from my students'), 100);
+  await click(byText('.btn', 'Remove student'), 100);
   assert.match($('.sheet').textContent, /Remove CC1001\?/);
   await click(byText('.sheet .btn', 'Remove'), 700);
   assert.deepEqual($$('.srow strong').map((e) => e.textContent), ['CC1002']);
@@ -203,7 +253,7 @@ test('a supervisor whose session ended is sent back to login', async () => {
   assert.ok($('[data-sv]'));
   assert.equal($$('.srow').length, 1, 'the list is loaded fresh from the server after a new login');
   server.db.prepare('DELETE FROM sessions').run();
-  await click($('.chip'), 500);
+  await click(byText('.tab', 'My students'), 500); // the list is fetched again: the server says the session ended
   assert.ok($('#cand'), 'back at the login screen');
   assert.match(document.body.textContent, /session has ended/);
   assert.equal($('[data-sv]'), null, 'nothing from the supervisor screen is left on show');

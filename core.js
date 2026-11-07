@@ -102,24 +102,33 @@ export function fmtDate(iso) {
   return new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
-// 'YYYY-MM-DD' -> "Today", "Yesterday", "Friday 6 Nov", or "Monday 1 Dec 2025" when it is not this year
-// (the day headings in History).
-export function fmtDay(iso, today = localDateISO()) {
-  if (iso === today) return 'Today';
-  const y = new Date(today + 'T00:00:00');
-  y.setDate(y.getDate() - 1);
-  if (iso === localDateISO(y)) return 'Yesterday';
-  const weekday = new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long' });
-  return `${weekday} ${fmtDate(iso)}${iso.slice(0, 4) === today.slice(0, 4) ? '' : ` ${iso.slice(0, 4)}`}`;
+// Date arithmetic on 'YYYY-MM-DD' in UTC, so summer time never shifts a day.
+const addDays = (iso, n) => new Date(Date.parse(iso + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10);
+
+// The Monday of the week that 'YYYY-MM-DD' is in (weeks run Monday to Sunday).
+export function weekStart(iso) {
+  return addDays(iso, -((new Date(iso + 'T00:00:00Z').getUTCDay() + 6) % 7));
 }
 
-// Entries grouped by the day they were done, newest first: [{ day: 'YYYY-MM-DD', entries }].
-// Entries of the same day keep their order.
-export function byDay(entries) {
+// The heading of a week in History, from its Monday: "This week", "Last week", "26 Oct – 1 Nov",
+// "2 – 8 Nov", with the year when the week ends in an earlier year ("1 – 7 Dec 2025").
+export function fmtWeek(monday, today = localDateISO()) {
+  const now = weekStart(today);
+  if (monday === now) return 'This week';
+  if (monday === addDays(now, -7)) return 'Last week';
+  const sunday = addDays(monday, 6);
+  const from = monday.slice(5, 7) === sunday.slice(5, 7) ? String(+monday.slice(8)) : fmtDate(monday);
+  return `${from} – ${fmtDate(sunday)}${sunday.slice(0, 4) === today.slice(0, 4) ? '' : ` ${sunday.slice(0, 4)}`}`;
+}
+
+// Entries grouped by the week they were done, newest first: [{ week: its Monday 'YYYY-MM-DD', entries }].
+// Inside a week the newest day comes first; entries of the same day keep their order.
+export function byWeek(entries) {
   const sorted = [...entries].sort((a, b) => (a.performed_on < b.performed_on ? 1 : a.performed_on > b.performed_on ? -1 : 0));
   const out = [];
   for (const e of sorted) {
-    if (!out.length || out[out.length - 1].day !== e.performed_on) out.push({ day: e.performed_on, entries: [] });
+    const week = weekStart(e.performed_on);
+    if (!out.length || out[out.length - 1].week !== week) out.push({ week, entries: [] });
     out[out.length - 1].entries.push(e);
   }
   return out;

@@ -248,8 +248,8 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   await click(byText('.tab', 'History'));
   assert.equal($('.nav .badge'), null, 'no count on the History tab');
   assert.equal($('.note-info'), null, 'no message about signatures at the top of History');
-  assert.equal($('.entry .e-sub').textContent, 'Assisted', 'the row: your role (the date is in the heading)');
-  assert.deepEqual($$('.day-head').map((x) => x.textContent), ['Today'], 'a heading for the day, above its entries');
+  assert.match($('.entry .e-sub').textContent, /^Assisted · \d+ \w+$/, 'the row: your role and the date');
+  assert.deepEqual($$('.day-head').map((x) => x.textContent), ['This week'], 'a heading for the week, above its entries');
   await click($('.entry'));
   assert.match($('.sheet .case-sub').textContent, /^Assisted · \d+ \w+ · Bo Government Hospital$/, 'the case shows the role, the date and where it was done');
   await click(byText('.sheet .btn', 'Close'));
@@ -281,16 +281,16 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   const ptiles = () => $$('.ptile').map((t) => t.querySelector('.prow-top').textContent);
   const titles = () => $$('.prog-title').map((x) => x.textContent);
   assert.match($('.page').textContent, /No targets yet\. Your supervisor sets them\./);
-  assert.deepEqual(titles(), ['Targets', 'Your procedures']);
+  assert.deepEqual(titles(), ['Procedures with a target', 'Procedures without a target']);
   assert.deepEqual(ptiles(), ['Appendectomy1 case', 'Caesarean section1 case', 'Laparotomy1 case']);
   // the supervisor sets a target; the tablet gets it with the next sync, like a signature
   assert.deepEqual((await post('/api/sup/targets', sup, { candidate: 'CC1234', targets: { cs: 30 } })).changed, ['cs']);
   await comeBack();
   await click(byText('.tab', 'Progress'));
-  assert.deepEqual(titles(), ['Targets', 'Other procedures']);
-  assert.match($('.page').textContent, /Set by your supervisor\. How many you performed, out of the target\./);
+  assert.deepEqual(titles(), ['Procedures with a target', 'Procedures without a target']);
+  assert.match($('.page').textContent, /Set by your supervisor\./);
   assert.deepEqual(ptiles(), ['Caesarean section1 / 30', 'Appendectomy1 case', 'Laparotomy1 case'], 'the one with a target on top; the others under it, without it');
-  assert.match($('.ptile').textContent, /Assisted 0 · Observed 0/);
+  assert.match($('.ptile').textContent, /Observed 0 · Assisted 0/);
   await click(byText('.tab', 'History'));
   await click($('.entry'));
   assert.deepEqual($$('.sheet-head .case-top .tag').map((t) => t.textContent), ['Signed'], 'Signed on the right at the top, like in the list');
@@ -515,10 +515,22 @@ test('role and details are on one screen, and a follow-up can be added later fro
   // the questions come in parts, each a card with one heading; the second and third baby only after "Twins" or "Triplets"
   const visible = (sel) => $$(sel).filter((x) => !x.closest('[hidden]') && !x.hidden);
   assert.deepEqual(visible('.sheet .qcard .qsection').map((x) => x.textContent), ['Your role', 'Mother', 'Baby', 'Operation', 'Surgical Apgar']);
-  assert.match(byText('.sheet .qcard', 'Surgical Apgar').querySelector('.qnote').textContent, /mother's/, 'says whose Surgical Apgar it is');
+  const sapgar = byText('.sheet .qcard', 'Surgical Apgar');
+  await click(sapgar.querySelector('.qsection-wrap .qtip-btn'), 50);
+  assert.match(sapgar.querySelector('.qsection-wrap .qhelp').textContent, /mother's/, 'a "?" after the heading says whose Surgical Apgar it is');
+  await click(sapgar.querySelector('.qsection-wrap .qtip-btn'), 50);
+  assert.ok(sapgar.textContent.includes('Lowest blood pressure (MAP)'));
+  assert.ok(sapgar.textContent.includes('Lowest heart rate (BPM)'));
   assert.equal($('.sheet label[for="q-age_years"]').textContent, 'Age');
-  assert.equal($('.sheet label[for="q-age_years"]').nextElementSibling.className, 'numrow', 'age has no grey line under it');
-  assert.match(byText('.sheet .qrow', 'Gravida').querySelector('.qhelp').textContent, /Pregnancies/, 'an unclear word is explained');
+  assert.equal($('.sheet label[for="q-age_years"]').closest('.qrow').querySelector('.qtip-btn, .qhelp'), null, 'age needs no explanation: no "?"');
+  // an unclear word has a "?" after it; tapping it shows the explanation, tapping again hides it
+  const gravida = byText('.sheet .qrow', 'Gravida');
+  assert.equal(gravida.querySelector('.qhelp').hidden, true, 'the explanation is hidden at first');
+  await click(gravida.querySelector('.qtip-btn'), 50);
+  assert.equal(gravida.querySelector('.qhelp').hidden, false);
+  assert.match(gravida.querySelector('.qhelp').textContent, /Pregnancies/, 'an unclear word is explained');
+  await click(gravida.querySelector('.qtip-btn'), 50);
+  assert.equal(gravida.querySelector('.qhelp').hidden, true);
   assert.equal($('.sheet .numgrid'), null, 'number questions are not side by side');
   assert.equal($('#q-gravida').closest('.qrow').nextElementSibling, $('#q-para').closest('.qrow'), 'each on its own line, one under the other');
   assert.ok(byText('.sheet .qrow', 'Number of babies').querySelector('.choices.three'), 'three short choices share one row');
@@ -554,7 +566,7 @@ test('role and details are on one screen, and a follow-up can be added later fro
   await click(byText('.tab', 'History'));
   const row = () => $('.entry'); // the newest entry is on top
   assert.doesNotMatch(row().textContent, /Anaesthesia/, 'the row shows only the most important; the answers are in the pop-up');
-  assert.equal(row().querySelector('.e-sub').textContent, 'Operated with supervisor', 'the role; the date is in the day heading');
+  assert.match(row().querySelector('.e-sub').textContent, /^Operated with supervisor · \d+ \w+$/, 'the role and the date');
   assert.match(row().textContent, /Not signed/);
   assert.deepEqual($$('.tag', row()).map((t) => t.textContent), ['Not signed'], 'no follow-up tag yet');
 
@@ -607,7 +619,7 @@ test('role and details are on one screen, and a follow-up can be added later fro
     return out;
   };
   assert.deepEqual(await caseFollowUp(), ['Mother: Alive'], 'the follow-up answers are in the pop-up');
-  assert.deepEqual($$('.tag', row()).map((t) => t.textContent), ['Follow-up', 'Not signed'], 'the row shows that it has a follow-up');
+  assert.deepEqual($$('.tag', row()).map((t) => t.textContent), ['Follow-up added', 'Not signed'], 'the row shows that it has a follow-up');
   assert.deepEqual(JSON.parse(stored().get('followup').payload).answers, { mother: 'alive' });
 
   // later: a wound infection. The earlier answer is shown and kept; only the new one is sent.
@@ -630,6 +642,7 @@ test('role and details are on one screen, and a follow-up can be added later fro
   dateInput.dispatchEvent(new window.Event('change'));
   await logAs('Assisted', 400);
   await click(byText('.tab', 'History'));
+  assert.equal($$('.entry .tag.closed').length, 1, 'in the list it has a tag "Follow-up closed"; the newer ones do not');
   await click($$('.entry').filter((x) => x.textContent.includes('Appendectomy')).at(-1)); // the oldest one
   await click(byText('.sheet-head .ctab', 'Follow-up'));
   assert.equal($('#case-tab-followup').textContent, 'Follow-up is closed: more than 6 weeks after the operation.');

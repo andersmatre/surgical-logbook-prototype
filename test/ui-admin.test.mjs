@@ -291,8 +291,21 @@ test('an administrator whose session ended is sent back to login', async () => {
   $('#pw').value = 'adm-own-secret-1';
   await submit($('.setup-form'), 800);
   assert.ok($('[data-admin]'));
+  assert.equal(byText('.top button', 'Refresh'), undefined, 'no Refresh button');
+  // a page on show is fetched again when the app comes back on the screen, and typing in the search goes on
+  await click(byText('.tab', 'Users'), 600);
+  const search = $('.search');
+  search.focus();
+  search.value = 'CC';
+  search.dispatchEvent(new window.Event('input', { bubbles: true }));
+  await addUser(server.db, 'CC1777', 'initial-pw-1');
+  document.dispatchEvent(new window.Event('visibilitychange'));
+  await wait(600);
+  assert.ok(byText('.srow strong', 'CC1777'), 'an account added meanwhile shows up by itself');
+  assert.equal(document.activeElement, $('.search'), 'the search field keeps the keyboard');
+  assert.equal($('.search').value, 'CC');
   server.db.prepare('DELETE FROM sessions').run();
-  await click(byText('.chip', 'Refresh'), 600);
+  await click(byText('.tab', 'Users'), 600); // fetched again: the server says the session ended
   assert.ok($('#cand'), 'back at the login screen');
   assert.match(document.body.textContent, /session has ended/);
   assert.equal($('[data-admin]'), null);

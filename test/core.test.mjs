@@ -91,17 +91,22 @@ test('each student has a separate local database', async () => {
   core.useUser('default-test-user');
 });
 
-test('History groups entries by the day they were done, newest first', () => {
+test('History groups entries by the week they were done (Monday to Sunday), newest first', () => {
   const e = (id, performed_on) => ({ id, performed_on });
   // as derive() gives them: newest logged first; c was logged last but done in September
-  const groups = core.byDay([e('c', '2026-09-30'), e('b', '2026-11-02'), e('a', '2026-11-02'), e('d', '2026-10-15'), e('x', '2025-12-01')]);
-  assert.deepEqual(groups.map((g) => [g.day, g.entries.map((x) => x.id)]),
-    [['2026-11-02', ['b', 'a']], ['2026-10-15', ['d']], ['2026-09-30', ['c']], ['2025-12-01', ['x']]], 'same day keeps its order');
-  assert.equal(core.fmtDay('2026-11-05', '2026-11-05'), 'Today');
-  assert.equal(core.fmtDay('2026-11-04', '2026-11-05'), 'Yesterday');
-  assert.equal(core.fmtDay('2026-03-01', '2026-03-02'), 'Yesterday', 'also across the start of a month');
-  assert.equal(core.fmtDay('2026-11-02', '2026-11-05'), 'Monday 2 Nov', 'this year: the weekday and the date');
-  assert.equal(core.fmtDay('2025-12-01', '2026-11-05'), 'Monday 1 Dec 2025', 'an earlier year: with the year');
+  const groups = core.byWeek([e('c', '2026-09-30'), e('b', '2026-11-02'), e('a', '2026-11-02'), e('s', '2026-11-08'),
+    e('o', '2026-11-01'), e('d', '2026-10-15'), e('x', '2025-12-01')]);
+  assert.deepEqual(groups.map((g) => [g.week, g.entries.map((x) => x.id)]),
+    [['2026-11-02', ['s', 'b', 'a']], ['2026-10-26', ['o']], ['2026-10-12', ['d']], ['2026-09-28', ['c']], ['2025-12-01', ['x']]],
+    'Sunday ends the week; newest day first; the same day keeps its order');
+  assert.equal(core.weekStart('2026-03-30'), '2026-03-30', 'a Monday is its own week start, also around summer time');
+  assert.equal(core.weekStart('2026-03-29'), '2026-03-23');
+  assert.equal(core.fmtWeek('2026-11-02', '2026-11-05'), 'This week');
+  assert.equal(core.fmtWeek('2026-10-26', '2026-11-08'), 'Last week', 'on a Sunday too');
+  assert.equal(core.fmtWeek('2026-10-26', '2026-11-09'), '26 Oct – 1 Nov', 'across a month');
+  assert.equal(core.fmtWeek('2026-10-12', '2026-11-05'), '12 – 18 Oct', 'inside a month');
+  assert.equal(core.fmtWeek('2025-12-29', '2026-11-05'), '29 Dec – 4 Jan', 'ends this year: no year');
+  assert.equal(core.fmtWeek('2025-12-01', '2026-11-05'), '1 – 7 Dec 2025', 'an earlier year: with the year');
 });
 
 test('targets: the newest target event for a procedure wins, and 0 removes it', () => {
@@ -197,6 +202,12 @@ test('the procedure list: ids are valid and unique, every group and Log-tab butt
   assert.equal(cfg.roleDone('supervised', 'forceps_delivery'), 'Delivered with supervisor');
   assert.equal(cfg.roleDone('observing', 'normal_delivery'), 'Observed');
   assert.equal(cfg.roleDone('supervised', 'not_a_procedure'), 'Operated with supervisor');
+  // a supervisor reads the student's case: not "my own"
+  assert.equal(cfg.roleDone('independent', 'cs'), 'Operated on my own');
+  assert.equal(cfg.roleDoneBy('independent', 'cs'), 'Operated alone');
+  assert.equal(cfg.roleDoneBy('independent', 'forceps_delivery'), 'Delivered alone');
+  assert.equal(cfg.roleDoneBy('supervised', 'cs'), 'Operated with supervisor', 'the others are worded the same');
+  assert.equal(cfg.roleDoneBy('nope', 'cs'), 'nope');
   assert.equal(cfg.roleLabel('nonsense'), 'nonsense');
   // Everything is logged afterwards: the roles are in the past tense everywhere, the stored ids stay as they are.
   assert.deepEqual(cfg.ROLES.map((r) => [r.id, r.label]).slice(0, 2), [['observing', 'Observed'], ['assisting', 'Assisted']]);
