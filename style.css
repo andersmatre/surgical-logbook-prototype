@@ -48,9 +48,12 @@ h1, h2, h3, h4, strong, b { font-weight: 600; }
 /* Log tab: first Surgery or Delivery, then that part's procedures as two even columns of big rows (one column on a
    phone). Under Surgery, "More operations" follows on its own, a little apart. */
 .log-title { margin-bottom: 2px; }
-/* Surgery or Delivery: the same tabs as in a case (.ctabs), a little bigger, as it is the main choice on the page. */
-.ctabs.log-parts { margin: 10px 0 16px; }
-.log-parts .ctab { font-size: 19px; min-height: 50px; }
+/* On the New case page Surgery and Delivery are a switch: a light grey track across the page, the open one a white
+   raised button in it (dark blue text), the other plain grey text. It stands apart from the heading above and the
+   white procedures below. */
+.ctabs.log-parts { gap: 4px; margin: 12px 0 16px; padding: 4px; background: #e9e6dc; border: 0; border-radius: 16px; }
+.log-parts .ctab { flex: 1 1 0; font-size: 18px; min-height: 48px; margin: 0; border: 0; border-radius: 12px; }
+.log-parts .ctab.on { background: var(--card); color: var(--main-dark); box-shadow: 0 1px 4px rgba(0, 0, 0, .14); }
 .proc-more { margin-top: 10px; }
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
 @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
@@ -124,44 +127,29 @@ html:has(.shell), html:has(.shell) body { overscroll-behavior: none; } /* the wi
    dvh is the height that is really visible (without the keyboard on newer browsers); vh is the fallback. */
 #overlay { display: none; position: fixed; inset: 0; z-index: 50; padding: 16px; align-items: center; justify-content: center; }
 #overlay.open { display: flex; }
-/* A pop-up fades in as one piece: the dark layer, the pop-up and its arrows together (.layer: a question on top).
-   When only the pop-up faded, the dark layer came at once and the arrow a moment later: on an iPad it looked like
-   two steps. Only a fade: on iPhone, a pop-up that grows (scale) puts Cancel, Save and the arrow a few pixels off
+/* A pop-up fades in as one piece: the dark layer, the pop-up and its fades together (.layer: a question on top).
+   When only the pop-up faded, the dark layer came at once and the scroll sign a moment later: on an iPad it looked like
+   two steps. Only a fade: on iPhone, a pop-up that grows (scale) puts Cancel, Save and the fade a few pixels off
    until it has finished, so they jump. */
 #overlay.open, .layer { animation: sheet-in .16s ease-out; }
 @keyframes sheet-in { from { opacity: 0; } }
 .scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, .5); }
-/* The small arrows (scrollHint in ui.js): while there is more further down (or up), that edge of something that
-   scrolls fades out to white under a small round sign with an arrow. Quiet on purpose: they take little room and
-   do not get in the way once someone is used to scrolling. They only show that there is more: nothing in them can
-   be tapped, a tap goes through to what is under them (a button that scrolled sometimes went too far).
-   The arrow down sits on top of Cancel and Save, the arrow up at the top (in .scroll-dock, or under the heading;
-   the pop-up does not move, only its .sheet-body scrolls). In the hospital menu and the list of all operations
-   ui.js puts them at the list's edges. */
+/* The fades (scrollHint in ui.js): while there is more further down (or up), that edge of something that scrolls
+   fades out to white, so it is clear that the content goes on. No arrow or button: only the fade, tall enough to be
+   seen. Nothing in them can be tapped; a tap goes through to what is under them. The fade at the bottom sits on top
+   of Cancel and Save, the one at the top in .scroll-dock or under the heading (the pop-up does not move, only its
+   .sheet-body scrolls). In the hospital menu and the list of all operations ui.js puts them at the list's edges. */
 .scroll-dock { position: relative; z-index: 3; height: 0; transform: translateY(-24px); } /* -24px: from the very top edge, over the pop-up's padding; the layout under it does not move */
-.scroll-hint {
-  position: absolute; left: 0; right: 0; z-index: 3; height: 36px; display: flex; justify-content: center;
-  pointer-events: none;
-}
+.scroll-hint { position: absolute; left: 0; right: 0; z-index: 3; height: 56px; pointer-events: none; }
 .scroll-hint.fade { animation: hint-in .2s ease-out; } /* only when it comes later (scrolled back, more questions), not with the pop-up */
-.scroll-hint.down { align-items: flex-end; padding-bottom: 4px; transform: translateY(-100%); background: linear-gradient(to bottom, rgba(255, 255, 255, 0), var(--card) 80%); }
-.scroll-hint.up { align-items: flex-start; padding-top: 4px; background: linear-gradient(to top, rgba(255, 255, 255, 0), var(--card) 80%); }
+.scroll-hint.down { transform: translateY(-100%); background: linear-gradient(to bottom, rgba(255, 255, 255, 0), var(--card) 75%); }
+.scroll-hint.up { background: linear-gradient(to top, rgba(255, 255, 255, 0), var(--card) 75%); }
 .scroll-hint[hidden] { display: none; }
-.scroll-pill {
-  display: flex; align-items: center; justify-content: center; width: 32px; height: 28px; padding: 0;
-  border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--muted);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, .1);
-}
-.scroll-pill::before { /* the arrow: a chevron */
-  content: ''; width: 8px; height: 8px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
-}
-.down .scroll-pill::before { margin-top: -4px; transform: rotate(45deg); }
-.up .scroll-pill::before { margin-top: 4px; transform: rotate(-135deg); }
 .sheet-foot > .scroll-hint { top: 0; }
-.scroll-dock > .scroll-hint { top: 0; left: -24px; right: -24px; height: 52px; padding-top: 10px; }
+.scroll-dock > .scroll-hint { top: 0; left: -24px; right: -24px; height: 80px; } /* 24px of it over the pop-up's padding */
 .sheet:has(.hpick:not([hidden])) .scroll-dock, .sheet:has(.hpick:not([hidden])) > .sheet-foot > .scroll-hint { display: none; } /* one menu at a time */
-.hpick > .scroll-hint { left: 2px; right: 2px; }
-.hpick > .scroll-hint.up { height: 30px; padding-top: 2px; background: linear-gradient(to top, rgba(255, 255, 255, 0), var(--card) 50%); } /* short: the top half hides the edge of the hospital above */
+.hpick > .scroll-hint { left: 2px; right: 2px; height: 44px; }
+.hpick > .scroll-hint.up { background: linear-gradient(to top, rgba(255, 255, 255, 0), var(--card) 60%); } /* covers the edge of the hospital above */
 .sheet.tall > .scroll-hint { left: 24px; right: 24px; }
 @keyframes hint-in { from { opacity: 0; } }
 /* A question on top of an open pop-up (confirmOver in ui.js). */
@@ -323,8 +311,8 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 
 .list { list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 10px; }
 /* History: a quiet heading above each month's entries. */
-.month { font-size: 14px; font-weight: 400; color: var(--muted); margin: 24px 0 8px 2px; }
-.month + .list { margin-top: 0; }
+.day-head { font-size: 14px; font-weight: 400; color: var(--muted); margin: 20px 0 8px 2px; } /* History: a small heading per day */
+.day-head + .list { margin-top: 0; }
 
 /* History: "Procedure" and "Role" buttons that open a pop-up to show only some entries. A button with a choice made is coloured. */
 .filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -368,8 +356,12 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .sheet-head h3 { font-size: 21px; margin: 0 0 2px; }
 .case-sub { margin: 0; color: var(--muted); }
 .sheet-head > .scroll-hint.up { top: 100%; }
-.case-sum { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-top: 10px; }
-.case-sum strong { font-weight: 500; }
+/* The top of a case, like its row in the list: the procedure and a grey line (role · date · hospital) on the left,
+   the tags on the right. */
+.case-top { display: flex; align-items: center; gap: 12px; }
+.case-top-text { flex: 1 1 auto; min-width: 0; }
+.case-top .case-sub { font-size: 15px; margin-top: 2px; }
+.case-top .e-tags { flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 45%; }
 .case-signed { font-size: 15px; margin-top: 2px; }
 /* The two tabs, "Details" and "Follow-up": plain words, the open one dark with a line under it. */
 .ctabs { display: flex; gap: 28px; margin-top: 12px; border-bottom: 1px solid var(--line); }
@@ -412,7 +404,7 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .numrow { display: flex; align-items: center; gap: 8px; margin-top: 8px; white-space: nowrap; }
 .num { width: 100%; max-width: 140px; min-width: 0; min-height: 52px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-size: 20px; }
 /* Cancel and Save stay in view at the bottom of a long pop-up. Save is the wide one. */
-/* No line above the buttons: while there is more further down the content fades out under the arrow instead. */
+/* No line above the buttons: while there is more further down the content fades out above them instead. */
 .sheet-foot { position: relative; z-index: 3; display: flex; gap: 12px; margin: 0 -24px -24px; padding: 12px 24px 24px; background: var(--card); }
 .sheet-foot .btn { flex: 1; padding-left: 12px; padding-right: 12px; white-space: nowrap; }
 .sheet-foot .btn.save { flex: 2; }

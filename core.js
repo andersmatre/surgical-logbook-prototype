@@ -102,20 +102,24 @@ export function fmtDate(iso) {
   return new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
-// 'YYYY-MM' -> "November", or "November 2025" when it is not this year (the month headings in History).
-export function fmtMonth(ym, today = localDateISO()) {
-  const sameYear = ym.slice(0, 4) === today.slice(0, 4);
-  return new Date(ym + '-01T00:00:00').toLocaleDateString('en-GB', sameYear ? { month: 'long' } : { month: 'long', year: 'numeric' });
+// 'YYYY-MM-DD' -> "Today", "Yesterday", "Friday 6 Nov", or "Monday 1 Dec 2025" when it is not this year
+// (the day headings in History).
+export function fmtDay(iso, today = localDateISO()) {
+  if (iso === today) return 'Today';
+  const y = new Date(today + 'T00:00:00');
+  y.setDate(y.getDate() - 1);
+  if (iso === localDateISO(y)) return 'Yesterday';
+  const weekday = new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long' });
+  return `${weekday} ${fmtDate(iso)}${iso.slice(0, 4) === today.slice(0, 4) ? '' : ` ${iso.slice(0, 4)}`}`;
 }
 
-// Entries grouped by the month they were done in, newest first: [{ month: 'YYYY-MM', entries }].
-// Within a month the newest day comes first; entries of the same day keep their order.
-export function byMonth(entries) {
+// Entries grouped by the day they were done, newest first: [{ day: 'YYYY-MM-DD', entries }].
+// Entries of the same day keep their order.
+export function byDay(entries) {
   const sorted = [...entries].sort((a, b) => (a.performed_on < b.performed_on ? 1 : a.performed_on > b.performed_on ? -1 : 0));
   const out = [];
   for (const e of sorted) {
-    const month = e.performed_on.slice(0, 7);
-    if (!out.length || out[out.length - 1].month !== month) out.push({ month, entries: [] });
+    if (!out.length || out[out.length - 1].day !== e.performed_on) out.push({ day: e.performed_on, entries: [] });
     out[out.length - 1].entries.push(e);
   }
   return out;

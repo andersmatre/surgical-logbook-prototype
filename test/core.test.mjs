@@ -91,14 +91,17 @@ test('each student has a separate local database', async () => {
   core.useUser('default-test-user');
 });
 
-test('History groups entries by the month they were done in, newest first', () => {
+test('History groups entries by the day they were done, newest first', () => {
   const e = (id, performed_on) => ({ id, performed_on });
   // as derive() gives them: newest logged first; c was logged last but done in September
-  const groups = core.byMonth([e('c', '2026-09-30'), e('b', '2026-11-02'), e('a', '2026-11-02'), e('d', '2026-10-15'), e('x', '2025-12-01')]);
-  assert.deepEqual(groups.map((g) => [g.month, g.entries.map((x) => x.id)]),
-    [['2026-11', ['b', 'a']], ['2026-10', ['d']], ['2026-09', ['c']], ['2025-12', ['x']]], 'same day keeps its order');
-  assert.equal(core.fmtMonth('2026-11', '2026-11-05'), 'November', 'this year: the month only');
-  assert.equal(core.fmtMonth('2025-12', '2026-11-05'), 'December 2025', 'an earlier year: with the year');
+  const groups = core.byDay([e('c', '2026-09-30'), e('b', '2026-11-02'), e('a', '2026-11-02'), e('d', '2026-10-15'), e('x', '2025-12-01')]);
+  assert.deepEqual(groups.map((g) => [g.day, g.entries.map((x) => x.id)]),
+    [['2026-11-02', ['b', 'a']], ['2026-10-15', ['d']], ['2026-09-30', ['c']], ['2025-12-01', ['x']]], 'same day keeps its order');
+  assert.equal(core.fmtDay('2026-11-05', '2026-11-05'), 'Today');
+  assert.equal(core.fmtDay('2026-11-04', '2026-11-05'), 'Yesterday');
+  assert.equal(core.fmtDay('2026-03-01', '2026-03-02'), 'Yesterday', 'also across the start of a month');
+  assert.equal(core.fmtDay('2026-11-02', '2026-11-05'), 'Monday 2 Nov', 'this year: the weekday and the date');
+  assert.equal(core.fmtDay('2025-12-01', '2026-11-05'), 'Monday 1 Dec 2025', 'an earlier year: with the year');
 });
 
 test('wipeAll removes everything', async () => {

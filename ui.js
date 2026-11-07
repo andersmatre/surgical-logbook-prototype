@@ -126,7 +126,7 @@ export function toast(msg, opts = {}) {
 // A pop-up with buttons at the bottom (.sheet-foot, like Cancel and Save) and maybe a heading at the top
 // (.sheet-head) scrolls only what is between them (.sheet-body): the buttons and the heading never move, also
 // not when an iPhone bounces at the end of the scrolling. When that part is longer than the screen it shows a
-// small arrow down above the buttons, and an arrow up at its top once scrolled down (scrollHint), under the
+// fade above the buttons, and one at its top once scrolled down (scrollHint), under the
 // heading if there is one. A tall one shows them over its list.
 export function openSheet(content, { tall = false } = {}) {
   const sheet = h('div', { class: tall ? 'sheet tall' : 'sheet', role: 'dialog', 'aria-modal': 'true' }, content);
@@ -141,28 +141,26 @@ export function openSheet(content, { tall = false } = {}) {
     sheet.classList.add('split');
     let top = head;
     if (!top) {
-      top = h('div', { class: 'scroll-dock' }); // the arrow up, at the top edge
+      top = h('div', { class: 'scroll-dock' }); // the fade at the top edge
       sheet.prepend(top);
     }
     scrollHint(body, foot, top);
   } else if (tall && list) scrollHint(list, sheet);
 }
 
-// Small arrows for people who are not used to scrolling: one down at the bottom of `scroller` while there is more
-// further down, one up at its top once it is scrolled down. The content fades out under them. They only show that
-// there is more: they are not buttons, and a tap goes through to what is under them (a scroll button sometimes went
-// too far). They are small and quiet, so they do not get in the way once someone knows. The arrow down is placed
-// in `downHost`, the arrow up in `upHost`: elements with a position. If they hold the scroller (a list in a
-// pop-up), the arrows are put at the top and bottom of the list; otherwise CSS places them (.scroll-hint).
+// Fades for people who are not used to scrolling: the bottom edge of `scroller` fades out to white while there is
+// more further down, the top edge once it is scrolled down. Only a fade, no arrow or button; a tap goes through it
+// to what is under it. The fade at the bottom is placed in `downHost`, the one at the top in `upHost`: elements
+// with a position. If they hold the scroller (a list in a pop-up), the fades are put at the top and bottom of the
+// list; otherwise CSS places them (.scroll-hint).
 export function scrollHint(scroller, downHost, upHost = downHost) {
-  const arrow = (dir) => h('div', { class: `scroll-hint ${dir}`, hidden: true, 'aria-hidden': 'true' },
-    h('span', { class: 'scroll-pill' }));
-  const down = arrow('down');
-  const up = arrow('up');
+  const fade = (dir) => h('div', { class: `scroll-hint ${dir}`, hidden: true, 'aria-hidden': 'true' });
+  const down = fade('down');
+  const up = fade('up');
   downHost.append(down);
   upHost.append(up);
   const inHost = downHost.contains(scroller);
-  // only when it changes: the observer would see it. An arrow that comes later fades in (.fade); the first time
+  // only when it changes: the observer would see it. A fade that comes later fades in (.fade); the first time
   // (below, while the pop-up opens) it does not, so it comes together with the pop-up and not a moment after it.
   let first = true;
   const show = (el, on) => {

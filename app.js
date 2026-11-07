@@ -172,7 +172,7 @@ async function pullAll() {
 
 // ---- render ----------------------------------------------------------------
 
-const TABS = [['log', 'Log'], ['progress', 'Progress'], ['history', 'History'], ['more', 'More']];
+const TABS = [['log', 'New case'], ['history', 'History'], ['progress', 'Progress'], ['more', 'More']];
 
 function render() {
   const y = pageScroll();
@@ -345,7 +345,7 @@ function logTab() {
     onclick: () => { if (logPart !== id) { logPart = id; render(); } },
   }, label);
   return h('section', {},
-    h('h2', { class: 'log-title' }, 'Add a case'), // "case", like the counts on the tiles and on Progress
+    h('h2', { class: 'log-title' }, 'Add a new case'), // "case", like the counts on the tiles and on Progress
     h('div', { class: 'ctabs log-parts', role: 'tablist', 'aria-label': 'Surgery or delivery' }, partTab('surgery', 'Surgery'), partTab('delivery', 'Delivery')),
     logPart === 'surgery' ? [
       h('div', { class: 'grid' }, LOG_SURGERY.map(findProcedure).map(button)),
@@ -756,11 +756,11 @@ function historyTab() {
         h('span', {}, `Showing ${shown.length} of ${state.entries.length}`),
         h('button', { class: 'change', type: 'button', onclick: () => setHistoryFilter({ procedure: null, role: null }) }, 'Show all'))
       : null,
-    // A small heading per month (by the day it was done), so a long history is easy to scan.
+    // A small heading per day it was done ("Today", "Yesterday", "Friday 6 Nov"), so a long history is easy to scan.
     shown.length
-      ? core.byMonth(shown).map((m) => [
-        h('h3', { class: 'month' }, core.fmtMonth(m.month)),
-        h('ul', { class: 'list' }, m.entries.map(entryRow))])
+      ? core.byDay(shown).map((d) => [
+        h('h3', { class: 'day-head' }, core.fmtDay(d.day)),
+        h('ul', { class: 'list' }, d.entries.map(entryRow))])
       : h('p', { class: 'muted' }, 'No entries match. Tap "Show all" to see everything.'));
 }
 
@@ -847,7 +847,7 @@ function openCase(e) {
     details.length ? details : h('p', { class: 'muted case-note' }, 'No details were filled in.'),
     // Delete: rarely needed, so a quiet red link at the bottom, not a button that catches the eye (it asks first)
     e.sign ? null : h('div', { class: 'case-del-row' },
-      h('button', { class: 'link danger case-del', type: 'button', onclick: () => confirmDelete(e) }, 'Delete this entry')));
+      h('button', { class: 'link danger case-del', type: 'button', onclick: () => confirmDelete(e) }, 'Delete this case')));
   const followTab = h('div', { class: 'case-tab', id: 'case-tab-followup', role: 'tabpanel', hidden: true },
     followUp.length ? followUp : null,
     followUp.length && !closed ? null : closed || h('p', { class: 'muted case-note' }, 'No follow-up yet.'));
@@ -860,9 +860,8 @@ function openCase(e) {
   }, label);
   const tabs = h('div', { class: 'ctabs', role: 'tablist', 'aria-label': 'Details or follow-up' }, tab('details', 'Details'), tab('followup', 'Follow-up'));
   const show = (id) => {
-    // The pop-up keeps the height of its tallest tab so far, so it does not jump when a shorter tab is opened.
     const sheet = caseTab.closest('.sheet');
-    if (sheet) sheet.style.minHeight = `${Math.max(parseFloat(sheet.style.minHeight) || 0, sheet.offsetHeight)}px`;
+    const top = sheet ? sheet.getBoundingClientRect().top : null;
     for (const b of tabs.children) {
       b.classList.toggle('on', b.dataset.tab === id);
       b.setAttribute('aria-selected', String(b.dataset.tab === id));
@@ -871,6 +870,7 @@ function openCase(e) {
     followTab.hidden = id !== 'followup';
     if (followBtn) followBtn.hidden = id !== 'followup';
     if (caseTab.parentNode) caseTab.parentNode.scrollTop = 0; // the other tab starts at its top
+    if (sheet) keepTop(sheet, top);
   };
   show('details');
 
@@ -879,15 +879,19 @@ function openCase(e) {
     : null;
   openSheet([
     h('div', { class: 'sheet-head' }, // stays at the top while the case scrolls
-      h('h3', { class: 'case-title' }, procName(e.procedure)),
-      h('p', { class: 'case-sub' }, [
-        late ? `${core.fmtDate(e.performed_on)} (logged ${core.fmtDate(e.entered_on)})` : core.fmtDate(e.performed_on),
-        e.hospital,
-      ].filter(Boolean).join(' · ')),
-      // the summary, like the row in the list: your role, and whether it is signed (by whom, when it is)
-      h('div', { class: 'case-sum' },
-        h('strong', {}, roleDone(e.role, e.procedure)),
-        e.sign ? h('span', { class: 'tag ok' }, 'Signed') : h('span', { class: 'tag warn' }, 'Not signed')),
+      // like the row in the list: the procedure, under it in grey your role, the date (and hospital), and the tags on
+      // the right (Follow-up, Signed or Not signed); who signed it and when in a grey line under it
+      h('div', { class: 'case-top' },
+        h('div', { class: 'case-top-text' },
+          h('h3', { class: 'case-title' }, procName(e.procedure)),
+          h('p', { class: 'case-sub' }, [
+            roleDone(e.role, e.procedure),
+            late ? `${core.fmtDate(e.performed_on)} (logged ${core.fmtDate(e.entered_on)})` : core.fmtDate(e.performed_on),
+            e.hospital,
+          ].filter(Boolean).join(' · '))),
+        h('div', { class: 'e-tags' },
+          hasOutcome ? h('span', { class: 'tag' }, 'Follow-up') : null,
+          e.sign ? h('span', { class: 'tag ok' }, 'Signed') : h('span', { class: 'tag warn' }, 'Not signed'))),
       signedBy ? h('p', { class: 'case-sub case-signed' }, signedBy) : null,
       tabs),
     caseTab,
@@ -898,7 +902,16 @@ function openCase(e) {
   ]);
 }
 
-// One case in the list: only the procedure, your role and the date, whether it is signed and whether it has a
+// When the case pop-up changes tab it fits its new content, but its top edge stays where it was, so the heading and
+// the tabs do not jump; only the bottom moves. It only moves up when a taller tab needs the room.
+function keepTop(sheet, top) {
+  const h = sheet.offsetHeight;
+  const t = Math.max(16, Math.min(top, window.innerHeight - 16 - h)); // 16: the space around a pop-up (#overlay)
+  sheet.style.alignSelf = 'flex-start';
+  sheet.style.marginTop = `${t - 16}px`;
+}
+
+// One case in the list (under the heading of its day): only the procedure, your role, whether it is signed and whether it has a
 // follow-up. Tapping it opens the whole case in a pop-up (openCase), with the follow-up and Delete.
 function entryRow(e) {
   const hasOutcome = Object.keys(e.outcome || {}).length > 0;
@@ -909,7 +922,7 @@ function entryRow(e) {
   },
     h('div', { class: 'e-text' },
       h('strong', {}, procName(e.procedure)),
-      h('span', { class: 'e-sub' }, `${roleDone(e.role, e.procedure)} · ${core.fmtDate(e.performed_on)}`)),
+      h('span', { class: 'e-sub' }, roleDone(e.role, e.procedure))), // the date is in the day heading above
     h('div', { class: 'e-tags' },
       hasOutcome ? h('span', { class: 'tag' }, 'Follow-up') : null,
       e.sign ? h('span', { class: 'tag ok' }, 'Signed') : h('span', { class: 'tag warn' }, 'Not signed')));
@@ -951,10 +964,10 @@ function openFollowUp(e) {
 
 function confirmDelete(e) {
   openSheet([
-    h('h3', {}, 'Delete this entry?'),
+    h('h3', {}, 'Delete this case?'),
     h('p', {}, `${procName(e.procedure)} · ${roleDone(e.role, e.procedure)} · ${core.fmtDate(e.performed_on)}`),
     h('div', { class: 'row' },
-      h('button', { class: 'btn danger', onclick: async () => { closeSheet(); await core.voidEntry(e.id); await refresh(); scheduleSync(); toast('Entry deleted'); } }, 'Delete'),
+      h('button', { class: 'btn danger', onclick: async () => { closeSheet(); await core.voidEntry(e.id); await refresh(); scheduleSync(); toast('Case deleted'); } }, 'Delete'),
       h('button', { class: 'btn ghost', onclick: closeSheet }, 'Cancel')),
   ]);
 }
