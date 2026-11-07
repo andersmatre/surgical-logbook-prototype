@@ -4,7 +4,7 @@
 // Plain JavaScript, no build step. Shared interface pieces live in ui.js.
 
 import {
-  PROCEDURE_GROUPS, PROCEDURES, ALL_PROCEDURES, LOG_SURGERY, LOG_DELIVERIES, TARGETS,
+  PROCEDURE_GROUPS, PROCEDURES, ALL_PROCEDURES, LOG_SURGERY, LOG_DELIVERIES, TARGET_PROCEDURES,
   HOSPITALS, APP_VERSION, DETAIL_FIELDS, FOLLOWUP_FIELDS, FOLLOWUP_DAYS, findProcedure, procName, rolesFor, roleDone, detailFieldsFor, followupFieldsFor, surgicalApgar, answerLabel,
 } from './config.js';
 import * as core from './core.js';
@@ -556,7 +556,7 @@ function openEntrySheet(proc) {
     await refresh();
     scheduleSync();
     const p = core.progress(state.entries)[proc.id] || { performed: 0, total: 0 };
-    const target = TARGETS[proc.id];
+    const target = core.targets(state.events)[proc.id];
     toast(`Saved · ${role.label}`, {
       sub: target ? `${proc.name}: ${p.performed} of ${target} performed` : `${proc.name}: ${cases(p.total)}`,
       action: {
@@ -712,30 +712,49 @@ function progressTab() {
   const total = state.entries.length;
   const signed = state.entries.filter((e) => e.sign).length;
   const wk = core.weekEntries(state.entries).length;
-  const others = Object.entries(prog).filter(([id]) => !(id in TARGETS));
+  const targets = core.targets(state.events); // set by a supervisor, they come with the sync
+  const withTarget = Object.keys(targets);
+  // the procedures without a target that have at least one case, the most cases first
+  const others = Object.entries(prog).filter(([id, p]) => !(id in targets) && p.total > 0)
+    .sort((a, b) => b[1].total - a[1].total || procName(a[0]).localeCompare(procName(b[0])));
+  // A white tile per procedure, like the procedures on the New case tab (two per row on a tablet, one on a phone).
+  // With a target: the name, how many performed out of the target, a bar, then assisted and observed.
+  // Without: the name, how many cases, then how many of each role.
+  const targetTile = (id, t) => {
+    const name = procName(id);
+    const pr = prog[id] || { performed: 0, assisting: 0, observing: 0 };
+    const pct = Math.min(100, Math.round((pr.performed / t) * 100));
+    return h('div', { class: 'ptile' },
+      h('div', { class: 'prow-top' }, h('strong', {}, name), h('span', { class: 'pcount' }, `${pr.performed} / ${t}`)),
+      h('div', { class: 'bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(t), 'aria-valuenow': String(pr.performed), 'aria-label': name },
+        h('div', { class: 'fill', style: `width:${pct}%` })),
+      h('div', { class: 'proc-count' }, `Assisted ${pr.assisting} · Observed ${pr.observing}`));
+  };
+  const caseTile = ([id, p]) => h('div', { class: 'ptile' },
+    h('div', { class: 'prow-top' }, h('strong', {}, procName(id)), h('span', { class: 'pcount' }, cases(p.total))),
+    h('div', { class: 'proc-count' }, `Performed ${p.performed} · Assisted ${p.assisting} · Observed ${p.observing}`));
 
   return h('section', {},
     h('h2', {}, 'My progress'),
     h('div', { class: 'stats' },
       stat(total, 'cases'), stat(signed, 'signed'), stat(wk, 'this week')),
-    // One white tile per procedure with a target, like the procedures on the Log tab (two per row on a tablet,
-    // one on a phone): the name, how many performed out of the target, a bar, then assisted and observed.
     h('h3', { class: 'prog-title' }, 'Targets'),
-    h('p', { class: 'muted small prog-note' }, 'How many you performed, out of the target.'),
-    h('div', { class: 'grid ptiles' },
-      Object.entries(TARGETS).map(([id, t]) => {
-        const name = procName(id);
-        const pr = prog[id] || { performed: 0, assisting: 0, observing: 0 };
-        const pct = Math.min(100, Math.round((pr.performed / t) * 100));
-        return h('div', { class: 'ptile' },
-          h('div', { class: 'prow-top' }, h('strong', {}, name), h('span', { class: 'pcount' }, `${pr.performed} / ${t}`)),
-          h('div', { class: 'bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(t), 'aria-valuenow': String(pr.performed), 'aria-label': name },
-            h('div', { class: 'fill', style: `width:${pct}%` })),
-          h('div', { class: 'proc-count' }, `Assisted ${pr.assisting} · Observed ${pr.observing}`));
-      })),
-    others.length ? h('div', { class: 'card' }, h('h3', {}, 'Other procedures'),
-      others.map(([id, p]) => h('div', { class: 'orow' }, h('span', {}, procName(id)), h('span', {}, p.total)))) : null);
+    withTarget.length
+      ? [h('p', { class: 'muted small prog-note' }, 'Set by your supervisor. How many you performed, out of the target.'),
+        h('div', { class: 'grid ptiles' }, TARGET_ORDER(withTarget).map((id) => targetTile(id, targets[id])))]
+      : h('p', { class: 'muted small prog-note' }, 'No targets yet. Your supervisor sets them.'),
+    others.length
+      ? [h('h3', { class: 'prog-title' }, withTarget.length ? 'Other procedures' : 'Your procedures'),
+        h('p', { class: 'muted small prog-note' }, withTarget.length ? 'No target. How many cases you logged.' : 'How many cases you logged.'),
+        h('div', { class: 'grid ptiles' }, others.map(caseTile))]
+      : null);
 }
+
+// Procedure ids in the order the supervisor sees them (TARGET_PROCEDURES); an id not in that list comes last.
+const TARGET_ORDER = (ids) => {
+  const pos = new Map(TARGET_PROCEDURES.map((p, i) => [p.id, i]));
+  return [...ids].sort((a, b) => (pos.get(a) ?? 1e9) - (pos.get(b) ?? 1e9));
+};
 
 // ---- History tab -----------------------------------------------------------
 

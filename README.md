@@ -65,7 +65,7 @@ Open the server's address in Chrome, menu (three dots), "Add to Home screen" / "
 
 | File | Purpose |
 |---|---|
-| `config.js` | Procedures, targets, hospitals, version, `API_BASE`. Edit content here. |
+| `config.js` | Procedures, roles, hospitals, version, `API_BASE`. Edit content here (targets are set per student by a supervisor in the app). |
 | `core.js`, `api.js` | Local event log in IndexedDB; calls to the server. |
 | `app.js`, `ui.js`, `supervisor.js`, `administrator.js`, `style.css` | The interface: student app, shared pieces, supervisor and administrator screens. |
 | `sw.js`, `manifest.webmanifest` | Offline cache and installability. |

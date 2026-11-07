@@ -9,7 +9,7 @@ Read `PROJECT.md` first (what this is, the rules, where things are, how to make 
 
 ## Rules that must not be broken
 - The event log is append-only. Never add "edit entry". Mistakes are `void` events, signatures are `sign` events. The only exception is `deleteUser` (an administrator erasing a whole disabled account on request, GDPR); never use it for single entries.
-- The server never trusts the client: owner is stamped by the server and `validateEvent` whitelists fields (a new field must be added there or it is silently dropped). Only the server creates `sign` events.
+- The server never trusts the client: owner is stamped by the server and `validateEvent` whitelists fields (a new field must be added there or it is silently dropped). Only the server creates `sign` and `target` events.
 - No patient identifiers and no free text, in the UI or in events. Use fixed lists or numbers.
 - Never rename, reuse or delete a procedure id or role id.
 - Database changes are additive only, inside `initSchema()` in `server/lib.js`, with an upgrade test. Never drop or rename columns.
@@ -19,5 +19,5 @@ Read `PROJECT.md` first (what this is, the rules, where things are, how to make 
 ## Conventions
 - Code, comments, UI text and docs are in English. The product owner often writes in Norwegian; answer in the language they use.
 - UI is for people with low IT literacy on a tablet: big touch targets, short plain words, no jargon, nothing that needs e-mail.
-- Plain JavaScript modules. Content (procedures, targets, hospitals) lives in `config.js`; logic elsewhere.
+- Plain JavaScript modules. Content (procedures, roles, hospitals) lives in `config.js`; logic elsewhere.
 - Keep changes small and say what you could not test. You cannot test on a real tablet or deploy to a host; do not claim that you did.

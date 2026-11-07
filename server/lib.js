@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { procName, roleLabel, surgicalApgar, DETAIL_FIELDS, FOLLOWUP_FIELDS } from '../config.js';
+import { procName, roleLabel, surgicalApgar, DETAIL_FIELDS, FOLLOWUP_FIELDS, TARGET_PROCEDURES, MAX_TARGET } from '../config.js';
 
 const scrypt = promisify(crypto.scrypt);
 const SCRYPT_N = 16384;
@@ -493,6 +493,7 @@ export function validateEvent(ev, candidate) {
     return { clean: { ...base, target: ev.target, known_on: ev.known_on, answers } };
   }
   if (ev.type === 'sign') return { reason: 'sign_not_allowed' };
+  if (ev.type === 'target') return { reason: 'target_not_allowed' }; // only a supervisor sets targets (setTargets)
   return { reason: 'unknown type' };
 }
 
@@ -507,6 +508,50 @@ const hasEvent = (db, owner, type, target) =>
 
 // An entry that a supervisor has signed can no longer be deleted by the student.
 export const isSigned = (db, owner, entryId) => hasEvent(db, owner, 'sign', entryId);
+
+// A request that cannot be carried out as given (the server turns it into a 400 with this message).
+export class InputError extends Error {}
+
+// The targets now in force for a student, { procedure: number }, from the 'target' events (newest wins, 0 = none).
+export function currentTargets(db, owner) {
+  const out = {};
+  for (const r of db.prepare("SELECT payload FROM events WHERE owner = ? AND type = 'target' ORDER BY seq").all(owner)) {
+    const e = JSON.parse(r.payload);
+    if (e.count > 0) out[e.procedure] = e.count; else delete out[e.procedure];
+  }
+  return out;
+}
+
+// Sets targets for a student on behalf of a supervisor. The caller has already checked that the supervisor is
+// assigned to `owner`. `targets` is { procedure id: number }, 0 removing a target. All or nothing: one unknown
+// procedure or a number out of range refuses the whole request. Only what changes is stored, as a 'target'
+// event in the student's own events, so the student's tablet gets it with its next sync (like a signature).
+// Returns the procedure ids that changed.
+export function setTargets(db, supervisor, owner, targets, nowIso) {
+  if (!targets || typeof targets !== 'object' || Array.isArray(targets)) throw new InputError('No targets were sent.');
+  const known = new Set(TARGET_PROCEDURES.map((p) => p.id));
+  const entries = Object.entries(targets);
+  if (!entries.length) throw new InputError('No targets were sent.');
+  if (entries.length > known.size) throw new InputError('Too many targets.');
+  for (const [id, n] of entries) {
+    if (!known.has(id)) throw new InputError('Unknown procedure.');
+    if (!Number.isInteger(n) || n < 0 || n > MAX_TARGET) throw new InputError(`A target must be a whole number from 0 to ${MAX_TARGET}.`);
+  }
+  const now = currentTargets(db, owner);
+  const changed = entries.filter(([id, n]) => (now[id] || 0) !== n).map(([id]) => id);
+  db.exec('BEGIN');
+  try {
+    for (const id of changed) {
+      insertEvent(db, owner, {
+        id: crypto.randomUUID(), type: 'target', ts: nowIso, procedure: id, count: targets[id],
+        supervisor: supervisor.id, supervisor_name: supervisor.name || supervisor.id,
+      }, nowIso);
+    }
+    if (changed.length) logAudit(db, supervisor.id, 'set_targets', owner, `${changed.length}`, new Date(nowIso));
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  return changed;
+}
 
 // Signs entries on behalf of a supervisor. The caller has already checked that the
 // supervisor is assigned to `owner`. Returns { signed: [ids], skipped: [{id, reason}] }.

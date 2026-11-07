@@ -277,6 +277,20 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   assert.match($('.stats').textContent, /3\s*cases/);
   assert.match($('.stats').textContent, /3\s*signed/);
   assert.doesNotMatch(document.body.textContent, /WhatsApp|Weekly summary/);
+  // no targets yet: it says so, and every procedure with a case is listed with how many
+  const ptiles = () => $$('.ptile').map((t) => t.querySelector('.prow-top').textContent);
+  const titles = () => $$('.prog-title').map((x) => x.textContent);
+  assert.match($('.page').textContent, /No targets yet\. Your supervisor sets them\./);
+  assert.deepEqual(titles(), ['Targets', 'Your procedures']);
+  assert.deepEqual(ptiles(), ['Appendectomy1 case', 'Caesarean section1 case', 'Laparotomy1 case']);
+  // the supervisor sets a target; the tablet gets it with the next sync, like a signature
+  assert.deepEqual((await post('/api/sup/targets', sup, { candidate: 'CC1234', targets: { cs: 30 } })).changed, ['cs']);
+  await comeBack();
+  await click(byText('.tab', 'Progress'));
+  assert.deepEqual(titles(), ['Targets', 'Other procedures']);
+  assert.match($('.page').textContent, /Set by your supervisor\. How many you performed, out of the target\./);
+  assert.deepEqual(ptiles(), ['Caesarean section1 / 30', 'Appendectomy1 case', 'Laparotomy1 case'], 'the one with a target on top; the others under it, without it');
+  assert.match($('.ptile').textContent, /Assisted 0 · Observed 0/);
   await click(byText('.tab', 'History'));
   await click($('.entry'));
   assert.deepEqual($$('.sheet-head .case-top .tag').map((t) => t.textContent), ['Signed'], 'Signed on the right at the top, like in the list');

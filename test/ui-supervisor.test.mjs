@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 import { createServer } from '../server/app.js';
 import { addUser } from '../server/lib.js';
+import { TARGET_PROCEDURES } from '../config.js';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const dom = new JSDOM(html, { url: 'https://localhost/', pretendToBeVisual: true });
@@ -138,6 +139,36 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   // the student's tablet would receive the signatures with its next sync
   const pulled = await post('/api/sync', s1, { events: [], cursor: 0 });
   assert.equal(pulled.events.filter((e) => e.type === 'sign').length, 2);
+
+  // ---- targets: none at first; set two in the pop-up, see them with how many were performed
+  const tcard = () => byText('.card', 'Targets');
+  assert.match(tcard().textContent, /No targets yet/);
+  await click(byText('.btn', 'Set targets', tcard()), 100);
+  assert.match($('.sheet h3').textContent, /Targets for CC1001/);
+  assert.equal($$('.sheet .trow').length, TARGET_PROCEDURES.length, 'every procedure that is offered');
+  assert.equal($('.sheet .trow label').textContent, 'Caesarean section', 'those on the New case tab first');
+  await click(byText('.sheet .btn', 'Save'), 50);
+  assert.match($('.sheet .error').textContent, /Nothing changed/);
+  type($('#t-cs'), '30');
+  type($('.sheet .search'), 'appendec');
+  assert.deepEqual($$('.sheet .trow').filter((r) => !r.hidden).map((r) => r.textContent), ['Appendectomy'], 'the search narrows the list');
+  type($('#t-appendectomy'), '600');
+  await click(byText('.sheet .btn', 'Save'), 50);
+  assert.match($('.sheet .error').textContent, /whole number from 0 to 500/, 'a number out of range is refused before sending');
+  type($('#t-appendectomy'), '10');
+  await click(byText('.sheet .btn', 'Save'), 700);
+  assert.match($('#toast').textContent, /Targets saved/);
+  assert.deepEqual($$('.orow', tcard()).map((r) => r.textContent), ['Caesarean section1 / 30', 'Appendectomy1 / 10'], 'performed out of the target');
+  // change one and remove the other (an empty field is no target)
+  await click(byText('.btn', 'Change targets', tcard()), 100);
+  assert.equal($('#t-cs').value, '30', 'the current targets are filled in');
+  type($('#t-cs'), '25');
+  type($('#t-appendectomy'), '');
+  await click(byText('.sheet .btn', 'Save'), 700);
+  assert.deepEqual($$('.orow', tcard()).map((r) => r.textContent), ['Caesarean section1 / 25']);
+  // the student's tablet gets them with its next sync
+  const targetsPulled = (await post('/api/sync', s1, { events: [], cursor: 0 })).events.filter((e) => e.type === 'target');
+  assert.deepEqual(targetsPulled.map((e) => [e.procedure, e.count]), [['cs', 30], ['appendectomy', 10], ['cs', 25], ['appendectomy', 0]]);
 
   // ---- remove the student: access ends
   await click(byText('.link', 'Remove from my students'), 100);

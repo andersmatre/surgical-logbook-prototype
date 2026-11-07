@@ -15,6 +15,7 @@
 //   POST /api/sup/unassign    { candidate }
 //   POST /api/sup/entries     { candidate, cursor } -> { events, cursor, has_more }
 //   POST /api/sup/sign        { candidate, ids } -> { signed, skipped }
+//   POST /api/sup/targets     { candidate, targets: { procedure: number } } -> { changed }
 //
 // Administrators (accounts, overviews; they cannot sign and have no logbook):
 //   POST /api/admin/users       -> { users: [...] }
@@ -38,7 +39,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   openDb, hashPassword, verifyPassword, sha256, normCandidate, validCandidate, validatePassword, validateEvent,
-  insertEvent, isSigned, signEntries, assign, unassign, isAssigned, LookupError,
+  insertEvent, isSigned, signEntries, setTargets, InputError, assign, unassign, isAssigned, LookupError,
   addUser, resetPassword, setDisabled, revokeSessions, generatePassword, ROLES, listUsers, adminStats, recentAudit,
   renameUser, exportCsv, EXPORT_KINDS, backupTo, logAudit, deleteUser,
 } from './lib.js';
@@ -325,6 +326,19 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
       if (body.ids.length > MAX_EVENTS_PER_SYNC) throw new HttpError(413, 'too_many_events', `At most ${MAX_EVENTS_PER_SYNC} entries per request.`);
       const r = signEntries(db, { id: a.candidate, name: a.name }, student, body.ids, new Date(now()).toISOString());
       return send(res, 200, { signed: r.signed.length, signed_ids: r.signed, skipped: r.skipped });
+    }
+
+    if (route === 'POST /api/sup/targets') {
+      const a = requireSupervisor(req);
+      const body = await readJson(req);
+      const student = assignedStudent(a, body);
+      try {
+        const changed = setTargets(db, { id: a.candidate, name: a.name }, student, body.targets, new Date(now()).toISOString());
+        return send(res, 200, { changed });
+      } catch (e) {
+        if (e instanceof InputError) throw new HttpError(400, 'bad_targets', e.message);
+        throw e;
+      }
     }
 
     // ---- administrators -----------------------------------------------------

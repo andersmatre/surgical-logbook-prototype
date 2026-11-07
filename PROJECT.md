@@ -31,23 +31,23 @@ The context that shaped every decision:
 
 ## 2. Status
 
-Version **0.13.7**. A working prototype, tested automatically and **deployed on Fly.io** (see [11](#11-running-it)), but **not yet used on a Samsung tablet**.
+Version **0.13.8**. A working prototype, tested automatically and **deployed on Fly.io** (see [11](#11-running-it)), but **not yet used on a Samsung tablet**.
 
 Works:
 
-- Student app: login with candidate number and password, forced own password at first login, the first tab, "New case" (called the Log tab in the code and in these notes), is headed "Add a new case" and has two tabs, Surgery (open from the start) and Delivery, like CapaCare's two logbooks (a switch: a light grey track across the page with the open one as a white raised button in it, the other in grey; built on the same `.ctabs` as Details and Follow-up in a case) (Surgery: the ten most common operations, then "More operations" with every operation from CapaCare's logbook under its group; Delivery: every way of giving birth; the choice is kept while the app is open), log a procedure in one pop-up (tap the procedure; then the role, the optional questions of the logbook in parts, each a grey card with one heading (Your role, Patient or Mother, Baby, Operation, Surgical Apgar; a second and third baby only for twins and triplets; choices two per row, three short ones in a row; number questions one per line; a short grey line explains an unclear word, `help` in `config.js`), and Save), undo, a follow-up on an entry for 6 weeks after the operation (the outcome questions of the logbook), history (can show only one procedure and/or one role; newest first by the day it was done, under a small heading per day ("Today", "Yesterday", "Friday 6 Nov", with the year for an earlier year: `byDay` and `fmtDay` in `core.js`); each case is one short row: procedure, your role (the date is in the heading), whether it is signed and, if it has one, a Follow-up tag; tapping it opens the whole case in a pop-up, kept quiet on purpose (few boxes, little colour): at the top like its row in the list: the procedure, a grey line with the role, the date and the hospital, and on the right the tags (Follow-up, Signed or Not signed; who signed it and when in a grey line under it); then two plain tabs, "Details" (open first) and "Follow-up"; the answers in grey cards like the parts of the form when logging, a heading only when it is not the tab's name, a row per answer with the question on the left and the answer against the right edge; an unsigned entry has a quiet red link "Delete this case" at the bottom of Details (it asks "Delete this case?" first); when another tab is opened the pop-up fits its content, but its top edge stays where it was, so the heading and the tabs do not jump (`keepTop`); at the bottom Close, and on the Follow-up tab only also Add (or Update) follow-up, the bigger one, like Cancel and Save: `openCase` in `app.js`), progress against targets (Progress: under the heading "Targets" one white tile per procedure with a target, in the same grid and style as the procedures on the Log tab (two per row on a tablet, one on a phone): the name and how many performed out of the target, a bar, and "Assisted N · Observed N"; other procedures in a card with a list under it: `progressTab` in `app.js`), works offline, installable.
+- Student app: login with candidate number and password, forced own password at first login, the first tab, "New case" (called the Log tab in the code and in these notes), is headed "Add a new case" and has two tabs, Surgery (open from the start) and Delivery, like CapaCare's two logbooks (a switch: a light grey track across the page with the open one as a white raised button in it, the other in grey; built on the same `.ctabs` as Details and Follow-up in a case) (Surgery: the ten most common operations, then "More operations" with every operation from CapaCare's logbook under its group; Delivery: every way of giving birth; the choice is kept while the app is open), log a procedure in one pop-up (tap the procedure; then the role, the optional questions of the logbook in parts, each a grey card with one heading (Your role, Patient or Mother, Baby, Operation, Surgical Apgar; a second and third baby only for twins and triplets; choices two per row, three short ones in a row; number questions one per line; a short grey line explains an unclear word, `help` in `config.js`), and Save), undo, a follow-up on an entry for 6 weeks after the operation (the outcome questions of the logbook), history (can show only one procedure and/or one role; newest first by the day it was done, under a small heading per day ("Today", "Yesterday", "Friday 6 Nov", with the year for an earlier year: `byDay` and `fmtDay` in `core.js`); each case is one short row: procedure, your role (the date is in the heading), whether it is signed and, if it has one, a Follow-up tag; tapping it opens the whole case in a pop-up, kept quiet on purpose (few boxes, little colour): at the top like its row in the list: the procedure, a grey line with the role, the date and the hospital, and on the right the tags (Follow-up, Signed or Not signed; who signed it and when in a grey line under it); then two plain tabs, "Details" (open first) and "Follow-up"; the answers in grey cards like the parts of the form when logging, a heading only when it is not the tab's name, a row per answer with the question on the left and the answer against the right edge; an unsigned entry has a quiet red link "Delete this case" at the bottom of Details (it asks "Delete this case?" first); when another tab is opened the pop-up fits its content, but its top edge stays where it was, so the heading and the tabs do not jump (`keepTop`); at the bottom Close, and on the Follow-up tab only also Add (or Update) follow-up, the bigger one, like Cancel and Save: `openCase` in `app.js`), progress against targets (Progress: under the heading "Targets", "Set by your supervisor. How many you performed, out of the target." and one white tile per procedure with a target, in the same grid and style as the procedures on the Log tab (two per row on a tablet, one on a phone): the name and how many performed out of the target, a bar, and "Assisted N · Observed N"; without targets "No targets yet. Your supervisor sets them."; under it "Other procedures" (or "Your procedures" when there are no targets): a tile for each procedure without a target that has at least one case, the most cases first, with how many cases and "Performed N · Assisted N · Observed N": `progressTab` in `app.js`), works offline, installable.
 - Sync to the server with automatic retry, and whenever the app comes back on the screen (so signatures arrive without a button); log in on any tablet and the history comes back.
-- Supervisor accounts: a supervisor logs in with a candidate number (for example `SUP-ANNA`), adds students, sees their entries and signs selected ones. The server verifies every signature.
+- Supervisor accounts: a supervisor logs in with a candidate number (for example `SUP-ANNA`), adds students, sees their entries and signs selected ones, and sets each student's targets (how many of each procedure to perform; see the targets flow in [4](#4-how-it-fits-together)). The server verifies every signature.
 - Administrator accounts and screens (no shell needed): overview of every procedure across all students, a matrix per student, user list, add many students at once, new password, disable, log out everywhere, assign supervisors, a log of recent changes. The first administrator is created from environment variables (`ADMIN_ID`, `ADMIN_PASSWORD`, see `DEPLOY.md`).
 - Students can have a name next to the candidate number (administrators set it; the student, their supervisors and administrators see it).
 - The hospital is stored in every entry. After the first login on a device the student chooses their hospital ("Where do you work?", `hospitalScreen` in `app.js`: laid out like the hospital under More, a row "Hospital, Not chosen yet" with a Choose button that opens the same hospital menu, `hospitalPicker`; once chosen it says Change, and the button under it goes from "Choose your hospital" to Continue, which stores it). The student sees it when logging (and can change it there) and in the history; administrators get a hospital table and CSV downloads (procedures per student, per hospital, every entry).
 - Administrators download a complete database backup from the app and are reminded when none has been taken for a week.
 - Admin from the command line as a fallback: create accounts, assign, reset, disable, revoke, delete, list, backup.
 - Privacy: a notice ("Your data") on the first-login screen and under More in all three apps (the row "Your data" with a Read button, under About in "Advanced"), with what is stored, why, who sees it, where, how long and the person's rights, one grey card per part (`openPrivacy` in `ui.js`; a line can be for one role only, so each person reads what is about them). Its text is in `config.js` and is still a draft (`PRIVACY_IS_PLACEHOLDER`). Administrators can erase a disabled account and all its data for good.
-- 69 automated tests, including whole-flow tests of both apps in a simulated browser against a real server.
+- 71 automated tests, including whole-flow tests of both apps in a simulated browser against a real server.
 - A development server with live reload and demo data for front-end work (`npm run dev`, see [3](#3-get-it-running) and [10.9](#109-front-end-work-with-the-dev-server)). It is a tool for the developer, not part of the app.
 
-Placeholders you must replace before real use: the target numbers in `config.js`. The procedure list, the hospital list, the role definitions and the detail and follow-up questions (`DETAIL_FIELDS`, `FOLLOWUP_FIELDS`: everything the surgical and obstetric logbooks asked, except what identifies the patient; to be cut down after trying it) now come from CapaCare's logbook (`Logbook_softcopy_2021.xlsx`, not in the repository); the hospital list is from 2021 and should be checked.
+Targets are set per student by a supervisor in the app (there are no example targets any more). Placeholders: the procedure list, the hospital list, the role definitions and the detail and follow-up questions (`DETAIL_FIELDS`, `FOLLOWUP_FIELDS`: everything the surgical and obstetric logbooks asked, except what identifies the patient; to be cut down after trying it) now come from CapaCare's logbook (`Logbook_softcopy_2021.xlsx`, not in the repository); the hospital list is from 2021 and should be checked.
 
 Not done: trying it on a real Samsung tablet, research export, offline signing for supervisors, ethics and data-protection approval. See [13](#13-known-limits) and [15](#15-next-steps).
 
@@ -57,7 +57,7 @@ Needs **Node 22.13 or newer**. Nothing else: the server has no runtime dependenc
 
 ```
 npm install                                   # test tools only
-npm test                                      # 69 tests, about 1 minute
+npm test                                      # 71 tests, about 1 minute
 
 npm run admin -- add-admin ADMIN-ANDERS --name "Anders"            # prints an initial password; then do everything else in the app
 npm run admin -- add-supervisor SUP-ANNA --name "Dr Anna Kamara"   # prints an initial password
@@ -94,6 +94,8 @@ To try the student app offline: Chrome DevTools, Network tab, "Offline". To try 
 
 **Signing flow.** The supervisor opens a student, ticks entries, confirms. `POST /api/sup/sign` makes the server check that the supervisor is assigned to that student and that each entry exists, is not deleted and is not already signed. For each one it writes a `sign` event into the *student's* event stream. The student's tablet receives it with its next sync, like any other event.
 
+**Targets flow.** On a student's page the supervisor has a card "Targets" (each target with how many the student performed) and "Set targets" / "Change targets": a pop-up with every procedure that can be logged (`TARGET_PROCEDURES` in `config.js`, those on the New case tab first), a search and a number field each, the current targets filled in; empty or 0 is no target (`openTargets` in `supervisor.js`). `POST /api/sup/targets` makes the server check the assignment, that each procedure is offered and that each number is a whole number from 0 to `MAX_TARGET` (500), all or nothing, and writes a `target` event into the *student's* event stream for each target that changed (`setTargets` in `server/lib.js`; also in the administrators' log). The student's tablet receives them with its next sync, like a signature; `core.targets()` works out the targets in force (the newest event per procedure wins, 0 removes it, so with several supervisors the last change counts). Nothing is ever edited: changing a target adds an event.
+
 **New tablet.** Login returns a token. The first sync starts at cursor 0 and the server returns the whole history in pages of 500. Everything the student ever logged reappears.
 
 **Updates.** The server also serves the app files. A new version is a redeploy; tablets pick it up the next time they open the app with internet (see [10.2](#102-release-a-new-version)).
@@ -105,9 +107,9 @@ Read these before changing anything. Most bugs in this kind of system come from 
 1. **The event log is append-only.** Entries are never edited or deleted. A mistake is a `void` event on top; a signature is a `sign` event on top. The current state (`derive()` in `core.js`) is computed from the log. That is what makes offline use and sync conflict-free: two tablets can never overwrite each other, they only add events. If you feel the need for "update entry", add a new event type instead. **The one exception** is erasing a person on request (GDPR): an administrator can delete a whole account, only after disabling it, and `deleteUser` in `server/lib.js` then removes everything that account owns. Never use it to change or remove single entries.
 2. **Event ids are unique and the server is idempotent.** Ids are UUIDs made on the device. The server stores `(owner, id)` once (`INSERT OR IGNORE`), so sending the same event twice is harmless. This is why retrying is always safe.
 3. **Never trust the client.** `validateEvent` in `server/lib.js` copies only whitelisted fields and sets the owner to the logged-in account itself. A new field that is not added there is **silently dropped**, not rejected.
-4. **Students cannot create signatures.** `sign` events from a student's sync are refused (`sign_not_allowed`). Only `/api/sup/sign` creates them, after checking the assignment.
+4. **Students cannot create signatures or targets.** `sign` and `target` events from a student's sync are refused (`sign_not_allowed`, `target_not_allowed`). Only `/api/sup/sign` and `/api/sup/targets` create them, after checking the assignment.
 5. **A signed entry is locked.** A `void` for a signed entry is refused (`signed_locked`) and the tablet forgets the delete (`dropEvent`).
-6. **Content lives in `config.js`, logic in the other files.** Procedures, roles, targets and hospitals are data. Do not hide them in code.
+6. **Content lives in `config.js`, logic in the other files.** Procedures, roles and hospitals are data (targets are set per student in the app). Do not hide them in code.
 7. **No patient identifiers, no free text.** Not in the UI, not in events. If you add a field, make it a choice from a fixed list or a number. This is the main privacy protection and it is also what makes the system acceptable to run.
 8. **Ids are forever.** A procedure id (for example `cs`) is stored in every entry. Never rename, reuse or delete one. Role ids likewise.
 9. **The database only grows by addition.** See [10.6](#106-change-the-database).
@@ -118,7 +120,7 @@ Read these before changing anything. Most bugs in this kind of system come from 
 | File | Purpose |
 |---|---|
 | `index.html`, `manifest.webmanifest`, `icon-*.png` | The page that loads the app; install metadata. |
-| `config.js` | **Content to edit**: version, server address, procedures, roles, targets, hospitals. |
+| `config.js` | **Content to edit**: version, server address, procedures (and which can get a target), roles, hospitals. |
 | `core.js` | Student data layer. IndexedDB event log, `derive`, progress, sync bookkeeping, counts. No DOM, so it can be tested in Node. |
 | `api.js` | Every call to the server, as a function. Turns failures into `ApiError` with a message that can be shown as is. Also the `?api=http://localhost:...` override that lets the hosted app talk to a server on the tester's own computer (localhost only, by design). |
 | `ui.js` | Shared interface pieces: the `h()` DOM helper, toast, sheets (modals), the password form. |
@@ -161,6 +163,7 @@ Every fact is an event. All have `id`, `type`, `ts` (device clock, ISO time).
 | `followup` | student tablet | `target` (an entry id), `known_on` (the day the student learnt it), `answers` (`{question id: option id}`, questions from `FOLLOWUP_FIELDS`, at least one). Only the answers that changed. |
 | `void` | student tablet | `target` (an entry or follow-up id). "Delete", or Undo of a follow-up. |
 | `sign` | **server only** | `target` (an entry id), `supervisor` (account id), `supervisor_name` (name at the time of signing) |
+| `target` | **server only** | `procedure` (a procedure id from `TARGET_PROCEDURES`), `count` (how many to perform, 1 to 500; 0 removes the target), `supervisor`, `supervisor_name`. Set by a supervisor; the newest per procedure counts. |
 
 "Performed" in progress counts means role `supervised` or `independent`.
 Three clocks exist: `ts` and `entered_on` come from the tablet (can be wrong), `performed_on` is chosen by the student, `received_at` is the server's. Use `received_at` when you need a time you can trust.
@@ -187,6 +190,7 @@ All calls are `POST` with a JSON body, except `GET /api/health`. Authenticated c
 | `POST /api/sup/assign` / `unassign` | supervisor | `candidate` | `{ok}` |
 | `POST /api/sup/entries` | supervisor, assigned student | `candidate`, `cursor` | `events` (reduced fields), `cursor`, `has_more` |
 | `POST /api/sup/sign` | supervisor, assigned student | `candidate`, `ids` (≤200) | `signed`, `signed_ids`, `skipped` (`{id, reason}`) |
+| `POST /api/sup/targets` | supervisor, assigned student | `candidate`, `targets` (`{procedure id: number}`, 0 to 500, 0 = no target) | `changed` (the procedure ids that changed); 400 `bad_targets` if anything is not allowed (nothing is stored then) |
 | `POST /api/admin/users` | admin | | `users`: `id`, `role`, `name`, `disabled`, `password_set`, `last_login_at`, `entries`, `supervisors` / `students` |
 | `POST /api/admin/stats` | admin | | `totals`, `procedures` (per procedure across students), `students` (per student, per procedure) |
 | `POST /api/admin/audit` | admin | | `log`: `at`, `actor`, `action`, `target`, `detail` |
@@ -202,7 +206,7 @@ All calls are `POST` with a JSON body, except `GET /api/health`. Authenticated c
 | `POST /api/admin/assign` / `unassign` | admin | `supervisor`, `student` | `{ok}` |
 | `POST /api/admin/entries` | admin | `candidate`, `cursor` | `events`, `cursor`, `has_more` |
 
-Rejection reasons from `/api/sync`: `bad id`, `bad ts`, `bad procedure`, `bad role`, `bad date`, `bad hospital`, `bad target`, `bad answers` (a follow-up with no valid answer), `unknown type`, `sign_not_allowed`, `signed_locked`.
+Rejection reasons from `/api/sync`: `bad id`, `bad ts`, `bad procedure`, `bad role`, `bad date`, `bad hospital`, `bad target`, `bad answers` (a follow-up with no valid answer), `unknown type`, `sign_not_allowed`, `target_not_allowed`, `signed_locked`.
 A detail answer that is not allowed (unknown question, option not on the list, number out of range) is dropped from the entry; the entry itself is kept.
 
 ## 9. Security and privacy
@@ -243,7 +247,7 @@ Always: make the change, run `npm test`, update this file if behaviour changed, 
 Edit `config.js`. Procedure ids must match `^[a-z0-9_]{1,40}$` (the server rejects others). **Never rename or delete an id**; a removed id shows up as its raw id in old entries. To stop offering a procedure, move it to `PROCEDURES_RETIRED` (old entries keep its name).
 `PROCEDURES` holds every procedure that can be logged. `group` is the surgical group it is listed under in "More operations" (`PROCEDURE_GROUPS`, as in CapaCare's logbook, each with an "Other"); `delivery: true` makes it a way of giving birth. A caesarean has both; a procedure without a group is not an operation and uses the delivery wording of the roles. The buttons on the Log tab, after the student has chosen Surgery or Delivery, are `LOG_SURGERY` and `LOG_DELIVERIES` (together, each once, also the columns of the administrator's per-student table). The progress tab shows the procedures in `TARGETS`. A test in `core.test.mjs` checks that ids are valid and unique and that these lists only name procedures that exist.
 Hospitals are stored by name: renaming one leaves old entries with the old name.
-The targets in `TARGETS` are invented examples, and the Progress tab does not say so (setting targets in the app is planned for later). When the real targets are known, put them in `TARGETS`. Then release ([10.2](#102-release-a-new-version)).
+Targets are not in `config.js`: a supervisor sets them per student in the app (the targets flow in [4](#4-how-it-fits-together)). `TARGET_PROCEDURES` says which procedures can get a target (every procedure that is offered) and in which order the supervisor sees them; `MAX_TARGET` is the highest number. A new procedure in `PROCEDURES` can get a target at once.
 
 ### 10.2 Release a new version
 
@@ -333,7 +337,7 @@ Demo accounts (password `demo1234`; `data/dev.db` is ignored by git):
 
 | Account | What it is for |
 |---|---|
-| `CC1001` | Student with 60 entries, 35 signed, 3 deleted: the full screens |
+| `CC1001` | Student with 60 entries, 35 signed, 3 deleted, and four targets set by SUP-DEMO: the full screens (the others have no targets; with `npm run dev:reset` an older dev database gets them) |
 | `CC1002` | Student with 8 entries, 3 signed |
 | `CC1003` | Student with 25 entries, none signed |
 | `CC1004` | Student with no entries: the empty states |
@@ -390,7 +394,7 @@ Hosting, updating, backups, restoring and costs are in **`DEPLOY.md`**. The curr
 - **English only.**
 - **Whole history is sent to a new tablet.** Fine for hundreds or a few thousand entries per student; revisit beyond that.
 - **Accessibility** has not been checked beyond large touch targets and labels.
-- **Targets are placeholders.** The procedure and hospital lists and the questions are CapaCare's from 2021. A caesarean asks about 20 questions; which to keep is still to be decided.
+- **Targets are set one student at a time.** There is no programme-wide default yet; a supervisor sets them for each student. The procedure and hospital lists and the questions are CapaCare's from 2021. A caesarean asks about 20 questions; which to keep is still to be decided.
 - **Not taken over from the 2021 logbook:** patient initials and address (district) identify the patient; times of day (operation start and end, time of birth) are replaced by the operation time in minutes; dates after the operation (discharge, reoperation, referral, death) by yes/no and "days". Reoperation and referral are yes/no only.
 - **Follow-up has no reminder.** The student has to remember to open History. A list or count of operations still waiting for a follow-up is a likely next step.
 - **The same operation can be logged by several students** (one operating, one assisting). Their follow-ups are separate, so counting outcomes needs care (for example only entries with role `supervised` or `independent`).
@@ -421,7 +425,7 @@ These need people, not code. Record the answers here.
 In rough order:
 
 1. Try the deployed app on a real Samsung tablet with one or two students and one supervisor, with a contact person on site. Fix what you learn before anything else.
-2. Replace the placeholder targets and procedure list; check hospitals. Later: let targets be set in the app (planned; until then the Progress tab shows the example targets without saying they are examples).
+2. Check the procedure list and hospitals. Perhaps: default targets for the whole programme, which a supervisor can then change per student.
 3. Settle the questions in section 14, especially data ownership and ethics.
 4. If supervisors cannot rely on internet: let them queue signatures offline and send them later (the token already authorises the call, so the server rule stays the same).
 5. Pseudonymised research export, once ethics allows.

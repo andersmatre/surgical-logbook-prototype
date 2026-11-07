@@ -195,6 +195,7 @@ const AUDIT_TEXT = {
   rename: (e) => `changed the name of ${e.target}`,
   assign: (e) => `added ${e.target} to the students of ${e.detail}`,
   unassign: (e) => `removed ${e.target} from the students of ${e.detail}`,
+  set_targets: (e) => `changed ${e.detail === '1' ? 'a target' : `${e.detail} targets`} for ${e.target}`,
 };
 
 function auditList() {

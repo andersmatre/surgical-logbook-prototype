@@ -207,6 +207,21 @@ export function answersText(fields, answers) {
     .map((id) => `${fields[id].label}: ${answerLabel(fields, id, answers[id])}`).join(' · ');
 }
 
+// The targets a supervisor set for this student, { procedure: number }. They are 'target' events, made only by the
+// server when a supervisor saves targets, so the newest one for a procedure wins (by `ts`, the server's clock; the
+// order of the events for equal times). A target of 0 removes it. Several supervisors: the newest wins.
+export function targets(events) {
+  const latest = new Map();
+  for (const e of events) {
+    if (e.type !== 'target') continue;
+    const before = latest.get(e.procedure);
+    if (!before || e.ts >= before.ts) latest.set(e.procedure, e);
+  }
+  const out = {};
+  for (const [id, e] of latest) if (e.count > 0) out[id] = e.count;
+  return out;
+}
+
 export function progress(entries) {
   const out = {};
   for (const e of entries) {

@@ -307,7 +307,7 @@ test('students cannot create signatures; a supervisor cannot use the logbook syn
     assert.equal(s.status, 403);
     assert.equal(s.body.error, 'wrong_role');
     // and students cannot use the supervisor routes
-    for (const p of ['students', 'candidates', 'assign', 'entries', 'sign']) {
+    for (const p of ['students', 'candidates', 'assign', 'entries', 'sign', 'targets']) {
       assert.equal((await sup(t, student, p, { candidate: 'S001', ids: [e1.id] })).status, 403, p);
     }
   } finally { await t.s.close(); }
@@ -370,6 +370,56 @@ test('supervisor: add a student, see the entries, sign them; the student receive
     assert.equal(signs[0].supervisor_name, 'Dr Anna Kamara');
     assert.equal(pulled.body.supervisors.length, 1);
     assert.equal(pulled.body.supervisors[0].name, 'Dr Anna Kamara');
+  } finally { await t.s.close(); }
+});
+
+test('targets: only an assigned supervisor sets them, the server checks them, and the student receives them', async () => {
+  const t = await start();
+  try {
+    const student = await ready(t, 'S001', 'initial-pw-1', 'second-pw-22');
+    const supToken = await supervisorReady(t);
+    const other = await supervisorReady(t, 'SUP-BEN', 'Dr Ben Sesay');
+
+    // only for one's own students
+    assert.equal((await sup(t, supToken, 'targets', { candidate: 'S001', targets: { cs: 30 } })).status, 403);
+    await sup(t, supToken, 'assign', { candidate: 'S001' });
+
+    // checked: a known procedure that is offered, a whole number from 0 to 500; one bad value refuses everything
+    for (const targets of [{ nonsense: 3 }, { cs: -1 }, { cs: 501 }, { cs: 2.5 }, { cs: '30' }, { other: 3 }, {}, [], null]) {
+      const r = await sup(t, supToken, 'targets', { candidate: 'S001', targets });
+      assert.equal(r.status, 400, JSON.stringify(targets));
+      assert.equal(r.body.error, 'bad_targets');
+    }
+    assert.equal((await sup(t, supToken, 'targets', { candidate: 'S001', targets: { cs: 30, nonsense: 1 } })).status, 400);
+    const none = (s) => t.s.db.prepare("SELECT COUNT(*) AS n FROM events WHERE owner = 'S001' AND type = 'target'").get().n;
+    assert.equal(none(), 0, 'nothing stored from a refused request');
+
+    // set two, then change one and remove the other; only what changes is stored
+    let r = await sup(t, supToken, 'targets', { candidate: 'S001', targets: { cs: 30, appendectomy: 10, laparotomy: 0 } });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body.changed.sort(), ['appendectomy', 'cs'], 'setting no target where there was none changes nothing');
+    r = await sup(t, supToken, 'targets', { candidate: 'S001', targets: { cs: 30, appendectomy: 0 } });
+    assert.deepEqual(r.body.changed, ['appendectomy']);
+    assert.equal(none(), 3);
+
+    // the student gets them with the normal sync, made by the server, with who set them
+    const pulled = (await t.call('/api/sync', { token: student, body: { events: [], cursor: 0 } })).body.events.filter((e) => e.type === 'target');
+    assert.deepEqual(pulled.map((e) => [e.procedure, e.count]), [['cs', 30], ['appendectomy', 10], ['appendectomy', 0]]);
+    assert.equal(pulled[0].supervisor, 'SUP-ANNA');
+    assert.equal(pulled[0].supervisor_name, 'Dr Anna Kamara');
+    // and the supervisor sees them too, with the entries
+    const seen = (await sup(t, supToken, 'entries', { candidate: 'S001', cursor: 0 })).body.events.filter((e) => e.type === 'target');
+    assert.equal(seen.length, 3);
+
+    // a student cannot make a target
+    const forged = { id: '44444444-0000-4000-8000-000000000001', type: 'target', ts: new Date().toISOString(), procedure: 'cs', count: 1 };
+    const f = await t.call('/api/sync', { token: student, body: { events: [forged], cursor: 0 } });
+    assert.deepEqual(f.body.rejected, [{ id: forged.id, reason: 'target_not_allowed' }]);
+    assert.equal(none(), 3);
+    // nor a supervisor who is not assigned, and the action is in the administrators' log
+    assert.equal((await sup(t, other, 'targets', { candidate: 'S001', targets: { cs: 1 } })).status, 403);
+    const log = t.s.db.prepare("SELECT actor, target, detail FROM audit WHERE action = 'set_targets'").all().map((x) => ({ ...x }));
+    assert.deepEqual(log, [{ actor: 'SUP-ANNA', target: 'S001', detail: '2' }, { actor: 'SUP-ANNA', target: 'S001', detail: '1' }]);
   } finally { await t.s.close(); }
 });
 

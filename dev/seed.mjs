@@ -10,12 +10,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { openDb, addUser, assign, insertEvent, signEntries, validateEvent } from '../server/lib.js';
+import { openDb, addUser, assign, insertEvent, signEntries, setTargets, validateEvent } from '../server/lib.js';
 import { PROCEDURES_TOP, PROCEDURES } from '../config.js';
 
 export const DEMO_PASSWORD = 'demo1234';
 export const DEMO_ACCOUNTS = [
-  { id: 'CC1001', role: 'student', name: 'Demo Student One', note: 'many entries, some signed, some deleted' },
+  { id: 'CC1001', role: 'student', name: 'Demo Student One', note: 'many entries, some signed, some deleted, four targets' },
   { id: 'CC1002', role: 'student', name: 'Demo Student Two', note: 'a few entries' },
   { id: 'CC1003', role: 'student', name: 'Demo Student Three', note: 'a medium amount, none signed' },
   { id: 'CC1004', role: 'student', name: 'Demo Student Four', note: 'no entries yet (empty screens)' },
@@ -84,6 +84,7 @@ export async function seedDemo(db, { now = Date.now() } = {}) {
   const one = addEntries(db, 'CC1001', 60, 1001, now);
   signEntries(db, sup, 'CC1001', one.slice(0, 35), nowIso); // the oldest ones are signed
   for (const id of one.slice(50, 53)) voidEntry(db, 'CC1001', id, now); // a few deleted (not signed ones)
+  setTargets(db, sup, 'CC1001', { cs: 30, ing_hernia: 20, appendectomy: 10, laparotomy: 10 }, nowIso); // targets set by the supervisor
 
   const two = addEntries(db, 'CC1002', 8, 1002, now);
   signEntries(db, sup, 'CC1002', two.slice(0, 3), nowIso);

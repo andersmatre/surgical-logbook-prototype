@@ -5,7 +5,7 @@
 // students and their entries are fetched from the server each time, and signing is checked by the server.
 // app.js decides when to show this (the logged-in account has the role "supervisor").
 
-import { DETAIL_FIELDS, FOLLOWUP_FIELDS, procName, roleLabel } from './config.js';
+import { DETAIL_FIELDS, FOLLOWUP_FIELDS, TARGET_PROCEDURES, MAX_TARGET, procName, roleLabel } from './config.js';
 import * as core from './core.js';
 import * as api from './api.js';
 import {
@@ -230,7 +230,80 @@ function detailView() {
       h('ul', { class: 'list tight' }, signed.map((e) => h('li', { class: 'entry' },
         h('div', { class: 'e-main' }, h('span', {}, entryLine(e), extraLines(e))),
         h('div', { class: 'e-meta' }, h('span', { class: 'tag ok' }, `Signed · ${e.sign.supervisor_name || e.sign.supervisor}`)))))) : null,
+    targetsCard(d),
     h('button', { class: 'link danger', onclick: () => confirmRemove(d.candidate) }, 'Remove from my students'));
+}
+
+// ---- targets ---------------------------------------------------------------------------
+// A supervisor sets how many of each procedure a student should perform (as surgeon). The server stores them as
+// 'target' events in the student's own events, so the student sees them on Progress after the next sync.
+
+function targetsCard(d) {
+  const targets = core.targets(d.events);
+  const prog = core.progress(d.entries);
+  const ids = TARGET_PROCEDURES.map((p) => p.id).filter((id) => id in targets);
+  return h('div', { class: 'card' },
+    h('h3', {}, 'Targets'),
+    ids.length
+      ? [h('p', { class: 'muted small' }, 'How many the student performed, out of the target. The student sees these under Progress.'),
+        ids.map((id) => h('div', { class: 'orow' }, h('span', {}, procName(id)), h('span', {}, `${(prog[id] || { performed: 0 }).performed} / ${targets[id]}`)))]
+      : h('p', { class: 'muted' }, 'No targets yet. Set how many of each procedure the student should perform.'),
+    h('button', { class: 'btn ghost wide', type: 'button', onclick: () => openTargets(d) }, ids.length ? 'Change targets' : 'Set targets'));
+}
+
+// A pop-up with every procedure and a number field for each, the current targets filled in. Empty (or 0) is no
+// target. A search narrows the list. Save sends only what changed.
+function openTargets(d) {
+  const now = core.targets(d.events);
+  const err = h('p', { class: 'error', role: 'alert' }, '');
+  const fields = new Map();
+  const rows = TARGET_PROCEDURES.map((p) => {
+    const input = h('input', {
+      type: 'number', inputmode: 'numeric', min: '0', max: String(MAX_TARGET), step: '1', class: 'num', id: `t-${p.id}`,
+      value: now[p.id] ? String(now[p.id]) : '', placeholder: '–',
+    });
+    fields.set(p.id, input);
+    return h('div', { class: 'trow', 'data-name': p.name.toLowerCase() }, h('label', { for: `t-${p.id}` }, p.name), input);
+  });
+  const search = h('input', { type: 'text', class: 'search', placeholder: 'Find a procedure', 'aria-label': 'Find a procedure', autocomplete: 'off' });
+  search.addEventListener('input', () => {
+    const q = search.value.trim().toLowerCase();
+    for (const r of rows) r.hidden = !!q && !r.dataset.name.includes(q);
+  });
+  const save = async () => {
+    const changes = {};
+    for (const [id, input] of fields) {
+      const v = input.value.trim();
+      const n = v === '' ? 0 : Number(v);
+      if (!Number.isInteger(n) || n < 0 || n > MAX_TARGET) {
+        err.textContent = `Type a whole number from 0 to ${MAX_TARGET}, or leave it empty.`;
+        search.value = ''; for (const r of rows) r.hidden = false;
+        input.focus();
+        return;
+      }
+      if (n !== (now[id] || 0)) changes[id] = n;
+    }
+    if (!Object.keys(changes).length) { err.textContent = 'Nothing changed. Type a number, or Cancel.'; return; }
+    closeSheet();
+    try {
+      const r = await call((t) => api.supTargets(t, d.candidate, changes));
+      if (r === ENDED) return;
+      toast('Targets saved', { sub: `The student sees them under Progress after the next sync.` });
+      await loadDetail(d.candidate);
+    } catch (e) {
+      toast('Could not save the targets', { sub: e.message });
+    }
+  };
+  openSheet([
+    h('h3', {}, `Targets for ${d.candidate}`),
+    h('p', { class: 'muted' }, 'How many of each procedure the student should perform as surgeon. Leave empty for no target.'),
+    search,
+    h('div', { class: 'tlist' }, rows),
+    err,
+    h('div', { class: 'sheet-foot' },
+      h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Cancel'),
+      h('button', { class: 'btn save', type: 'button', onclick: save }, 'Save')),
+  ]);
 }
 
 function confirmSign(d) {

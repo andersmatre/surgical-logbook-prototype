@@ -104,6 +104,18 @@ test('History groups entries by the day they were done, newest first', () => {
   assert.equal(core.fmtDay('2025-12-01', '2026-11-05'), 'Monday 1 Dec 2025', 'an earlier year: with the year');
 });
 
+test('targets: the newest target event for a procedure wins, and 0 removes it', () => {
+  const t = (procedure, count, ts) => ({ id: `${procedure}-${ts}`, type: 'target', procedure, count, ts });
+  assert.deepEqual(core.targets([]), {}, 'none set');
+  assert.deepEqual(core.targets([
+    t('cs', 30, '2026-11-01T10:00:00Z'), t('appendectomy', 10, '2026-11-01T10:00:00Z'),
+    t('cs', 20, '2026-11-03T09:00:00Z'), // changed later, for example by a second supervisor
+    t('appendectomy', 0, '2026-11-04T09:00:00Z'), // removed
+    { id: 'e1', type: 'entry', procedure: 'cs', role: 'independent', ts: '2026-11-05T09:00:00Z' }, // other events are ignored
+  ]), { cs: 20 });
+  assert.deepEqual(core.targets([t('cs', 20, '2026-11-03T09:00:00Z'), t('cs', 30, '2026-11-01T10:00:00Z')]), { cs: 20 }, 'by time, not by order in the list');
+});
+
 test('wipeAll removes everything', async () => {
   await core.setMeta('profile', { student: 'S01', hospital: 'Masanga Hospital' });
   await core.logEntry({ ...base, procedure: 'cs', role: 'observing' });
@@ -168,9 +180,12 @@ test('the procedure list: ids are valid and unique, every group and Log-tab butt
   const groups = new Set(cfg.PROCEDURE_GROUPS.map((g) => g.id));
   for (const p of cfg.PROCEDURES) assert.ok(p.group ? groups.has(p.group) : p.delivery, `${p.id} is an operation in a known group, or a delivery`);
   for (const g of groups) assert.ok(cfg.PROCEDURES.some((p) => p.group === g && p.id === `other_${g}`), `the group ${g} has an "Other"`);
-  for (const id of [...cfg.LOG_SURGERY, ...cfg.LOG_DELIVERIES, ...Object.keys(cfg.TARGETS)]) {
+  for (const id of [...cfg.LOG_SURGERY, ...cfg.LOG_DELIVERIES]) {
     assert.ok(cfg.PROCEDURES.some((p) => p.id === id), `${id} is offered`);
   }
+  // a target can be set for every procedure that is offered, each once, those on the New case tab first
+  assert.deepEqual(cfg.TARGET_PROCEDURES.map((p) => p.id).sort(), cfg.PROCEDURES.map((p) => p.id).sort());
+  assert.deepEqual(cfg.TARGET_PROCEDURES.slice(0, cfg.PROCEDURES_TOP.length), cfg.PROCEDURES_TOP);
   for (const id of cfg.LOG_SURGERY) assert.ok(cfg.findProcedure(id).group, `${id} is an operation`);
   for (const id of cfg.LOG_DELIVERIES) assert.ok(cfg.findProcedure(id).delivery, `${id} is a delivery`);
   // The ids of the first list are kept, so entries made before still show a name.

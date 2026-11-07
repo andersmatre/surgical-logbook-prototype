@@ -1,7 +1,7 @@
 // config.js — content, not logic. Edit procedure lists, targets and hospitals here.
 // (Supervisors are accounts on the server now, created with `admin.js add-supervisor`.)
 
-export const APP_VERSION = '0.13.7';
+export const APP_VERSION = '0.13.8';
 
 // Where the logbook server lives. '' = the same address the app was loaded from
 // (when the server also serves the app). If the app is hosted elsewhere, for example
@@ -138,21 +138,11 @@ export const ROLES = [
     birth: { label: 'Delivered alone', hint: 'I delivered. No supervisor was in the room.', tag: 'Hands on', done: 'Delivered on my own' } },
 ];
 
-// PLACEHOLDER targets (number of procedures performed).
-// These are invented examples, NOT the programme's real requirements. The app does not say so on screen (setting
-// targets in the app is planned); replace them with the real ones from the training manual.
-export const TARGETS = {
-  cs: 30,
-  ing_hernia: 20,
-  appendectomy: 10,
-  laparotomy: 10,
-  umb_hernia: 8,
-  strang_hernia: 5,
-  amp_ak: 3,
-  hydrocele: 5,
-  cystectomy: 3,
-  ectopic: 3,
-};
+// Targets (how many a student should perform) are set per student by a supervisor in the app, not here: they
+// are 'target' events made by the server (see core.targets). These are the procedures a target can be set for,
+// in the order the supervisor sees them (those on the New case tab first), and the highest number allowed.
+export const TARGET_PROCEDURES = [...PROCEDURES_TOP, ...PROCEDURES.filter((p) => !PROCEDURES_TOP.includes(p))];
+export const MAX_TARGET = 500;
 
 // ---- Details and follow-up -----------------------------------------------------------------
 // The questions of CapaCare's surgical and obstetric logbooks (Logbook_softcopy_2021.xlsx), as fixed lists and

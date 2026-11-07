@@ -282,6 +282,11 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .bar { height: 14px; background: #ece9df; border-radius: 7px; overflow: hidden; margin: 8px 0 6px; }
 .fill { height: 100%; background: var(--main); border-radius: 7px; }
 .orow, .kv { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #efede6; }
+/* Setting targets (supervisor): a row per procedure, the name on the left, a number field on the right. */
+.trow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid #efede6; }
+.trow[hidden] { display: none; }
+.trow .num { flex: none; max-width: 96px; min-height: 48px; font-size: 18px; }
+.tlist { margin-top: 4px; }
 .kv:has(+ .btn) { border-bottom: 0; } /* no divider line straight above a button (e.g. "Last backup" above "Download backup") */
 .kv-val { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 4px 10px; text-align: right; }
 .kv-val .link { margin: -8px 0 -8px -6px; } /* a big touch target that does not make the row taller than the others */
