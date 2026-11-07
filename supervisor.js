@@ -17,7 +17,7 @@ const ENDED = Symbol('session ended'); // the server ended the session; app.js s
 // Everything this screen remembers while it is open. Replaced on every new login.
 const sv = {
   token: null, tab: 'students',
-  students: null, candidates: null, query: '',
+  students: null, candidates: null, query: '', myQuery: '', // query: the search on Add students; myQuery: on My students
   loading: false, error: '',
   detail: null, // { candidate, events, entries, selected:Set, loading, error }
   detailTab: 'sign', // on a student's page: 'sign', 'signed' or 'targets'
@@ -27,7 +27,7 @@ let ctx = null; // { root, session, version, onAuthError, onLogout, openChangePa
 export function mountSupervisor(c) {
   ctx = c;
   if (sv.token !== c.session.token) {
-    Object.assign(sv, { token: c.session.token, tab: 'students', students: null, candidates: null, query: '', loading: false, error: '', detail: null, detailTab: 'sign' });
+    Object.assign(sv, { token: c.session.token, tab: 'students', students: null, candidates: null, query: '', myQuery: '', loading: false, error: '', detail: null, detailTab: 'sign' });
   }
   paint();
   watchVisibility();
@@ -41,10 +41,13 @@ function draw() {
   if (ctx && ctx.root.querySelector('[data-sv]')) paint();
 }
 
+let bottomBar = null; // set while the page is drawn: the buttons for the bar at the bottom of the screen (To sign)
 function paint() {
   const y = pageScroll();
   const typing = keepTyping(ctx.root);
-  ctx.root.replaceChildren(appShell({ 'data-sv': '' }, [header(), nav()], body()));
+  bottomBar = null;
+  const page = body();
+  ctx.root.replaceChildren(appShell({ 'data-sv': '' }, [header(), nav()], page, bottomBar));
   if (y) setPageScroll(y);
   typing();
 }
@@ -60,7 +63,8 @@ function nav() {
   const waiting = (sv.students || []).reduce((n, s) => n + s.unsigned, 0);
   const tabs = [['students', 'My students'], ['add', 'Add students'], ['more', 'More']];
   return h('nav', { class: 'nav' }, tabs.map(([id, label]) =>
-    h('button', { class: 'tab' + (sv.tab === id && !sv.detail ? ' on' : ''), onclick: () => goTab(id) },
+    // a student's page is part of My students, so that tab stays chosen there; tapping it goes back to the list
+    h('button', { class: 'tab' + (sv.tab === id ? ' on' : ''), onclick: () => goTab(id) },
       label, id === 'students' && waiting > 0 ? h('span', { class: 'badge' }, waiting) : null)));
 }
 
@@ -184,13 +188,25 @@ function studentsView() {
       h('p', {}, 'Open "Add students" and add the candidate numbers of the students you supervise. After that you can see their entries and sign them.'),
       h('button', { class: 'btn wide', onclick: () => goTab('add') }, 'Add students'));
   } else {
-    content = h('ul', { class: 'list' }, list.map((s) => h('li', {},
-      h('button', { class: 'srow', onclick: () => { setPageScroll(0); sv.detailTab = 'sign'; loadDetail(s.candidate); } },
-        h('span', { class: 'srow-main' },
-          h('strong', {}, s.candidate),
-          s.name ? h('span', { class: 'small' }, s.name) : null,
-          h('span', { class: 'muted small' }, `${cases(s.entries)} · last update ${timeAgo(s.last_received)}`)),
-        s.unsigned > 0 ? h('span', { class: 'tag warn' }, `${s.unsigned} to sign`) : h('span', { class: 'tag ok' }, 'all signed')))));
+    // a search like the one on Add students: candidate number or name; the list narrows while typing
+    const input = h('input', { type: 'search', placeholder: 'Search candidate number or name', class: 'search', value: sv.myQuery, autocapitalize: 'characters', autocomplete: 'off' });
+    const ul = h('ul', { class: 'list' });
+    const drawList = () => {
+      sv.myQuery = input.value;
+      const q = core.normCandidate(input.value);
+      const shown = list.filter((s) => s.candidate.includes(q) || (s.name || '').toUpperCase().replace(/s+/g, '').includes(q));
+      ul.replaceChildren(...(shown.length ? shown.map((s) => h('li', {},
+        h('button', { class: 'srow', onclick: () => { setPageScroll(0); sv.detailTab = 'sign'; loadDetail(s.candidate); } },
+          h('span', { class: 'srow-main' },
+            h('strong', {}, s.candidate),
+            s.name ? h('span', { class: 'small' }, s.name) : null,
+            h('span', { class: 'muted small' }, `${cases(s.entries)} · last update ${timeAgo(s.last_received)}`)),
+          s.unsigned > 0 ? h('span', { class: 'tag warn' }, `${s.unsigned} to sign`) : h('span', { class: 'tag ok' }, 'all signed'))))
+        : [h('p', { class: 'muted' }, 'None of your students match. Check the candidate number or the name.')]));
+    };
+    input.addEventListener('input', drawList);
+    drawList();
+    content = [input, ul];
   }
   return h('section', {}, h('h2', {}, 'My students'), content);
 }
@@ -203,8 +219,8 @@ function errorBox() {
 
 // ---- one student ----------------------------------------------------------------------
 
-// One case as a short row, like in the student's History: the procedure, under it the role and the date, tags on the
-// right. Tapping it opens the whole case in the same pop-up the student sees (openCase in ui.js), only to read.
+// One case as a short row, like in the student's History: the procedure, under it the role and the date, then the
+// hospital, tags on the right. Tapping it opens the whole case in the same pop-up the student sees (openCase in ui.js), only to read.
 // box: a tick box on the left (To sign); tapping the box ticks, it does not open the case.
 function caseRow(e, { box = null, tags = [] } = {}) {
   const open = () => openCase(e, { roleText: roleDoneBy }); // the role about the student: "Operated alone"
@@ -217,7 +233,8 @@ function caseRow(e, { box = null, tags = [] } = {}) {
     box ? h('label', { class: 'pick', onclick: (ev) => ev.stopPropagation() }, box) : null,
     h('div', { class: 'e-text' },
       h('strong', {}, procName(e.procedure)),
-      h('span', { class: 'e-sub' }, `${roleDoneBy(e.role, e.procedure)} · ${core.fmtDate(e.performed_on)}`)),
+      h('span', { class: 'e-sub' }, `${roleDoneBy(e.role, e.procedure)} · ${core.fmtDate(e.performed_on)}`),
+      e.hospital ? h('span', { class: 'e-sub' }, e.hospital) : null), // where it was done, on a line of its own
     h('div', { class: 'e-tags' },
       Object.keys(e.outcome || {}).length ? h('span', { class: 'tag fu' }, 'Follow-up added') : null,
       tags));
@@ -225,9 +242,11 @@ function caseRow(e, { box = null, tags = [] } = {}) {
 
 function detailView() {
   const d = sv.detail;
+  // back to the list: only an arrow pointing left, in a round outlined button
   const back = h('button', {
-    class: 'btn ghost', onclick: () => { sv.detail = null; setPageScroll(0); loadStudents(); },
-  }, '‹ My students');
+    class: 'back-btn', type: 'button', 'aria-label': 'Back to my students',
+    onclick: () => { sv.detail = null; setPageScroll(0); loadStudents(); },
+  });
   if (d.loading) return h('section', {}, back, h('h2', {}, d.candidate), h('p', { class: 'muted' }, 'Loading entries…'));
   if (d.error) return h('section', {}, back, h('h2', {}, d.candidate), h('div', { class: 'card' }, h('p', { class: 'error' }, d.error), h('button', { class: 'btn', onclick: () => loadDetail(d.candidate) }, 'Try again')));
 
@@ -261,11 +280,12 @@ function detailView() {
 
   const none = h('p', { class: 'muted' }, 'This student has not logged anything yet.');
   const pages = {
-    // the rows, then the Sign button in a bar that stays at the bottom of the screen while the list scrolls
-    sign: () => (unsigned.length
-      ? [h('ul', { class: 'list signlist' }, rows),
-        h('div', { class: 'sign-bar' }, unsigned.length > 1 ? allBtn : null, signBtn)]
-      : d.entries.length ? h('p', { class: 'muted' }, 'Nothing waiting for a signature.') : none),
+    // the rows; Tick all and Sign in the bar at the bottom of the screen (appShell), the list scrolls above it
+    sign: () => {
+      if (!unsigned.length) return d.entries.length ? h('p', { class: 'muted' }, 'Nothing waiting for a signature.') : none;
+      bottomBar = h('div', { class: 'sign-bar' }, unsigned.length > 1 ? allBtn : null, signBtn);
+      return h('ul', { class: 'list signlist' }, rows);
+    },
     signed: () => (signed.length
       ? h('ul', { class: 'list' }, signed.map((e) => caseRow(e, { tags: h('span', { class: 'tag ok' }, `Signed · ${e.sign.supervisor_name || e.sign.supervisor}`) })))
       : d.entries.length ? h('p', { class: 'muted' }, 'Nothing signed yet.') : none),
@@ -277,12 +297,14 @@ function detailView() {
     onclick: () => { if (sv.detailTab !== id) { sv.detailTab = id; draw(); } },
   }, label);
 
-  return h('section', {},
-    // back on the left, Remove on the right in red (it asks first); outlined buttons like Change password and Log out
-    h('div', { class: 'detail-top' }, back,
-      h('button', { class: 'btn ghost danger', onclick: () => confirmRemove(d.candidate) }, 'Remove student')),
-    h('h2', {}, d.candidate),
-    nameOf(d.candidate) ? h('p', { class: 'muted detail-name' }, nameOf(d.candidate)) : null,
+  return h('section', { class: 'sv-detail' }, // the same layout on every tab, so nothing moves when the tab changes
+    // one line: the arrow back, the candidate number with the name under it, and Remove on the right in red (it asks first)
+    h('div', { class: 'detail-head' }, back,
+      h('div', { class: 'detail-title' },
+        h('h2', {}, d.candidate),
+        nameOf(d.candidate) ? h('p', { class: 'muted detail-name' }, nameOf(d.candidate)) : null),
+      // "Remove student", just "Remove" on a narrow phone so the name has room
+      h('button', { class: 'btn ghost danger', 'aria-label': 'Remove student', onclick: () => confirmRemove(d.candidate) }, 'Remove', h('span', { class: 'wide-only' }, ' student'))),
     h('div', { class: 'stats' }, stat(d.entries.length, 'cases'), stat(signed.length, 'signed'), stat(unsigned.length, 'to sign')),
     h('div', { class: 'ctabs log-parts', role: 'tablist', 'aria-label': 'What to show' },
       tab('sign', 'To sign'), tab('signed', 'Signed'), tab('targets', 'Targets')),
@@ -344,7 +366,7 @@ function openTargets(d) {
       const r = await call((t) => api.supTargets(t, d.candidate, changes));
       if (r === ENDED) return;
       toast('Targets saved', { sub: `The student sees them under Progress after the next sync.` });
-      await loadDetail(d.candidate);
+      await loadDetail(d.candidate, { quiet: true }); // keeps what is ticked under To sign
     } catch (e) {
       toast('Could not save the targets', { sub: e.message });
     }
@@ -380,8 +402,10 @@ async function doSign(d, ids) {
     if (r === ENDED) return;
     const skipped = r.skipped.length ? `${r.skipped.length} skipped (already signed or deleted)` : undefined;
     toast(`Signed ${r.signed} entr${r.signed === 1 ? 'y' : 'ies'}`, { sub: skipped });
-    sv.students = null; // counts changed
-    await loadDetail(d.candidate);
+    // fetched again in the background: what was unticked stays unticked (it was left out on purpose). The list of
+    // students too, for the new counts (the badge on My students); it is kept meanwhile, it has the student's name.
+    loadStudents();
+    await loadDetail(d.candidate, { quiet: true });
   } catch (e) {
     toast('Could not sign', { sub: e.message });
   }
@@ -414,7 +438,7 @@ function confirmRemove(candidate) {
 // ---- Add students ---------------------------------------------------------------------
 
 function addView() {
-  const list = h('div', { class: 'plist' });
+  const list = h('div', { class: 'list' }); // the same list and rows as My students, with Add on the right
   const input = h('input', { type: 'search', placeholder: 'Search candidate number or name', class: 'search', value: sv.query, autocapitalize: 'characters', autocomplete: 'off' });
   const drawList = () => {
     sv.query = input.value;
@@ -426,7 +450,8 @@ function addView() {
     list.replaceChildren(
       ...(shown.length
         ? shown.map((c) => h('div', { class: 'addrow' },
-          h('span', { class: 'srow-main' }, h('strong', {}, c.candidate), c.name ? h('span', { class: 'small' }, c.name) : null),
+          h('span', { class: 'srow-main' }, h('strong', {}, c.candidate), c.name ? h('span', { class: 'small' }, c.name) : null,
+            h('span', { class: 'muted small' }, `${cases(c.entries || 0)} · last update ${timeAgo(c.last_received)}`)),
           h('button', { class: 'btn small', type: 'button', onclick: () => addStudent(c, drawList) }, 'Add')))
         : [h('p', { class: 'muted' }, q ? 'No match. Check the candidate number, or ask CapaCare to create the account.' : 'Every student is already added.')]),
       ...(all.length > shown.length ? [h('p', { class: 'muted small' }, `Showing ${shown.length} of ${all.length}. Type to narrow down.`)] : []),
@@ -436,7 +461,6 @@ function addView() {
   drawList();
   return h('section', {},
     h('h2', {}, 'Add students'),
-    h('p', { class: 'muted' }, 'Add the students you supervise. Then you can see their entries and sign them. The student sees your name under "Your supervisors", so nobody is added in secret.'),
     input, list);
 }
 

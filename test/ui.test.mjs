@@ -251,7 +251,8 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   assert.match($('.entry .e-sub').textContent, /^Assisted · \d+ \w+$/, 'the row: your role and the date');
   assert.deepEqual($$('.day-head').map((x) => x.textContent), ['This week'], 'a heading for the week, above its entries');
   await click($('.entry'));
-  assert.match($('.sheet .case-sub').textContent, /^Assisted · \d+ \w+ · Bo Government Hospital$/, 'the case shows the role, the date and where it was done');
+  assert.match($('.sheet .case-sub').textContent, /^Assisted · \d+ \w+$/, 'the case shows the role and the date');
+  assert.equal($('.sheet .case-hosp').textContent, 'Bo Government Hospital', 'and where it was done, on a line of its own');
   await click(byText('.sheet .btn', 'Close'));
   assert.equal(byText('.btn', 'Supervisor sign-off'), undefined);
   assert.equal($$('.tag.ok').length, 0);
@@ -574,7 +575,7 @@ test('role and details are on one screen, and a follow-up can be added later fro
   await click(row());
   assert.equal($('.sheet h3').textContent, 'Caesarean section');
   // like the row in the list: role, date and hospital in one grey line, the tags on the right
-  assert.match($('.sheet-head .case-sub').textContent, /^Operated with supervisor · \d+ \w+ · Bo Government Hospital$/);
+  assert.match($('.sheet-head .case-sub').textContent, /^Operated with supervisor · \d+ \w+$/);
   assert.deepEqual($$('.sheet-head .case-top .tag').map((t) => t.textContent), ['Not signed']);
   // then the answers, in a card per part with only what was answered; a heading only when it is not the tab's name
   assert.deepEqual($$('.sheet .case-part h4').map((x) => x.textContent), ['Operation'], 'only the parts with an answer');

@@ -331,7 +331,10 @@ test('supervisor: add a student, see the entries, sign them; the student receive
     assert.equal((await sup(t, supToken, 'entries', { candidate: 'S001' })).status, 403);
 
     const list = (await sup(t, supToken, 'candidates')).body.candidates;
-    assert.deepEqual(list, [{ candidate: 'S001', name: null, mine: false }, { candidate: 'S002', name: null, mine: false }]);
+    assert.deepEqual(list.map(({ last_received, ...c }) => c), [
+      { candidate: 'S001', name: null, mine: false, entries: 2 }, { candidate: 'S002', name: null, mine: false, entries: 0 }]);
+    assert.ok(list[0].last_received, 'when the tablet last sent something, like My students');
+    assert.equal(list[1].last_received, null, 'never');
     assert.equal((await sup(t, supToken, 'assign', { candidate: ' s001 ' })).status, 200);
     assert.equal((await sup(t, supToken, 'assign', { candidate: 'S001' })).status, 200); // adding twice is harmless
     assert.equal((await sup(t, supToken, 'assign', { candidate: 'NOBODY' })).status, 404);

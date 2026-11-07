@@ -89,11 +89,23 @@ h1, h2, h3, h4, strong, b { font-weight: 600; }
 .btn.wide { width: 100%; }
 .link { background: none; border: 0; color: var(--main-dark); text-decoration: underline; padding: 10px 6px; min-height: 44px; }
 .link.danger { color: var(--danger); }
-/* A supervisor's student page: "‹ My students" on the left, "Remove student" on the right */
-h2 + .detail-name { margin-top: -10px; } /* the name close under the candidate number */
-.detail-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-.detail-top .btn { min-height: 48px; padding: 10px 14px; } /* a little smaller, so both fit on one line on a phone */
-.detail-top .btn.ghost, .detail-top .btn.ghost.danger { background: var(--card); } /* white, also the red one */
+/* A supervisor's student page: "‹ Back" on the left, "Remove student" on the right */
+/* A supervisor's student page: one line at the top with a round arrow back, the candidate number and the name under
+   it, and "Remove student" on the right (a little smaller than other buttons, so it all fits on a phone). */
+.detail-head { display: flex; align-items: center; gap: 12px; margin: 0 0 16px; }
+.detail-title { flex: 1; min-width: 0; }
+.detail-title h2 { margin: 0; }
+.detail-title .detail-name { margin: 0; }
+.detail-head .btn { flex: none; min-height: 48px; padding: 10px 14px; }
+.detail-head .btn.ghost.danger { background: var(--card); } /* white, not see-through */
+@media (max-width: 420px) { .wide-only { display: none; } }
+.back-btn { position: relative; flex: none; width: 44px; height: 44px; margin-left: -4px; padding: 0; border: 2px solid var(--main); border-radius: 50%; background: var(--card); cursor: pointer; }
+.back-btn::before { /* the arrow: a chevron pointing left, like the ones on the rows but turned */
+  content: ''; position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; margin: -6px 0 0 -3px;
+  border-left: 2.5px solid var(--main-dark); border-bottom: 2.5px solid var(--main-dark); transform: rotate(45deg);
+}
+.back-btn:active { background: var(--main-press); transform: scale(.95); }
+@media (hover: hover) { .back-btn:hover { background: var(--main-light); } }
 .row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
 .row > .btn { flex: 1 1 200px; }
 /* Full-width buttons (and list rows) stacked directly under each other or under a list get a gap, like .row. */
@@ -101,7 +113,6 @@ h2 + .detail-name { margin-top: -10px; } /* the name close under the candidate n
 /* A form in a pop-up (Change password) has its gap below itself, not on the button after it: password managers
    can put their own element right after a form, and then a "form + button" rule would stop working. */
 .sheet .setup-form { margin-bottom: 12px; }
-.addrow + .addrow { margin-top: 8px; }
 
 /* Once logged in (appShell in ui.js): the header and tabs at the top, and under them the page, which scrolls on its
    own. The window does not scroll, so on an iPhone nothing can pull the header away, also not the bounce at the
@@ -264,6 +275,7 @@ html:has(.shell), html:has(.shell) body { overscroll-behavior: none; } /* the wi
 input[type=text], .setup-form input[type=password] { width: 100%; min-height: 52px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; margin: 4px 0 14px; background: #fff; }
 .pin { letter-spacing: 6px; font-size: 24px; text-align: center; }
 .plist { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.search + .list { margin-top: 0; } /* My students: the list right under its search, like on Add students */
 /* A group heading in the list of all operations. */
 .plist-group { margin: 12px 0 0; color: var(--main-dark); }
 .plist-group:first-child { margin-top: 0; }
@@ -275,18 +287,15 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
    and the Sign button in a bar that stays at the bottom of the screen while the list scrolls under it. */
 .entry.tap.has-box { padding-left: 0; }
 .pick { align-self: stretch; display: flex; align-items: center; padding: 0 4px 0 14px; cursor: pointer; }
-/* The bar is white across the whole screen with a thin line on top, like the tab bar at the top: the border-image
-   paints it out to the sides without making the page wider. It sits at the bottom of the screen, also when the list
-   is short (the page and the section fill the screen and the bar takes what is left). */
-.sign-bar {
-  display: flex; gap: 10px; position: sticky; bottom: 0; z-index: 1; margin-top: auto;
-  padding: 16px 0 calc(16px + env(safe-area-inset-bottom));
-  border-image: linear-gradient(var(--line) 0 1px, var(--card) 0) fill 0 / 0 / 0 100vmax;
-}
-.signlist { margin-bottom: 16px; } /* room above the bar when scrolled to the end */
-.shell > .main > .page:has(> section > .sign-bar) { padding-bottom: 0; min-height: 100%; display: flex; flex-direction: column; }
-@media (pointer: coarse) { .shell > .main > .page:has(> section > .sign-bar) { min-height: calc(100% + 1px); } }
-.page > section:has(> .sign-bar) { flex: 1 0 auto; display: flex; flex-direction: column; }
+/* The bar at the bottom of the screen (appShell in ui.js: To sign on a supervisor's student page): white with a thin
+   line on top, across the whole screen, also on a PC; the page scrolls above it. Inside, the buttons line up with the
+   page: the same room for a scrollbar on each side, and .bottom-bar-in gets the same padding as .page from the same width. */
+.bottom-bar { flex: none; overflow: hidden; scrollbar-gutter: stable both-edges; background: var(--card); border-top: 1px solid var(--line); }
+.bottom-bar-in { padding: 16px max(16px, calc((100% - 928px) / 2)) calc(16px + env(safe-area-inset-bottom)); }
+.sign-bar { display: flex; gap: 10px; }
+.shell:has(> .bottom-bar) > .main > .page { padding-bottom: 10px; } /* the last case: as far from the bar as the cases are from each other */
+/* A student's page (.sv-detail) is a column on every tab, so the top does not move when the tab changes. */
+.sv-detail { flex: 1 0 auto; display: flex; flex-direction: column; }
 
 .card { background: var(--card); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; border: 1px solid var(--line); }
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
@@ -393,6 +402,7 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .case-top { display: flex; align-items: center; gap: 12px; }
 .case-top-text { flex: 1 1 auto; min-width: 0; }
 .case-top .case-sub { font-size: 15px; margin-top: 2px; }
+.case-top .case-hosp { margin-top: 0; } /* the hospital right under the role and date */
 .case-top .e-tags { flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 45%; }
 .case-signed { font-size: 15px; margin-top: 2px; }
 /* The two tabs, "Details" and "Follow-up": plain words, the open one dark with a line under it. */
@@ -463,7 +473,8 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 }
 .srow:active { background: var(--main-light); border-color: var(--main); }
 .srow-main { display: flex; flex-direction: column; min-width: 0; }
-.addrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; padding: 4px 4px 4px 14px; background: #fff; border: 1px solid var(--line); border-radius: 10px; }
+/* Add students: a row like on My students (.srow), with Add on the right */
+.addrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 72px; padding: 12px 12px 12px 16px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
 .btn.small { min-height: 44px; padding: 8px 20px; }
 
 /* administrator screens */

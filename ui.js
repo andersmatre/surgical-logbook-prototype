@@ -60,9 +60,12 @@ export function saveBlob(blob, filename) {
 // the page is scrolled far or fast, or bounces at its ends. pageScroll and setPageScroll read and set where the
 // page is scrolled to, to keep that when the screen is drawn again, or go back to the top on another tab.
 // The content sits in .page, which on a touch screen is 1 px taller than the screen (style.css), so a short page can still be dragged and bounce.
-export const appShell = (attrs, top, page) =>
+// bottom: buttons that stay at the bottom of the screen (a supervisor's Sign), in a white bar under the page, as wide
+// as the top bar; the page scrolls above it, not under it.
+export const appShell = (attrs, top, page, bottom = null) =>
   h('div', { ...attrs, class: 'shell' }, h('div', { class: 'top-bar' }, top),
-    h('main', { class: 'main' }, h('div', { class: 'page' }, page)));
+    h('main', { class: 'main' }, h('div', { class: 'page' }, page)),
+    bottom ? h('div', { class: 'bottom-bar' }, h('div', { class: 'bottom-bar-in' }, bottom)) : null);
 export const pageScroll = () => document.querySelector('.shell > .main')?.scrollTop || 0;
 export function setPageScroll(y) {
   const page = document.querySelector('.shell > .main');
@@ -100,9 +103,9 @@ export function initUi({ overlayEl, toastElement }) {
 // click, so the button has to be tapped a second time. A finger that moves a little also loses the tap. That is
 // right for buttons that scroll with the page (a touch there may just mean "stop"), but not for the buttons that
 // stay in place while the content moves under them: Cancel and Save at the bottom of a pop-up, the tabs and the
-// sync button at the top, Undo in the message at the bottom, Delete in the heading of a case. A touch on one of
+// sync button at the top, Tick all and Sign in the bar at the bottom of a supervisor's page, Undo in the message at the bottom, Delete in the heading of a case. A touch on one of
 // those always means "press", so it is pressed when the finger lifts, at once.
-const STAY_PUT = '.sheet-foot, .sheet-head, .top-bar, #toast';
+const STAY_PUT = '.sheet-foot, .sheet-head, .top-bar, .bottom-bar, #toast';
 let pressInstalled = false;
 function pressOnTouch() {
   if (pressInstalled) return;
@@ -392,8 +395,8 @@ export function openCase(e, { onDelete = null, onFollowUp = null, roleText = rol
           h('p', { class: 'case-sub' }, [
             roleText(e.role, e.procedure),
             late ? `${core.fmtDate(e.performed_on)} (logged ${core.fmtDate(e.entered_on)})` : core.fmtDate(e.performed_on),
-            e.hospital,
-          ].filter(Boolean).join(' · '))),
+          ].filter(Boolean).join(' · ')),
+          e.hospital ? h('p', { class: 'case-sub case-hosp' }, e.hospital) : null), // the hospital on a line of its own, like in the rows
         h('div', { class: 'e-tags' },
           hasOutcome ? h('span', { class: 'tag fu' }, 'Follow-up added') : null,
           e.sign ? h('span', { class: 'tag ok' }, 'Signed') : h('span', { class: 'tag warn' }, 'Not signed'))),

@@ -99,12 +99,13 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   type($('.search'), '');
   assert.deepEqual($$('.addrow strong').map((e) => e.textContent), ['CC1001'], 'an added student leaves the list');
   type($('.search'), 'zzz');
-  assert.match($('.plist').textContent, /No match/);
+  assert.match($('.main .list').textContent, /No match/);
   type($('.search'), 'mohamed');
   assert.match($('.addrow').textContent, /CC1001\s*Mohamed Kamara/, 'a student can be found by name');
+  assert.match($('.addrow').textContent, /3 cases · last update/, 'with how many cases and the last update, like My students');
   type($('.search'), '');
   await click(byText('.btn', 'Add', $('.addrow')));
-  assert.match($('.plist').textContent, /Every student is already added/);
+  assert.match($('.main .list').textContent, /Every student is already added/);
 
   // ---- my students: the one with entries waiting comes first
   await click(byText('.tab', 'My students'), 500);
@@ -115,6 +116,15 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   assert.match(rows[0].textContent, /3 to sign/);
   assert.match(rows[1].textContent, /CC1002/);
   assert.match($('.nav .badge').textContent, /4/, 'badge counts all entries waiting');
+  // a search like on Add students: by candidate number or name
+  type($('.search'), 'mohamed');
+  assert.deepEqual($$('.srow strong').map((e) => e.textContent), ['CC1001'], 'found by name');
+  type($('.search'), 'cc 1002');
+  assert.deepEqual($$('.srow strong').map((e) => e.textContent), ['CC1002'], 'and by candidate number');
+  type($('.search'), 'zzz');
+  assert.match($('.main').textContent, /None of your students match/);
+  type($('.search'), '');
+  assert.equal($$('.srow').length, 2);
 
   // ---- one student: untick one entry, sign the rest
   await click(rows[0], 500);
@@ -126,7 +136,8 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   // each case is a short row; tapping it opens the case to read (no Delete, no follow-up button)
   const firstRow = $('.signlist .entry');
   assert.match(firstRow.querySelector('.e-sub').textContent, /^Operated with supervisor · \d+ \w+$/, 'the role and the date, like in History');
-  assert.doesNotMatch(firstRow.textContent, /Masanga/, 'the rest is in the pop-up');
+  assert.equal(firstRow.querySelectorAll('.e-sub')[1].textContent, 'Masanga Hospital', 'the hospital, on a line of its own');
+  assert.doesNotMatch(firstRow.textContent, /Anaesthesia/, 'the rest is in the pop-up');
   await click(firstRow, 100);
   assert.ok($('.sheet .case-title'), 'the case opens');
   assert.equal(byText('.sheet .link', 'Delete'), undefined, 'a supervisor cannot delete');
@@ -159,9 +170,14 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   assert.match($('#toast').textContent, /Signed 2 entries/);
   assert.equal(signsOf('CC1001'), 2);
   assert.equal($$('.signlist input[type=checkbox]').length, 1, 'one entry is still waiting');
+  assert.equal($('.signlist input[type=checkbox]').checked, false, 'the one left out stays unticked after signing');
+  assert.match($('.main').textContent, /Mohamed Kamara/, 'the name is still there after signing');
+  assert.match($('.nav .badge').textContent, /^2$/, 'the badge counts what is still waiting');
+  assert.equal(byText('.btn', 'Select entries to sign').disabled, true);
   // the page has three tabs: To sign (open), Signed and Targets
   assert.deepEqual($$('.ctab').map((x) => x.textContent), ['To sign', 'Signed', 'Targets']);
   assert.equal($('.ctab.on').textContent, 'To sign');
+  assert.match($('.nav .tab.on').textContent, /My students/, 'a student\'s page is part of My students: that tab stays chosen');
   assert.equal($$('.entry .tag.ok').length, 0, 'the signed ones are under Signed');
   await click(byText('.ctab', 'Signed'), 50);
   assert.equal($$('.entry .tag.ok').length, 2);
@@ -176,9 +192,6 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   // ---- no Refresh button: the page on show is fetched again when the app comes back on the screen,
   // and what the supervisor unticked stays unticked; a new entry comes in ticked
   assert.equal(byText('.top button', 'Refresh'), undefined, 'no Refresh button');
-  const left = $('.signlist input[type=checkbox]');
-  left.checked = false;
-  left.dispatchEvent(new window.Event('change'));
   await post('/api/sync', s1, { events: [{
     id: '00000000-0000-4000-8000-000000000999', type: 'entry', ts: new Date().toISOString(), hospital: 'Masanga Hospital',
     procedure: 'hydrocele', role: 'supervised', performed_on: '2026-10-21', entered_on: '2026-10-21', schema: 1,

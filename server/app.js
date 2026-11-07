@@ -10,7 +10,7 @@
 //
 // Supervisors (every call checks that the student is assigned to the caller):
 //   POST /api/sup/students    -> { students: [{ candidate, entries, unsigned, since, last_received }] }
-//   POST /api/sup/candidates  -> { candidates: [{ candidate, mine }] }       (to find students to add)
+//   POST /api/sup/candidates  -> { candidates: [{ candidate, name, mine, entries, last_received }] } (to find students to add)
 //   POST /api/sup/assign      { candidate }
 //   POST /api/sup/unassign    { candidate }
 //   POST /api/sup/entries     { candidate, cursor } -> { events, cursor, has_more }
@@ -286,10 +286,14 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
 
     if (route === 'POST /api/sup/candidates') {
       const a = requireSupervisor(req);
+      // with how many cases and when the tablet last sent something, like My students, to tell students apart
       const candidates = db.prepare(
-        `SELECT u.candidate, u.display_name AS name, EXISTS (SELECT 1 FROM assignments x WHERE x.supervisor = ? AND x.student = u.candidate) AS mine
+        `SELECT u.candidate, u.display_name AS name, EXISTS (SELECT 1 FROM assignments x WHERE x.supervisor = ? AND x.student = u.candidate) AS mine,
+           (SELECT COUNT(*) FROM events e WHERE e.owner = u.candidate AND e.type = 'entry'
+              AND NOT EXISTS (SELECT 1 FROM events v WHERE v.owner = e.owner AND v.type = 'void' AND v.target = e.id)) AS entries,
+           (SELECT MAX(received_at) FROM events e WHERE e.owner = u.candidate) AS last_received
          FROM users u WHERE u.role = 'student' AND u.disabled = 0 ORDER BY u.candidate`,
-      ).all(a.candidate).map((r) => ({ candidate: r.candidate, name: r.name, mine: !!r.mine }));
+      ).all(a.candidate).map((r) => ({ candidate: r.candidate, name: r.name, mine: !!r.mine, entries: r.entries, last_received: r.last_received }));
       return send(res, 200, { candidates });
     }
 
