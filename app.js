@@ -875,11 +875,19 @@ function entryRow(e) {
 function openFollowUp(e) {
   const form = questions(FOLLOWUP_FIELDS, followupFieldsFor(e.procedure), e.outcome);
   const err = h('p', { class: 'error', role: 'alert' }, '');
-  const days = core.daysBetween(e.performed_on, core.localDateISO());
+  // the heading like the case's: a round arrow back to the case (its Follow-up tab), the procedure, the role and the
+  // date, and the hospital on a line of its own
+  const back = h('button', {
+    class: 'back-btn', type: 'button', 'aria-label': 'Back to the case', onclick: () => openCase(e, { ...caseActions, tab: 'followup' }),
+  });
   openSheet([
-    h('h3', {}, 'Follow-up'),
-    h('p', {}, h('strong', {}, procName(e.procedure)), ` · ${core.fmtDate(e.performed_on)} (${days === 0 ? 'today' : days === 1 ? '1 day ago' : `${days} days ago`})`),
-    h('p', { class: 'muted' }, 'What do you know now? Tap only what you know. You can add more later.'),
+    h('div', { class: 'sheet-head fu-head' },
+      h('div', { class: 'case-top' }, back,
+        h('div', { class: 'case-top-text' },
+          h('h3', { class: 'case-title' }, procName(e.procedure)),
+          h('p', { class: 'case-sub' }, `${roleDone(e.role, e.procedure)} · ${core.fmtDate(e.performed_on)}`),
+          e.hospital ? h('p', { class: 'case-sub case-hosp' }, e.hospital) : null))),
+    h('p', { class: 'muted' }, 'Follow-up: what do you know now? Tap only what you know. You can add more later.'),
     form.el,
     err,
     h('div', { class: 'sheet-foot' },

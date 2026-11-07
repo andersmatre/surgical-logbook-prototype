@@ -126,13 +126,14 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   type($('.search'), '');
   assert.equal($$('.srow').length, 2);
 
-  // ---- one student: untick one entry, sign the rest
+  // ---- one student: nothing is ticked at first; tick two, sign them
   await click(rows[0], 500);
   assert.match($('h2').textContent, /CC1001/);
   assert.match($('.main').textContent, /Mohamed Kamara/);
   const boxes = $$('.signlist input[type=checkbox]');
   assert.equal(boxes.length, 3);
-  assert.ok(boxes.every((b) => b.checked), 'everything unsigned starts ticked');
+  assert.ok(boxes.every((b) => !b.checked), 'nothing is ticked at first');
+  assert.equal(byText('.btn', 'Select entries to sign').disabled, true);
   // each case is a short row; tapping it opens the case to read (no Delete, no follow-up button)
   const firstRow = $('.signlist .entry');
   assert.match(firstRow.querySelector('.e-sub').textContent, /^Operated with supervisor · \d+ \w+$/, 'the role and the date, like in History');
@@ -148,7 +149,8 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   $('.signlist .pick').click();
   await wait(50);
   assert.equal($('#overlay').classList.contains('open'), false, 'the tick box does not open the case');
-  assert.equal(byText('.btn', 'Sign 2 selected').textContent, 'Sign 2 selected');
+  assert.equal(boxes[0].checked, true);
+  assert.equal(byText('.btn', 'Sign 1 selected').textContent, 'Sign 1 selected');
   // "Tick all" / "Untick all" next to the Sign button
   const all = () => $('.sign-bar .btn.ghost');
   assert.equal(all().textContent, 'Tick all', 'not everything is ticked');
@@ -159,9 +161,7 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   await click(all(), 50);
   assert.ok(boxes.every((b) => !b.checked));
   assert.equal(byText('.btn', 'Select entries to sign').disabled, true);
-  await click(all(), 50);
-  boxes[2].checked = false;
-  boxes[2].dispatchEvent(new window.Event('change'));
+  for (const b of boxes.slice(0, 2)) { b.checked = true; b.dispatchEvent(new window.Event('change')); }
   assert.equal(byText('.btn', 'Sign 2 selected').textContent, 'Sign 2 selected');
   await click(byText('.btn', 'Sign 2 selected'), 100);
   assert.match($('.sheet').textContent, /Sign 2 entries\?/);
@@ -190,15 +190,18 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   assert.equal(pulled.events.filter((e) => e.type === 'sign').length, 2);
 
   // ---- no Refresh button: the page on show is fetched again when the app comes back on the screen,
-  // and what the supervisor unticked stays unticked; a new entry comes in ticked
+  // and what the supervisor ticked stays ticked; a new entry comes in unticked
   assert.equal(byText('.top button', 'Refresh'), undefined, 'no Refresh button');
+  const left = $('.signlist input[type=checkbox]');
+  left.checked = true;
+  left.dispatchEvent(new window.Event('change'));
   await post('/api/sync', s1, { events: [{
     id: '00000000-0000-4000-8000-000000000999', type: 'entry', ts: new Date().toISOString(), hospital: 'Masanga Hospital',
     procedure: 'hydrocele', role: 'supervised', performed_on: '2026-10-21', entered_on: '2026-10-21', schema: 1,
   }], cursor: pulled.cursor });
   document.dispatchEvent(new window.Event('visibilitychange'));
   await wait(500);
-  assert.deepEqual($$('.signlist input[type=checkbox]').map((b) => b.checked).sort(), [false, true], 'the new entry shows up by itself, ticked');
+  assert.deepEqual($$('.signlist input[type=checkbox]').map((b) => b.checked).sort(), [false, true], 'the new entry shows up by itself, unticked; the ticked one stays ticked');
   assert.equal(byText('.btn', 'Sign 1 selected').textContent, 'Sign 1 selected');
 
   // ---- targets: none at first; set two in the pop-up, see them with how many were performed

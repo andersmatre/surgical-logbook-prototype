@@ -144,7 +144,7 @@ async function loadCandidates() {
 const nameOf = (candidate) => ((sv.students || []).find((s) => s.candidate === candidate) || {}).name || null;
 
 // quiet: fetch again in the background; the page on show stays until the answer comes, and what the
-// supervisor ticked stays ticked (new entries come in ticked, like on opening).
+// supervisor ticked stays ticked (new entries come in unticked, like on opening).
 async function loadDetail(candidate, { quiet = false } = {}) {
   const old = quiet && sv.detail && sv.detail.candidate === candidate && !sv.detail.error ? sv.detail : null;
   const d = { candidate, events: [], entries: [], selected: new Set(), loading: true, error: '' };
@@ -163,9 +163,9 @@ async function loadDetail(candidate, { quiet = false } = {}) {
       if (!r.has_more) break;
     }
     d.entries = core.derive(d.events);
-    // everything unsigned is ticked; untick what is wrong
-    const seen = old ? new Set(old.entries.map((e) => e.id)) : new Set();
-    d.selected = new Set(d.entries.filter((e) => !e.sign && (!seen.has(e.id) || old.selected.has(e.id))).map((e) => e.id));
+    // nothing is ticked at first: the supervisor ticks what they supervised (or Tick all). Fetched again in the
+    // background, what was ticked stays ticked as long as it is still waiting; new entries come in unticked.
+    d.selected = new Set(old ? d.entries.filter((e) => !e.sign && old.selected.has(e.id)).map((e) => e.id) : []);
   } catch (e) { d.error = e.message; }
   d.loading = false;
   if (old) {

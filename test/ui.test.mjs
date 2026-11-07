@@ -606,6 +606,12 @@ test('role and details are on one screen, and a follow-up can be added later fro
   await click(row());
   await click(byText('.sheet-head .ctab', 'Follow-up'));
   await click(byText('.sheet .btn', 'Add follow-up'));
+  // headed like the case: the procedure, the role and the date, the hospital; a round arrow goes back to the case
+  assert.equal($('.sheet .case-title').textContent, 'Caesarean section');
+  assert.equal($('.sheet .case-hosp').textContent, 'Bo Government Hospital');
+  await click($('.sheet .back-btn'));
+  assert.equal($('.sheet-head .ctab.on').textContent, 'Follow-up', 'back on the case, on its Follow-up tab');
+  await click(byText('.sheet .btn', 'Add follow-up'));
   assert.deepEqual(visible('.sheet .qlabel').map((l) => l.textContent),
     ['Complication at birth', 'Mother', 'Wound infection', 'Back to theatre', 'Referred to another hospital', 'Days in hospital afterwards']);
   await click(byText('.sheet .btn', 'Save'));

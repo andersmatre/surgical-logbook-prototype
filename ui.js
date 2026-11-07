@@ -324,7 +324,8 @@ export function passwordForm({ forced, candidate, token, onDone, onAuthError }) 
 // with a quiet link at the bottom of Details; with onFollowUp a follow-up can be added on the Follow-up tab next to
 // Close. A supervisor gets neither: they only read.
 // roleText: how the role is worded (roleDone for the student; a supervisor passes roleDoneBy).
-export function openCase(e, { onDelete = null, onFollowUp = null, roleText = roleDone } = {}) {
+// tab: the tab to open on ('details', or 'followup' when coming back from the follow-up form).
+export function openCase(e, { onDelete = null, onFollowUp = null, roleText = roleDone, tab: firstTab = 'details' } = {}) {
   const row = (label, value) => h('div', { class: 'case-row' }, h('span', {}, label), h('span', {}, value));
   // A heading that only repeats the tab's name ("Details", "Follow-up") is left out.
   const part = (title, rows) => (rows.length
@@ -380,7 +381,7 @@ export function openCase(e, { onDelete = null, onFollowUp = null, roleText = rol
     if (caseTab.parentNode) caseTab.parentNode.scrollTop = 0; // the other tab starts at its top
     if (sheet) keepTop(sheet, top);
   };
-  show('details');
+  show(firstTab === 'followup' ? 'followup' : 'details');
 
   const signedBy = e.sign
     ? `Signed by ${e.sign.supervisor_name || e.sign.supervisor}${e.sign.ts ? ` on ${core.fmtDate(String(e.sign.ts).slice(0, 10))}` : ''}`
