@@ -81,7 +81,7 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
 
   // ---- the supervisor screen, with no students yet
   assert.ok($('[data-sv]'), 'supervisor screen');
-  assert.equal($('#hosp'), null, 'a supervisor is not asked for a hospital');
+  assert.equal($('.hosp-setup'), null, 'a supervisor is not asked for a hospital');
   assert.match($('.who').textContent, /Supervisor · Dr Anna Kamara/);
   assert.match($('.main').textContent, /No students yet/);
   assert.equal(byText('.tab', 'Log'), undefined, 'no logbook tabs');

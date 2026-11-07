@@ -180,6 +180,9 @@ test('the procedure list: ids are valid and unique, every group and Log-tab butt
   assert.equal(cfg.roleDone('observing', 'normal_delivery'), 'Observed');
   assert.equal(cfg.roleDone('supervised', 'not_a_procedure'), 'Operated with supervisor');
   assert.equal(cfg.roleLabel('nonsense'), 'nonsense');
+  // Everything is logged afterwards: the roles are in the past tense everywhere, the stored ids stay as they are.
+  assert.deepEqual(cfg.ROLES.map((r) => [r.id, r.label]).slice(0, 2), [['observing', 'Observed'], ['assisting', 'Assisted']]);
+  assert.ok(cfg.ROLES.every((r) => !/ing\b/.test(r.label) && !/ing\b/.test(r.done) && !/ing\b/.test(r.birth.label || '')), 'no "-ing" words');
   // The questions: an operation, a delivery, or both (each question once); every id is a known question.
   const ids2 = (parts) => parts.flatMap((p) => p.ids);
   assert.ok(ids2(cfg.detailFieldsFor('appendectomy')).includes('sapgar_hr') && !ids2(cfg.detailFieldsFor('appendectomy')).includes('gravida'));

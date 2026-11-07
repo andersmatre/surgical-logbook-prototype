@@ -83,7 +83,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
 
   // ---- overview: totals, procedures across students, one row per student
   assert.ok($('[data-admin]'), 'administrator screen');
-  assert.equal($('#hosp'), null);
+  assert.equal($('.hosp-setup'), null, 'an administrator is not asked for a hospital');
   assert.match($('.who').textContent, /Administrator · Anders/);
   const stats = $$('.stats .stat, .stats > div').map((e) => e.textContent.replace(/\s+/g, ' ').trim());
   assert.ok(stats.some((t) => /^2\s*students/.test(t)), `students stat in ${stats}`);
@@ -162,6 +162,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
 
   // ---- add a supervisor
   await click(byText('.seg-b', 'Supervisor'));
+  assert.equal($('label[for=newname]').textContent, 'Name (students see it next to a signature)');
   type($('#newid'), 'sup-ben');
   type($('#newname'), 'Dr Ben Sesay');
   await submit($('.setup-form'), 800);
@@ -173,6 +174,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
 
   // an invalid id is refused on the screen
   await click(byText('.seg-b', 'Administrator'));
+  assert.equal($('label[for=newname]').textContent, 'Name', 'administrators do not sign, so no word about signatures');
   type($('#newid'), '!');
   await submit($('.setup-form'), 100);
   assert.match($('.error').textContent, /2 to 20/);

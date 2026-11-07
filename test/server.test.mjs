@@ -782,7 +782,7 @@ test('CSV exports: counts per student, per hospital and every entry; safe for sp
     assert.match(first, /^S001,"'=HYPERLINK\(""x""\)",/, 'a name starting with = cannot become a formula');
     assert.match(first, /Masanga Hospital,cs,Caesarean section,Surgeon, independent|Masanga Hospital,cs,Caesarean section,"Surgeon, independent"/);
     assert.match(first, /,yes,yes,SUP-ANNA,\d{4}-/, 'performed, signed, who signed');
-    assert.match(entries.find((l) => l.includes(e2.id)), /,Observing,no,no,+$/, 'not signed, no details, no follow-up: every cell after it is empty');
+    assert.match(entries.find((l) => l.includes(e2.id)), /,Observed,no,no,+$/, 'not signed, no details, no follow-up: every cell after it is empty');
     assert.match(entries.find((l) => l.includes(e3.id)), /^S002,"Doe, Jane",/, 'commas in a name are quoted');
 
     const procs = await get('procedures');

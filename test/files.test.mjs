@@ -55,3 +55,30 @@ test('no class names that ad blockers hide (they did hide "adv-text" on the live
 test('the service worker fills a new cache with fresh files, never with copies from the browser cache', () => {
   assert.match(read('sw.js'), /cache: 'reload'/, 'otherwise a new version can be stored with old files mixed in');
 });
+
+test('a pop-up fades in as one piece: the dark layer, the pop-up and its arrows together', () => {
+  const css = read('style.css');
+  assert.match(css, /#overlay\.open, \.layer \{ animation: sheet-in/, 'the whole overlay fades, not only the pop-up');
+  assert.doesNotMatch(/\n\.sheet \{[^}]*\}/.exec(css)[0], /animation/, 'the pop-up has no fade of its own: on an iPad that looked like two steps');
+  assert.match(css, /\n\.scroll-hint \{[^}]*\}/);
+  assert.doesNotMatch(/\n\.scroll-hint \{[^}]*\}/.exec(css)[0], /animation/, 'an arrow only fades (.fade) when it comes later, not with the pop-up');
+});
+
+test('no grey line above Cancel and Save in a pop-up', () => {
+  assert.doesNotMatch(/\n\.sheet-foot \{[^}]*\}/.exec(read('style.css'))[0], /border/, 'the fade under the arrow already shows where the content ends');
+});
+
+test('a wide table does not bounce sideways past its first column', () => {
+  assert.match(/\n\.scroll \{[^}]*\}/.exec(read('style.css'))[0], /overscroll-behavior-x: none/,
+    'on iPad, iPhone and Android the "Each student" table could be pulled past its edge into an empty strip');
+});
+
+test('the page does not jump sideways when a scrollbar appears', () => {
+  assert.match(/\n\.shell > \.main \{[^}]*\}/.exec(read('style.css'))[0], /scrollbar-gutter: stable both-edges/,
+    'the room for the scrollbar is always kept, on both sides so the page stays in the middle under the header');
+});
+
+test('on a touch screen a short page can still be dragged: .page is a little taller than the area that scrolls', () => {
+  assert.match(read('style.css'), /@media \(pointer: coarse\) \{ \.shell > \.main > \.page \{ min-height: calc\(100% \+ 1px\); \} \}/,
+    'without it Log and More do not move at all on a phone and the app feels frozen; only on touch, so a mouse wheel does not move a short page');
+});

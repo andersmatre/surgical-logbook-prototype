@@ -463,11 +463,12 @@ function addView() {
     });
   } else {
     const id = h('input', { id: 'newid', type: 'text', placeholder: role === 'admin' ? 'e.g. ADMIN-ANDERS' : 'e.g. SUP-ANNA', value: ad.draft.id, autocapitalize: 'characters', autocomplete: 'off', spellcheck: 'false' });
-    const name = h('input', { id: 'newname', type: 'text', placeholder: 'e.g. Dr Anna Kamara', value: ad.draft.name, autocomplete: 'off' });
+    const name = h('input', { id: 'newname', type: 'text', placeholder: role === 'admin' ? 'e.g. Fatmata Bangura' : 'e.g. Dr Anna Kamara', value: ad.draft.name, autocomplete: 'off' });
     [id, name].forEach((i) => i.addEventListener('input', () => { ad.draft.id = id.value; ad.draft.name = name.value; err.textContent = ''; }));
     form = h('form', { class: 'setup-form' },
       h('label', { for: 'newid' }, 'Candidate number'), id,
-      h('label', { for: 'newname' }, 'Name (students see it next to a signature)'), name,
+      // only supervisors sign; an administrator's name is only shown at the top of their own screen
+      h('label', { for: 'newname' }, role === 'admin' ? 'Name' : 'Name (students see it next to a signature)'), name,
       err, h('button', { class: 'btn wide', type: 'submit' }, 'Create account'));
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();

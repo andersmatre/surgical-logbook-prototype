@@ -44,8 +44,8 @@ const logAs = async (role, ms) => {
 };
 // On the Log tab: choose Surgery or Delivery (unless it is chosen already), then tap the procedure.
 const choosePart = async (part) => {
-  const b = byText('.log-parts .choice', part);
-  if (b.getAttribute('aria-pressed') !== 'true') await click(b);
+  const b = byText('.log-parts .ctab', part);
+  if (b.getAttribute('aria-selected') !== 'true') await click(b);
 };
 const openProc = async (name, part = 'Surgery') => { await choosePart(part); await click(byText('.proc', name)); };
 const submit = async (form, ms = 300) => {
@@ -115,13 +115,34 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   await submit($('.setup-form'), 600);
 
   // ---- hospital, then the main screen
-  assert.ok($('#hosp'), 'hospital question is shown once per tablet');
+  assert.ok($('.hosp-setup'), 'hospital question is shown once per tablet');
   assert.equal($('.setup h1').textContent, 'Where do you work?');
-  assert.equal($$('#hosp option').length, HOSPITALS.length, 'every hospital is in the list');
-  $('#hosp').value = 'Masanga Hospital';
-  await submit($('.setup-form'));
+  // laid out like More: a row with the hospital and a button that opens the same menu
+  assert.match($('.hosp-setup .fact').textContent, /Hospital\s*Not chosen yet/);
+  const goBtn = $('.hosp-setup > .btn');
+  assert.equal(goBtn.textContent, 'Choose your hospital', 'the button says what is missing');
+  assert.equal(goBtn.disabled, true);
+  assert.ok($('.hosp-setup .hpick').hidden, 'the menu is closed until the button is tapped');
+  const chooseBtn = $('.hosp-setup [aria-label="Change hospital"]');
+  assert.equal(chooseBtn.textContent, 'Choose');
+  await click(chooseBtn, 100);
+  assert.ok(!$('.hosp-setup .hpick').hidden, 'the button opens the hospital menu');
+  assert.equal($$('.hosp-setup .hlist .row-btn').length, HOSPITALS.length, 'every hospital is a button');
+  assert.equal($('.hosp-setup .hlist .on'), null, 'nothing is chosen yet');
+  const firstSearch = $('.hosp-setup .search');
+  firstSearch.value = 'masan';
+  firstSearch.dispatchEvent(new window.Event('input'));
+  assert.deepEqual($$('.hosp-setup .hlist .row-btn').map((b) => b.textContent), ['Masanga Hospital'], 'search narrows the list');
+  await click(byText('.hosp-setup .row-btn', 'Masanga Hospital'), 100);
+  assert.ok($('.hosp-setup .hpick').hidden, 'the menu closes after choosing');
+  assert.match($('.hosp-setup .fact').textContent, /Hospital\s*Masanga Hospital/);
+  assert.equal(chooseBtn.textContent, 'Change');
+  assert.equal($('.hosp-setup'), $('.setup'), 'still on this screen: nothing is stored before Continue');
+  assert.equal(goBtn.textContent, 'Continue');
+  await click(goBtn, 300);
   assert.ok($('.top'), 'main screen');
   assert.ok($('.shell > .top-bar > .top + .nav') && $('.shell > .top-bar + .main'), 'header and tabs at the top, the page under them scrolls on its own');
+  assert.ok($('.shell > .main > .page'), 'the content sits in .page, which is always a little taller than the screen');
   assert.match($('.who').textContent, /CC1234 · Mohamed Kamara · Masanga Hospital/);
   assert.doesNotMatch(document.body.textContent, /never type/i, 'no warning about typing patient data: there is nowhere to type it');
   assert.equal($('.banner'), null, 'no version strip on the screens: the version is under More, About');
@@ -130,8 +151,9 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   assert.equal(JSON.parse(localStorage.getItem('logbook.session')).must_change, false);
 
   // ---- the Log tab: Surgery or Delivery, like CapaCare's two logbooks; Surgery is chosen from the start
-  assert.deepEqual($$('.log-parts .choice strong').map((x) => x.textContent), ['Surgery', 'Delivery']);
-  assert.equal(byText('.log-parts .choice', 'Surgery').getAttribute('aria-pressed'), 'true', 'Surgery is chosen from the start');
+  assert.deepEqual($$('.log-parts .ctab').map((x) => [x.textContent, x.classList.contains('on')]), [['Surgery', true], ['Delivery', false]], 'two tabs, like in a case');
+  assert.equal(byText('.log-parts .ctab', 'Surgery').getAttribute('aria-selected'), 'true', 'Surgery is chosen from the start');
+  assert.equal($('.log-title').textContent, 'Add a case', 'the heading says what the page is for, in the same word as the counts');
   assert.equal($$('.grid .proc').length, 10);
   await choosePart('Delivery');
   assert.deepEqual($$('.grid .proc .proc-name').map((x) => x.textContent), ['Normal delivery', 'Caesarean section', 'Vacuum delivery', 'Forceps delivery', 'Destructive delivery (craniotomy)']);
@@ -163,17 +185,25 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
 
   // ---- a delivery that is not an operation words the roles as the obstetric logbook does
   await openProc('Normal delivery', 'Delivery');
-  assert.deepEqual($$('.sheet .choices.wide .choice strong').map((x) => x.textContent), ['Observing', 'Assisting', 'Delivered, supervised', 'Delivered alone']);
+  assert.deepEqual($$('.sheet .choices.wide .choice strong').map((x) => x.textContent), ['Observed', 'Assisted', 'Delivered, supervised', 'Delivered alone']);
+  // each role: a small box on the right (hands on or off) and a line in two sentences: what I did, what the senior did
+  const roleTags = () => $$('.sheet .choices.wide .choice .choice-tag').map((x) => [x.textContent, x.classList.contains('on')]);
+  assert.deepEqual(roleTags(), [['Hands off', false], ['Hands on', true], ['Hands on', true], ['Hands on', true]]);
+  assert.equal(byText('.sheet .choice', 'Delivered alone').querySelector('.choice-hint').textContent, 'I delivered. No supervisor was in the room.');
   await click(byText('.sheet .btn', 'Cancel'));
   await openProc('Caesarean section');
-  assert.deepEqual($$('.sheet .choices.wide .choice strong').map((x) => x.textContent), ['Observing', 'Assisting', 'Surgeon, supervised', 'Surgeon, independent']);
+  assert.deepEqual($$('.sheet .choices.wide .choice strong').map((x) => x.textContent), ['Observed', 'Assisted', 'Surgeon, supervised', 'Surgeon, independent']);
+  assert.deepEqual(roleTags(), [['Not scrubbed', false], ['Scrubbed', true], ['Scrubbed', true], ['Scrubbed', true]], 'scrubbed or not, on the right of each role');
+  assert.ok($('.sheet .choices.wide').classList.contains('column'), 'one role per row, so each fits on one line');
+  assert.deepEqual($$('.sheet .choices.wide .choice-hint').map((x) => x.textContent),
+    ['I watched. Others operated.', 'I helped. A senior surgeon operated.', 'I operated. A senior surgeon helped.', 'I operated. No one more senior was scrubbed.']);
   await click(byText('.sheet .btn', 'Cancel'));
 
   // ---- log two entries; they are sent automatically
   await openProc('Caesarean section');
   await logAs('Surgeon, independent');
   await openProc('Appendectomy');
-  await logAs('Observing', 400);
+  await logAs('Observed', 400);
   assert.equal(serverEvents(), 2);
   assert.equal($('.chip'), null, 'no sync button when everything is up to date');
   assert.doesNotMatch(document.body.textContent, /null|undefined/, 'no stray "null" on screen');
@@ -196,7 +226,7 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   await click(byText('.sheet .hlist .row-btn', 'Bo Government Hospital'), 100);
   assert.equal($('.sheet .fact strong').textContent, 'Bo Government Hospital');
   assert.ok($('.sheet .hpick').hidden, 'the list folds away after choosing');
-  await logAs('Assisting', 200);
+  await logAs('Assisted', 200);
   assert.match($('.who').textContent, /Bo Government Hospital/, 'the tablet now works at the new hospital');
   assert.equal(serverEvents(), 2, 'nothing sent while offline');
   assert.equal($('.chip').textContent, 'Offline · 1 waiting');
@@ -248,8 +278,9 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   assert.doesNotMatch(document.body.textContent, /WhatsApp|Weekly summary/);
   await click(byText('.tab', 'History'));
   await click($('.entry'));
-  assert.match(byText('.sheet .case-row', 'Signature').textContent, /Signed by Dr Anna Kamara/);
-  assert.equal(byText('.sheet-foot .btn', 'Delete'), undefined, 'signed entries cannot be deleted');
+  assert.match($('.sheet-head .case-sum').textContent, /Signed$/, 'Signed at the top, like in the list');
+  assert.match($('.sheet-head .case-signed').textContent, /^Signed by Dr Anna Kamara on /);
+  assert.equal($('.sheet .case-del'), null, 'signed entries cannot be deleted');
   await click(byText('.sheet .btn', 'Close'));
 
   // ---- the More tab lists who can see the entries
@@ -328,12 +359,13 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   assert.match($('.error').textContent, /Wrong candidate number or password/);
   $('#pw').value = 'even-better-secret-2';
   await submit($('.setup-form'), 700);
-  assert.ok($('#hosp'), 'a fresh tablet asks for the hospital again');
-  $('#hosp').value = 'Bo Government Hospital';
-  await submit($('.setup-form'));
+  assert.ok($('.hosp-setup'), 'a fresh tablet asks for the hospital again');
+  await click($('.hosp-setup [aria-label="Change hospital"]'), 100);
+  await click(byText('.hosp-setup .row-btn', 'Bo Government Hospital'), 100);
+  await click($('.hosp-setup > .btn'), 300);
 
   // the history came back from the server; after logging out, Surgery is chosen again
-  assert.equal(byText('.log-parts .choice', 'Surgery').getAttribute('aria-pressed'), 'true');
+  assert.equal(byText('.log-parts .ctab', 'Surgery').getAttribute('aria-selected'), 'true');
   assert.match(byText('.proc', 'Caesarean section').textContent, /1 case$/);
   assert.match(byText('.proc', 'Appendectomy').textContent, /1 case$/);
   assert.match(byText('.proc', 'Laparotomy').textContent, /1 case$/);
@@ -386,7 +418,7 @@ test('a session ended by the server returns to login and keeps the local entries
   server.db.prepare('DELETE FROM sessions').run(); // e.g. the account was disabled, or the password changed elsewhere
   await click(byText('.tab', 'Log'));
   await openProc('Umbilical hernia repair');
-  await logAs('Observing', 500);
+  await logAs('Observed', 500);
   assert.ok($('#cand'), 'back at the login screen');
   assert.match(document.body.textContent, /session has ended/);
   assert.equal(serverEvents(), before);
@@ -416,7 +448,7 @@ test('deleting an entry that a supervisor signed in the meantime keeps it, and s
 
   // the student deletes it: the server refuses (it is signed) and the tablet forgets the delete
   await click(row());
-  await click(byText('.sheet-foot .btn', 'Delete'));
+  await click($('.sheet .case-del'));
   await click(byText('.btn.danger', 'Delete'), 700);
   assert.ok(row(), 'the entry is still there');
   assert.match(row().textContent, /Signed/);
@@ -447,7 +479,9 @@ test('role and details are on one screen, and a follow-up can be added later fro
   Object.defineProperty(sheet, 'scrollTop', { get: () => top, configurable: true });
   sheet.dispatchEvent(new window.Event('scroll'));
   assert.equal(hint.hidden, false, 'more below: the hint shows');
-  assert.equal(hint.querySelector("button").getAttribute("aria-label"), "Scroll down", "an arrow only, no words, but a name for screen readers");
+  assert.ok(hint.classList.contains('fade'), 'an arrow that comes after the pop-up opened fades in');
+  assert.equal(hint.querySelector('button'), null, 'only a sign that there is more, not a button: a scroll button sometimes went too far');
+  assert.equal(hint.getAttribute('aria-hidden'), 'true', 'screen readers read the content itself');
   top = 2200;
   sheet.dispatchEvent(new window.Event('scroll'));
   assert.equal(hint.hidden, true, 'at the bottom it goes away');
@@ -509,22 +543,38 @@ test('role and details are on one screen, and a follow-up can be added later fro
   assert.match(row().textContent, /Not signed/);
   assert.deepEqual($$('.tag', row()).map((t) => t.textContent), ['Not signed'], 'no follow-up tag yet');
 
-  // tapping the case opens it in a pop-up: one table, with a part per heading and only what was answered
+  // tapping the case opens it in a pop-up: at the top your role and Not signed, like the row in the list
   await click(row());
   assert.equal($('.sheet h3').textContent, 'Caesarean section');
-  assert.deepEqual($$('.sheet .case-part h4').map((x) => x.textContent), ['Case', 'Operation', 'Follow-up'], 'only the parts with an answer');
+  assert.equal($('.sheet-head .case-sum').textContent, 'Operated with supervisorNot signed');
+  // then the answers, in a card per part with only what was answered; a heading only when it is not the tab's name
+  assert.deepEqual($$('.sheet .case-part h4').map((x) => x.textContent), ['Operation'], 'only the parts with an answer');
   const rows = () => $$('.sheet .case-row').map((r) => [...r.children].map((c) => c.textContent).join(': '));
-  assert.deepEqual(rows(), ['Your role: Operated with supervisor', 'Signature: Not signed yet', 'Anaesthesia: General', 'Operation time: 50 minutes']);
-  assert.match(byText('.sheet .case-part', 'Follow-up').textContent, /No follow-up yet/);
+  assert.deepEqual(rows(), ['Anaesthesia: General', 'Operation time: 50 minutes']);
+  assert.equal($('#case-tab-followup').textContent, 'No follow-up yet.');
+  // Delete: a quiet link at the bottom of Details; at the bottom Close and the follow-up, the bigger one (.save)
+  assert.equal($('#case-tab-details .case-del').textContent, 'Delete this entry');
+  // two tabs: Details (open first) and Follow-up; the follow-up button only on the Follow-up tab
+  const tabsShown = () => ({
+    tabs: $$('.sheet-head .ctab').map((t) => [t.textContent, t.classList.contains('on')]),
+    panel: $$('.sheet .case-tab').filter((p) => !p.hidden).map((p) => p.id),
+    foot: $$('.sheet-foot .btn').filter((b) => !b.hidden).map((b) => [b.textContent, b.classList.contains('save')]),
+  });
+  assert.deepEqual(tabsShown(), { tabs: [['Details', true], ['Follow-up', false]], panel: ['case-tab-details'], foot: [['Close', false]] });
+  await click(byText('.sheet-head .ctab', 'Follow-up'));
+  assert.deepEqual(tabsShown(), { tabs: [['Details', false], ['Follow-up', true]], panel: ['case-tab-followup'], foot: [['Close', false], ['Add follow-up', true]] });
+  await click(byText('.sheet-head .ctab', 'Details'));
+  assert.deepEqual(tabsShown().foot, [['Close', false]], 'back on Details: no follow-up button');
   await click(byText('.sheet .btn', 'Close'));
   assert.equal($('.sheet'), null);
   await click(row());
-  await click(byText('.sheet-foot .btn', 'Delete'));
+  await click($('.sheet .case-del'));
   assert.equal($('.sheet h3').textContent, 'Delete this entry?', 'an unsigned case can be deleted from its pop-up');
   await click(byText('.sheet .btn', 'Cancel'));
 
   // a follow-up is added from the case
   await click(row());
+  await click(byText('.sheet-head .ctab', 'Follow-up'));
   await click(byText('.sheet .btn', 'Add follow-up'));
   assert.deepEqual(visible('.sheet .qlabel').map((l) => l.textContent),
     ['Complication at birth', 'Mother', 'Wound infection', 'Back to theatre', 'Referred to another hospital', 'Days in hospital afterwards']);
@@ -534,7 +584,7 @@ test('role and details are on one screen, and a follow-up can be added later fro
   await click(byText('.sheet .btn', 'Save'), 400);
   const caseFollowUp = async () => {
     await click(row());
-    const t = $$('.sheet .case-part').find((p) => p.querySelector('h4').textContent === 'Follow-up').querySelectorAll('.case-row');
+    const t = $$('#case-tab-followup .case-row');
     const out = [...t].map((r) => [...r.children].map((c) => c.textContent).join(': '));
     await click(byText('.sheet .btn', 'Close'));
     return out;
@@ -545,6 +595,7 @@ test('role and details are on one screen, and a follow-up can be added later fro
 
   // later: a wound infection. The earlier answer is shown and kept; only the new one is sent.
   await click(row());
+  await click(byText('.sheet-head .ctab', 'Follow-up'));
   await click(byText('.sheet .btn', 'Update follow-up'));
   assert.equal(byText('.choice.on', 'Alive').getAttribute('aria-pressed'), 'true', 'the earlier answer is preselected');
   assert.equal(visible('.sheet .qlabel').some((l) => /Cause of death/.test(l.textContent)), false, 'the cause of death is only asked after "Died"');
@@ -553,6 +604,20 @@ test('role and details are on one screen, and a follow-up can be added later fro
   assert.deepEqual(await caseFollowUp(), ['Mother: Alive', 'Wound infection: Yes']);
   assert.deepEqual(JSON.parse(stored().get('followup').payload).answers, { wound_infection: 'yes' });
   assert.equal($('.chip'), null, 'everything was sent');
+
+  // more than 6 weeks after the operation: no follow-up button, and the pop-up says why
+  await click(byText('.tab', 'Log'));
+  await openProc('Appendectomy');
+  const dateInput = $('.sheet input[type=date]');
+  dateInput.value = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
+  dateInput.dispatchEvent(new window.Event('change'));
+  await logAs('Assisted', 400);
+  await click(byText('.tab', 'History'));
+  await click($$('.entry').filter((x) => x.textContent.includes('Appendectomy')).at(-1)); // the oldest one
+  await click(byText('.sheet-head .ctab', 'Follow-up'));
+  assert.equal($('#case-tab-followup').textContent, 'Follow-up is closed: more than 6 weeks after the operation.');
+  assert.equal(byText('.sheet .btn', 'follow-up'), undefined, 'no follow-up button');
+  await click(byText('.sheet .btn', 'Close'));
 });
 
 test('a touch on Cancel works at once, also while the pop-up is still scrolling', async () => {

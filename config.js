@@ -1,7 +1,7 @@
 // config.js — content, not logic. Edit procedure lists, targets and hospitals here.
 // (Supervisors are accounts on the server now, created with `admin.js add-supervisor`.)
 
-export const APP_VERSION = '0.13.5';
+export const APP_VERSION = '0.13.6';
 
 // Where the logbook server lives. '' = the same address the app was loaded from
 // (when the server also serves the app). If the app is hosted elsewhere, for example
@@ -120,22 +120,27 @@ export const PROCEDURES_TOP = [...new Set([...LOG_SURGERY, ...LOG_DELIVERIES])].
 
 // The four roles CapaCare already uses in its logbook, with its definitions in plain words.
 // "Performed" = supervised or independent (counts towards targets).
-// `done` is the past tense, used where the student's own entries are listed (History).
+// Every procedure is logged afterwards, so the words are in the past tense (Observed, not Observing). `label` is
+// the short name (the choice when logging, the supervisor's and administrator's lists, the CSV); `done` says it in
+// a sentence where the student's own entries are listed (History). The ids are stored and never change.
+// `hint` is the line under the choice when logging, always in two short sentences: what I did, then what the
+// senior did. `tag` is the small box on the right of the choice: whether I was scrubbed (for a delivery that is
+// not an operation: whether I touched the mother), `tagOn` true when I was.
 // `birth` is the wording for a delivery that is not an operation (the obstetric logbook's definitions).
 export const ROLES = [
-  { id: 'observing', label: 'Observing', hint: 'I watched, not scrubbed', done: 'Observed',
-    birth: { hint: 'I was in the room, did not touch the patient' } },
-  { id: 'assisting', label: 'Assisting', hint: 'Scrubbed, I helped a senior surgeon', done: 'Assisted',
-    birth: { hint: 'I helped a colleague' } },
-  { id: 'supervised', label: 'Surgeon, supervised', hint: 'I did most of it, a senior surgeon helped', done: 'Operated with supervisor',
-    birth: { label: 'Delivered, supervised', hint: 'A supervisor was in the room', done: 'Delivered with supervisor' } },
-  { id: 'independent', label: 'Surgeon, independent', hint: 'No one more senior was scrubbed', done: 'Operated on my own',
-    birth: { label: 'Delivered alone', hint: 'No supervisor in the room', done: 'Delivered on my own' } },
+  { id: 'observing', label: 'Observed', hint: 'I watched. Others operated.', tag: 'Not scrubbed', tagOn: false, done: 'Observed',
+    birth: { hint: 'I watched. Others delivered.', tag: 'Hands off' } },
+  { id: 'assisting', label: 'Assisted', hint: 'I helped. A senior surgeon operated.', tag: 'Scrubbed', tagOn: true, done: 'Assisted',
+    birth: { hint: 'I helped. A colleague delivered.', tag: 'Hands on' } },
+  { id: 'supervised', label: 'Surgeon, supervised', hint: 'I operated. A senior surgeon helped.', tag: 'Scrubbed', tagOn: true, done: 'Operated with supervisor',
+    birth: { label: 'Delivered, supervised', hint: 'I delivered. A supervisor was in the room.', tag: 'Hands on', done: 'Delivered with supervisor' } },
+  { id: 'independent', label: 'Surgeon, independent', hint: 'I operated. No one more senior was scrubbed.', tag: 'Scrubbed', tagOn: true, done: 'Operated on my own',
+    birth: { label: 'Delivered alone', hint: 'I delivered. No supervisor was in the room.', tag: 'Hands on', done: 'Delivered on my own' } },
 ];
 
 // PLACEHOLDER targets (number of procedures performed).
-// These are invented examples, NOT the programme's real requirements.
-export const TARGETS_ARE_PLACEHOLDER = true;
+// These are invented examples, NOT the programme's real requirements. The app does not say so on screen (setting
+// targets in the app is planned); replace them with the real ones from the training manual.
 export const TARGETS = {
   cs: 30,
   ing_hernia: 20,

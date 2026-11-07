@@ -21,6 +21,11 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 h1 { font-size: 28px; margin: 0 0 8px; }
 h2 { font-size: 24px; margin: 8px 0 16px; }
 h3 { font-size: 20px; margin: 0 0 12px; }
+/* Little bold: only headings, buttons and what is chosen (the open tab, the chosen answer) are semi-bold (600).
+   Names, questions, choices, tags and table headings are medium (500), the procedures on the Log tab too, but smaller (18 px);
+   a label beside its value (Hospital, Age) is plain grey, so the value is what stands out. Too much bold made
+   the screens harder to read, not easier. */
+h1, h2, h3, h4, strong, b { font-weight: 600; }
 .muted { color: var(--muted); }
 .small { font-size: 15px; }
 .error { color: var(--danger); min-height: 1.4em; margin: 8px 0; font-weight: 500; }
@@ -43,9 +48,9 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 /* Log tab: first Surgery or Delivery, then that part's procedures as two even columns of big rows (one column on a
    phone). Under Surgery, "More operations" follows on its own, a little apart. */
 .log-title { margin-bottom: 2px; }
-.log-hint { margin: 0 0 12px; }
-.log-parts { margin-bottom: 18px; }
-.log-parts .choice strong { font-size: 20px; }
+/* Surgery or Delivery: the same tabs as in a case (.ctabs), a little bigger, as it is the main choice on the page. */
+.ctabs.log-parts { margin: 10px 0 16px; }
+.log-parts .ctab { font-size: 19px; min-height: 50px; }
 .proc-more { margin-top: 10px; }
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
 @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
@@ -54,8 +59,10 @@ h3 { font-size: 20px; margin: 0 0 12px; }
   background: var(--card); border: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 14px;
 }
 .proc-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.proc-name { font-weight: 600; font-size: 20px; line-height: 1.25; }
-.proc-count { color: var(--muted); font-size: 15px; }
+/* A name with a grey line under it: the procedures on the Log tab, the cases in History and Progress look the same (one
+   rule each, so they stay alike). Medium and not large: a whole page of big or bold names is tiring to read. */
+.proc-name, .e-text > strong, .prow-top > strong { font-weight: 500; font-size: 18px; line-height: 1.3; }
+.proc-count, .e-sub { color: var(--muted); font-size: 15px; }
 /* The round "+" on the right of each row, drawn with two bars so it needs no icon file. */
 .proc-add { flex: none; position: relative; width: 46px; height: 46px; border-radius: 50%; background: var(--main); }
 .proc-add::before, .proc-add::after { content: ""; position: absolute; left: 50%; top: 50%; background: #fff; border-radius: 2px; transform: translate(-50%, -50%); }
@@ -89,17 +96,25 @@ h3 { font-size: 20px; margin: 0 0 12px; }
 /* Once logged in (appShell in ui.js): the header and tabs at the top, and under them the page, which scrolls on its
    own. The window does not scroll, so on an iPhone nothing can pull the header away, also not the bounce at the
    ends (that stays inside the page). The page uses the whole width, so it scrolls wherever the finger or mouse is;
-   its content stays 960 px wide in the middle, like the header. The tabs are all the same width. */
+   its content stays 960 px wide in the middle, like the header. The tabs are all the same width.
+   On a touch screen .page is always 1 px taller than the visible part, so even a short page (Log, More) can be
+   dragged and springs back, like the long ones; without it a phone treats the page as fixed and the app feels
+   frozen. With a mouse it is left out, so a short page does not scroll 1 px with the wheel. */
 .shell { position: fixed; inset: 0; display: flex; flex-direction: column; }
 .top-bar { flex: none; z-index: 10; width: 100%; max-width: 960px; margin: 0 auto; }
+/* scrollbar-gutter: the room for a scrollbar (on a PC with a mouse) is always kept, on both sides so the page stays
+   in the middle under the header. Otherwise the page jumps sideways when it gets long enough for a scrollbar, for
+   example when the hospital menu opens. Phones and tablets have scrollbars that take no room, so nothing changes there. */
 .shell > .main {
-  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
-  padding: 24px max(16px, calc((100% - 928px) / 2)) calc(40px + env(safe-area-inset-bottom));
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0;
+  scrollbar-gutter: stable both-edges;
 }
+.shell > .main > .page { padding: 24px max(16px, calc((100% - 928px) / 2)) calc(40px + env(safe-area-inset-bottom)); }
+@media (pointer: coarse) { .shell > .main > .page { min-height: calc(100% + 1px); } }
 html:has(.shell), html:has(.shell) body { overscroll-behavior: none; } /* the window itself does not bounce either */
 .nav { display: flex; background: var(--card); border-bottom: 1px solid var(--line); }
-.tab { flex: 1 1 0; min-width: 0; min-height: 56px; padding: 6px 4px; border: 0; background: none; font-weight: 600; color: var(--muted); position: relative; }
-.tab.on { color: var(--main-dark); box-shadow: inset 0 -3px 0 var(--main); background: var(--main-light); }
+.tab { flex: 1 1 0; min-width: 0; min-height: 56px; padding: 6px 4px; border: 0; background: none; font-weight: 500; color: var(--muted); position: relative; }
+.tab.on { font-weight: 600; color: var(--main-dark); box-shadow: inset 0 -3px 0 var(--main); background: var(--main-light); }
 .badge {
   display: inline-block; margin-left: 6px; min-width: 22px; padding: 0 6px; border-radius: 11px;
   background: var(--warn-bg); color: var(--warn-ink); font-size: 14px; line-height: 22px;
@@ -109,23 +124,31 @@ html:has(.shell), html:has(.shell) body { overscroll-behavior: none; } /* the wi
    dvh is the height that is really visible (without the keyboard on newer browsers); vh is the fallback. */
 #overlay { display: none; position: fixed; inset: 0; z-index: 50; padding: 16px; align-items: center; justify-content: center; }
 #overlay.open { display: flex; }
+/* A pop-up fades in as one piece: the dark layer, the pop-up and its arrows together (.layer: a question on top).
+   When only the pop-up faded, the dark layer came at once and the arrow a moment later: on an iPad it looked like
+   two steps. Only a fade: on iPhone, a pop-up that grows (scale) puts Cancel, Save and the arrow a few pixels off
+   until it has finished, so they jump. */
+#overlay.open, .layer { animation: sheet-in .16s ease-out; }
+@keyframes sheet-in { from { opacity: 0; } }
 .scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, .5); }
 /* The small arrows (scrollHint in ui.js): while there is more further down (or up), that edge of something that
-   scrolls fades out to white under a small round button with an arrow. Quiet on purpose: they take little room and
-   do not get in the way once someone is used to scrolling. Only the button can be tapped; the fade lets taps through.
+   scrolls fades out to white under a small round sign with an arrow. Quiet on purpose: they take little room and
+   do not get in the way once someone is used to scrolling. They only show that there is more: nothing in them can
+   be tapped, a tap goes through to what is under them (a button that scrolled sometimes went too far).
    The arrow down sits on top of Cancel and Save, the arrow up at the top (in .scroll-dock, or under the heading;
    the pop-up does not move, only its .sheet-body scrolls). In the hospital menu and the list of all operations
    ui.js puts them at the list's edges. */
 .scroll-dock { position: relative; z-index: 3; height: 0; transform: translateY(-24px); } /* -24px: from the very top edge, over the pop-up's padding; the layout under it does not move */
 .scroll-hint {
   position: absolute; left: 0; right: 0; z-index: 3; height: 36px; display: flex; justify-content: center;
-  pointer-events: none; animation: hint-in .2s ease-out;
+  pointer-events: none;
 }
+.scroll-hint.fade { animation: hint-in .2s ease-out; } /* only when it comes later (scrolled back, more questions), not with the pop-up */
 .scroll-hint.down { align-items: flex-end; padding-bottom: 4px; transform: translateY(-100%); background: linear-gradient(to bottom, rgba(255, 255, 255, 0), var(--card) 80%); }
 .scroll-hint.up { align-items: flex-start; padding-top: 4px; background: linear-gradient(to top, rgba(255, 255, 255, 0), var(--card) 80%); }
 .scroll-hint[hidden] { display: none; }
 .scroll-pill {
-  pointer-events: auto; display: flex; align-items: center; justify-content: center; width: 32px; height: 28px; padding: 0;
+  display: flex; align-items: center; justify-content: center; width: 32px; height: 28px; padding: 0;
   border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--muted);
   box-shadow: 0 1px 4px rgba(0, 0, 0, .1);
 }
@@ -141,15 +164,12 @@ html:has(.shell), html:has(.shell) body { overscroll-behavior: none; } /* the wi
 .hpick > .scroll-hint.up { height: 30px; padding-top: 2px; background: linear-gradient(to top, rgba(255, 255, 255, 0), var(--card) 50%); } /* short: the top half hides the edge of the hospital above */
 .sheet.tall > .scroll-hint { left: 24px; right: 24px; }
 @keyframes hint-in { from { opacity: 0; } }
-@media (hover: hover) { .scroll-pill:hover { color: var(--main-dark); border-color: var(--main); } }
-.scroll-pill:active { background: var(--main-light); }
 /* A question on top of an open pop-up (confirmOver in ui.js). */
 .layer { position: absolute; inset: 0; z-index: 2; display: flex; align-items: center; justify-content: center; padding: 16px; }
 .sheet.confirm { max-width: 460px; }
 .sheet {
   position: relative; width: 100%; max-width: 640px; max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow: auto;
   background: var(--card); border-radius: 22px; padding: 24px; box-shadow: 0 12px 40px rgba(0, 0, 0, .25);
-  animation: sheet-in .16s ease-out;
 }
 /* A tall pop-up keeps its title, search and Close button in place; only the list in it scrolls. */
 .sheet.tall { height: 720px; display: flex; flex-direction: column; overflow: hidden; }
@@ -162,7 +182,6 @@ html:has(.shell), html:has(.shell) body { overscroll-behavior: none; } /* the wi
 .sheet.split > * { flex: none; }
 .sheet.split > .sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin: 0 -24px; padding: 0 24px 8px; }
 .sheet.split > .scroll-dock + .sheet-body { margin-top: -24px; padding-top: 24px; }
-@keyframes sheet-in { from { opacity: 0; } } /* only a fade: on iPhone, a pop-up that grows (scale) puts Cancel, Save and the arrow a few pixels off until it has finished, so they jump */
 .sheet > h3:first-of-type, .sheet-body > h3:first-of-type { font-size: 24px; margin-bottom: 16px; }
 .dinput { display: none; margin: 4px 0 8px; min-height: 48px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; }
 .dinput.show { display: block; }
@@ -197,7 +216,6 @@ html:has(.shell), html:has(.shell) body { overscroll-behavior: none; } /* the wi
 .hlist { position: relative; display: flex; flex-direction: column; gap: 6px; max-height: min(440px, 60vh); overflow: auto; overscroll-behavior: contain; }
 .hlist .row-btn { min-height: 52px; flex: none; }
 .hpick[hidden] { display: none; }
-
 /* The date field is invisible, on top of the "Change" button, so a tap lands on the field
    itself and its picker opens there (iPhone and iPad only open it from a real tap on the field). The button under it
    is for the keyboard; if the browser cannot open the picker from it, the field is shown under the row (.show).
@@ -209,8 +227,8 @@ html:has(.shell), html:has(.shell) body { overscroll-behavior: none; } /* the wi
 /* On a touch screen the tap lands on the field on top, so the button shows the press through it. */
 .fact:has(> .picker:not(.show):active) > .change { background: var(--main-press); transform: scale(.97); }
 .fact-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-/* Like a question: the label in bold, the answer under it in plain text, so it does not look like a heading. */
-.fact-text span { font-weight: 700; }
+/* The label small and grey, the value under it in plain text: the value is what matters. */
+.fact-text span { font-size: 15px; color: var(--muted); }
 .fact-text strong { font-weight: 400; }
 .change { flex: none; min-height: 48px; padding: 8px 18px; border-radius: 999px; border: 2px solid var(--main); background: var(--card); color: var(--main-dark); font-weight: 600; }
 /* Choices (the role, details, follow-up): white buttons, two per row (three short ones in one row: .three), all the
@@ -222,13 +240,29 @@ html:has(.shell), html:has(.shell) body { overscroll-behavior: none; } /* the wi
   min-width: 0; min-height: 52px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center;
 }
-.choice strong { font-weight: 600; }
+.choice strong { font-weight: 500; }
+.choice.on strong { font-weight: 600; }
 .choices.wide { display: grid; grid-template-columns: 1fr 1fr; }
 .choices.wide .choice { min-height: 72px; align-items: flex-start; text-align: left; padding: 10px 16px; }
-.choice span { font-size: 15px; color: var(--muted); }
+.choice-hint { font-size: 15px; color: var(--muted); }
 .choice.on { background: var(--main); border-color: var(--main); color: #fff; }
-.choice.on span { color: #fff; opacity: .9; }
+.choice.on .choice-hint { color: #fff; opacity: .9; }
+/* A role: the label with a small box on the right (Scrubbed light blue, Not scrubbed grey), like Signed / Not
+   signed in History. On the chosen (blue) button the box turns white-on-blue. */
+/* The box sits on the right, in the middle of the button's height, while the label and the line under it fit on
+   one line each beside it. As soon as they do not (a phone), the box moves under the text instead of squeezing it:
+   flex-wrap breaks the row because the text asks for its full one-line width (flex-basis auto). When that happens
+   to one button, stackTagsTogether in app.js adds .stacked and every box goes under its text, so they stay alike. */
+.choices.wide .choice.has-tag { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
+.choice-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 0 1 auto; }
+.choices.stacked .choice-text { flex-basis: 100%; }
+.choice-tag { flex: none; font-size: 13px; font-weight: 500; padding: 2px 10px; border-radius: 999px; background: #ece9df; color: var(--ink); white-space: nowrap; }
+.choice-tag.on { background: var(--main-light); color: var(--main-dark); }
+.choice.on .choice-tag { background: rgba(255, 255, 255, .22); color: #fff; }
 @media (max-width: 420px) { .choices.wide { grid-template-columns: 1fr; } }
+/* The roles: one per row on every screen, so the label, the box and the line under it each fit on one line. */
+.choices.wide.column { grid-template-columns: 1fr; }
+.choices.wide.column .choice { min-height: 64px; }
 .search, .pin, select {
   width: 100%; min-height: 52px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; margin: 4px 0 12px;
 }
@@ -250,9 +284,14 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .stat { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; text-align: center; display: flex; flex-direction: column; }
 .stat strong { font-size: 30px; color: var(--main-dark); }
 .stat span { color: var(--muted); font-size: 14px; }
-.prow { margin-bottom: 14px; }
-.prow-top { display: flex; justify-content: space-between; gap: 8px; }
-.bar { height: 14px; background: #ece9df; border-radius: 7px; overflow: hidden; margin: 6px 0 4px; }
+/* Progress: one white tile per procedure with a target, in the same grid and style as the procedures on the Log
+   tab: the name and the count on top, the bar, then assisted and observed in grey. */
+.prog-title { margin: 24px 0 2px; }
+.prog-note { margin: 0 0 12px; }
+.ptile { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px 12px; min-width: 0; }
+.pcount { flex: none; color: var(--main-dark); font-weight: 500; }
+.prow-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.bar { height: 14px; background: #ece9df; border-radius: 7px; overflow: hidden; margin: 8px 0 6px; }
 .fill { height: 100%; background: var(--main); border-radius: 7px; }
 .orow, .kv { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #efede6; }
 .kv:has(+ .btn) { border-bottom: 0; } /* no divider line straight above a button (e.g. "Last backup" above "Download backup") */
@@ -302,9 +341,9 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .filter-text { display: flex; flex-direction: column; min-width: 0; }
 .filter-text span { color: var(--muted); font-size: 15px; }
 .filter-text strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.shown { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; font-weight: 600; }
+.shown { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; font-weight: 500; }
 .row-btn.opt { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.row-btn.opt.on { background: var(--main-light); border-color: var(--main); font-weight: 600; }
+.row-btn.opt.on { background: var(--main-light); border-color: var(--main); font-weight: 500; }
 .opt-n { flex: none; min-width: 36px; padding: 2px 10px; border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 15px; text-align: center; }
 .entry { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
 .e-main { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
@@ -319,26 +358,38 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .entry.tap:active { background: var(--main-light); }
 @media (hover: hover) { .entry.tap:hover { border-color: var(--main); box-shadow: 0 2px 8px rgba(0, 0, 0, .08); } }
 .e-text { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.e-sub { color: var(--muted); font-size: 15px; }
-/* The case pop-up (openCase in app.js): one table. A small heading in the main colour per part, then a row per
-   answer: the question on the left (semi-bold), the answer on the right (plain), a thin line between rows. */
+.e-text strong, .e-main strong, .srow-main strong { font-weight: 500; } /* names in lists: medium, like the procedures on the Log tab */
+/* The case pop-up (openCase in app.js), kept quiet: few boxes, little colour. At the top the procedure, the date
+   and hospital, and your role with Signed / Not signed; then two plain tabs; then the answers in grey cards, a row
+   per answer: the question on the left (semi-bold), the answer against the right edge (plain), a thin line between. */
 /* The heading stays at the top while the rest of the case scrolls (.sheet-body; -24px: over the pop-up's padding,
    to its very top edge). */
-.sheet-head { position: relative; z-index: 4; margin: -24px -24px 0; padding: 24px 24px 6px; background: var(--card); }
-.sheet-head h3 { font-size: 24px; margin: 0 0 2px; }
+.sheet-head { position: relative; z-index: 4; margin: -24px -24px 0; padding: 22px 24px 0; background: var(--card); }
+.sheet-head h3 { font-size: 21px; margin: 0 0 2px; }
 .case-sub { margin: 0; color: var(--muted); }
 .sheet-head > .scroll-hint.up { top: 100%; }
-/* Close, the follow-up (a bit wider) and Delete. */
-.case-foot .btn { flex: 1 1 0; }
-.case-foot .btn.save { flex: 1.5 1 0; }
-.case-part h4 { margin: 20px 0 4px; font-size: 16px; color: var(--main-dark); }
-.case-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; padding: 9px 0; border-bottom: 1px solid #efede6; }
-.case-row > span:first-child { font-weight: 600; }
-.case-row > span:last-child { overflow-wrap: anywhere; }
+.case-sum { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-top: 10px; }
+.case-sum strong { font-weight: 500; }
+.case-signed { font-size: 15px; margin-top: 2px; }
+/* The two tabs, "Details" and "Follow-up": plain words, the open one dark with a line under it. */
+.ctabs { display: flex; gap: 28px; margin-top: 12px; border-bottom: 1px solid var(--line); }
+.ctab { flex: none; min-height: 44px; padding: 0 2px; margin-bottom: -1px; border: 0; border-bottom: 3px solid transparent; background: none; font-weight: 500; color: var(--muted); }
+.ctab.on { font-weight: 600; color: var(--main-dark); border-bottom-color: var(--main); }
+.ctab:not(.on):active { color: var(--main-dark); }
+.case-tab[hidden], .sheet-foot > .btn[hidden] { display: none; }
+/* The answers: a grey card per part, like the parts of the form when logging. A card has a heading only when the
+   tab has several (Mother, Baby, Operation ...). */
+.case-part { background: var(--bg); border-radius: var(--radius); padding: 10px 16px; margin-top: 12px; }
+.case-part h4 { margin: 4px 0 2px; font-size: 17px; color: var(--main-dark); }
+.case-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; padding: 9px 0; border-bottom: 1px solid #e4e1d8; }
+.case-row > span:first-child { color: var(--muted); } /* the question plain and grey, the answer is what stands out */
+.case-row > span:last-child { overflow-wrap: anywhere; text-align: right; } /* the answer against the right edge of the card */
 .case-row:last-child { border-bottom: 0; }
-.case-part > .muted { margin: 6px 0 0; }
+.case-note { margin: 14px 0 4px; }
+/* Delete: a quiet red link at the bottom of Details (only while not signed). */
+.case-del-row { text-align: center; margin-top: 12px; }
 /* The role of an entry, as text in one colour. */
-.role-tag { font-size: 14px; font-weight: 600; color: var(--main-dark); }
+.role-tag { font-size: 14px; font-weight: 500; color: var(--main-dark); }
 .e-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 4px; color: var(--muted); font-size: 15px; }
 /* "Delete" on the right of the second line. The negative margins keep the big touch target without making the line taller. */
 .tag { font-size: 13px; padding: 2px 10px; border-radius: 999px; background: #ece9df; color: var(--ink); }
@@ -352,16 +403,17 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .questions { margin: 0 0 4px; }
 .questions [hidden] { display: none; }
 .qcard { background: var(--bg); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
-.qsection { margin: 0 0 14px; font-size: 19px; color: var(--main-dark); } /* in the main colour, like the headings under More, so it stands apart from the bold questions */
+.qsection { margin: 0 0 14px; font-size: 19px; color: var(--main-dark); } /* in the main colour, like the headings under More, so it stands apart from the questions */
 .qnote { margin: -8px 0 12px; color: var(--muted); font-size: 15px; }
 .qrow { margin-bottom: 18px; }
 .qcard > .qrow:last-child, .qcard > .choices:last-child { margin-bottom: 0; }
-.qlabel { display: block; font-weight: 700; }
+.qlabel { display: block; font-weight: 500; }
 .qhelp { display: block; color: var(--muted); font-size: 15px; }
 .numrow { display: flex; align-items: center; gap: 8px; margin-top: 8px; white-space: nowrap; }
 .num { width: 100%; max-width: 140px; min-width: 0; min-height: 52px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-size: 20px; }
 /* Cancel and Save stay in view at the bottom of a long pop-up. Save is the wide one. */
-.sheet-foot { position: relative; z-index: 3; display: flex; gap: 12px; margin: 0 -24px -24px; padding: 12px 24px 24px; background: var(--card); border-top: 1px solid var(--line); }
+/* No line above the buttons: while there is more further down the content fades out under the arrow instead. */
+.sheet-foot { position: relative; z-index: 3; display: flex; gap: 12px; margin: 0 -24px -24px; padding: 12px 24px 24px; background: var(--card); }
 .sheet-foot .btn { flex: 1; padding-left: 12px; padding-right: 12px; white-space: nowrap; }
 .sheet-foot .btn.save { flex: 2; }
 
@@ -382,11 +434,13 @@ textarea {
   width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin: 4px 0 14px; background: #fff;
   font: 16px/1.5 ui-monospace, Menlo, monospace; resize: vertical;
 }
-.scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; }
+/* A wide table scrolls sideways on its own. No bounce sideways (overscroll-behavior-x): on a phone or tablet the table
+   could be pulled past its first column, leaving an empty strip that sprang back. Up and down still bounce. */
+.scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: none; margin: 0 -4px; }
 .tbl { border-collapse: collapse; width: 100%; font-size: 16px; }
 .tbl th, .tbl td { padding: 8px 10px; border-bottom: 1px solid #efede6; text-align: right; white-space: nowrap; }
 .tbl th:first-child, .tbl td:first-child { text-align: left; }
-.tbl th { font-size: 13px; color: var(--muted); font-weight: 600; white-space: normal; vertical-align: bottom; }
+.tbl th { font-size: 13px; color: var(--muted); font-weight: 500; white-space: normal; vertical-align: bottom; }
 .tbl.matrix th { min-width: 84px; }
 .tbl.matrix td:first-child, .tbl.matrix th:first-child { position: sticky; left: 0; background: var(--card); min-width: 96px; }
 .tbl.matrix tbody tr { cursor: pointer; }
@@ -395,8 +449,8 @@ textarea {
 .tbl .tag { margin-left: 6px; }
 .mono { font-family: ui-monospace, Menlo, monospace; font-size: 18px; letter-spacing: .5px; }
 .seg { display: flex; gap: 8px; margin: 8px 0 12px; flex-wrap: wrap; }
-.seg-b { flex: 1 1 120px; min-height: 52px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; font-weight: 600; }
-.seg-b.on { background: var(--main-light); border-color: var(--main); color: var(--main-dark); }
+.seg-b { flex: 1 1 120px; min-height: 52px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; font-weight: 500; }
+.seg-b.on { font-weight: 600; background: var(--main-light); border-color: var(--main); color: var(--main-dark); }
 .audit { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #efede6; }
 h4 { font-size: 17px; margin: 16px 0 6px; }
 /* The privacy notice ("Your data"): one grey card per part, like the parts of the entry pop-up. */
@@ -415,7 +469,9 @@ h4 { font-size: 17px; margin: 16px 0 6px; }
 /* "Where do you work?": the line under the heading sits close to it, the list a bit further down. */
 .hosp-setup h1 { margin-bottom: 4px; }
 .hosp-setup h1 + p { margin: 0 0 24px; }
-.setup-form label { display: block; font-weight: 600; margin-top: 12px; }
+.hosp-setup .facts.plain { margin: 0; }
+.hosp-setup .facts.plain .fact:last-child { border-bottom: 0; } /* one row alone: no line under it (on More it separates the rows from the buttons) */
+.setup-form label { display: block; font-weight: 500; margin-top: 12px; }
 .setup-form .btn { margin-top: 8px; }
 .setup-form .checkrow { font-weight: 400; display: flex; align-items: center; gap: 12px; min-height: 48px; margin-top: 0; }
 .note { background: var(--warn-bg); color: var(--warn-ink); border-radius: 10px; padding: 10px 14px; margin: 12px 0; }
@@ -474,7 +530,7 @@ h4 { font-size: 17px; margin: 16px 0 6px; }
 
 @media (prefers-reduced-motion: reduce) {
   .btn, .chip, .tab, .link, .proc, .srow, .row-btn, .seg-b, .choice, .t-act, .change, .filter, .advanced summary::after { transition: none; }
-  .sheet, .hpick, .scroll-hint { animation: none; }
+  #overlay.open, .layer, .hpick, .scroll-hint.fade { animation: none; }
   .change:active { transform: none; }
   .btn:not(:disabled):active, .chip:active, .proc:active, .srow:active, .row-btn:active, .seg-b:active, .choice:active, .filter:active { transform: none; }
 }

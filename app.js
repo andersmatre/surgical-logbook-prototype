@@ -4,8 +4,8 @@
 // Plain JavaScript, no build step. Shared interface pieces live in ui.js.
 
 import {
-  PROCEDURE_GROUPS, PROCEDURES, ALL_PROCEDURES, LOG_SURGERY, LOG_DELIVERIES, TARGETS, TARGETS_ARE_PLACEHOLDER,
-  HOSPITALS, APP_VERSION, DETAIL_FIELDS, FOLLOWUP_FIELDS, findProcedure, procName, rolesFor, roleDone, detailFieldsFor, followupFieldsFor, surgicalApgar, answerLabel,
+  PROCEDURE_GROUPS, PROCEDURES, ALL_PROCEDURES, LOG_SURGERY, LOG_DELIVERIES, TARGETS,
+  HOSPITALS, APP_VERSION, DETAIL_FIELDS, FOLLOWUP_FIELDS, FOLLOWUP_DAYS, findProcedure, procName, rolesFor, roleDone, detailFieldsFor, followupFieldsFor, surgicalApgar, answerLabel,
 } from './config.js';
 import * as core from './core.js';
 import * as api from './api.js';
@@ -300,21 +300,31 @@ function forcedPasswordScreen() {
     h('button', { class: 'btn ghost wide pv-link', type: 'button', onclick: () => openPrivacy(state.session.role) }, 'How your data is used'));
 }
 
-// Asked once on each device, after the first login. Short on purpose: the question, one line, the list and Continue.
+// Asked once on each device, after the first login. Laid out like the hospital under More: a row with the hospital
+// and a button that opens the same hospital menu (hospitalPicker). Nothing is chosen at first, so the button says
+// "Choose" and the button at the bottom says what is missing; once chosen they say "Change" and "Continue".
+// The hospital is only stored on Continue.
 function hospitalScreen() {
-  const sel = h('select', { id: 'hosp', 'aria-label': 'Hospital' }, HOSPITALS.map((x) => h('option', { value: x }, x)));
-  const form = h('form', { class: 'setup-form' },
-    sel,
-    h('button', { class: 'btn wide', type: 'submit' }, 'Continue'));
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    await core.setMeta('hospital', sel.value);
-    await refresh();
-  });
+  let chosen = null;
+  const go = h('button', {
+    class: 'btn wide', type: 'button',
+    onclick: async () => { go.disabled = true; await setHospital(chosen); await refresh(); },
+  }, 'Choose your hospital');
+  go.disabled = true;
+  const hosp = hospitalPicker((x) => {
+    chosen = x;
+    row.querySelector('strong').textContent = x;
+    hosp.button.textContent = 'Change';
+    go.disabled = false;
+    go.textContent = 'Continue';
+  }, { save: false, current: () => chosen });
+  hosp.button.textContent = 'Choose';
+  const row = fact('Hospital', 'Not chosen yet', hosp.button, hosp.panel);
   return h('div', { class: 'setup hosp-setup' },
     h('h1', {}, 'Where do you work?'),
     h('p', { class: 'muted' }, 'You can change this later.'),
-    form);
+    h('div', { class: 'card' }, h('div', { class: 'facts plain' }, row)),
+    go);
 }
 
 // ---- Log tab ---------------------------------------------------------------
@@ -329,13 +339,15 @@ function logTab() {
       h('span', { class: 'proc-name' }, p.name),
       h('span', { class: 'proc-count' }, cases(counts[p.id] || 0))),
     h('span', { class: 'proc-add', 'aria-hidden': 'true' }));
-  const parts = choices([['surgery', 'Surgery', 'An operation'], ['delivery', 'Delivery', 'A birth you took part in']],
-    logPart, (v) => { logPart = v; render(); }, { required: true, wide: true });
+  // Surgery or Delivery: two tabs like Details and Follow-up in a case (.ctabs), the open one with a line under it
+  const partTab = (id, label) => h('button', {
+    class: logPart === id ? 'ctab on' : 'ctab', type: 'button', role: 'tab', 'aria-selected': String(logPart === id),
+    onclick: () => { if (logPart !== id) { logPart = id; render(); } },
+  }, label);
   return h('section', {},
-    h('h2', { class: 'log-title' }, 'What did you do?'),
-    h('div', { class: 'log-parts', role: 'group', 'aria-label': 'Surgery or delivery' }, parts),
+    h('h2', { class: 'log-title' }, 'Add a case'), // "case", like the counts on the tiles and on Progress
+    h('div', { class: 'ctabs log-parts', role: 'tablist', 'aria-label': 'Surgery or delivery' }, partTab('surgery', 'Surgery'), partTab('delivery', 'Delivery')),
     logPart === 'surgery' ? [
-      h('p', { class: 'muted log-hint' }, 'Tap the operation to add it.'),
       h('div', { class: 'grid' }, LOG_SURGERY.map(findProcedure).map(button)),
       h('button', { class: 'proc proc-more', onclick: openMoreProcedures },
         h('span', { class: 'proc-text' },
@@ -344,7 +356,6 @@ function logTab() {
         h('span', { class: 'proc-add more', 'aria-hidden': 'true' })),
     ] : null,
     logPart === 'delivery' ? [
-      h('p', { class: 'muted log-hint' }, 'Tap how the baby was born to add it.'),
       h('div', { class: 'grid' }, LOG_DELIVERIES.map(findProcedure).map(button)),
     ] : null);
 }
@@ -421,14 +432,38 @@ function dateToggle(el) {
   };
 }
 
+// Stores the hospital on this tablet; it goes with every entry logged from now on.
+async function setHospital(x) {
+  await core.setMeta('hospital', x);
+  if (state.profile) state.profile.hospital = x;
+}
+
+// The inside of the hospital menu (hospitalPicker): a search field and one button per hospital, the current one
+// (current()) marked. onChoose gets the tapped name. draw() shows the whole list again (after clearing the search).
+function hospitalList(onChoose, current) {
+  const search = h('input', { type: 'text', class: 'search', placeholder: 'Search hospital', 'aria-label': 'Search hospital', autocomplete: 'off' });
+  const list = h('div', { class: 'hlist' });
+  const draw = () => {
+    const q = search.value.trim().toLowerCase();
+    const rows = HOSPITALS.filter((x) => x.toLowerCase().includes(q)).map((x) => h('button', {
+      class: x === current() ? 'row-btn opt on' : 'row-btn opt', type: 'button',
+      onclick: () => onChoose(x),
+    }, x));
+    list.replaceChildren(...(rows.length ? rows : [h('p', { class: 'muted' }, 'No match. Choose "Other".')]));
+  };
+  search.addEventListener('input', draw);
+  draw();
+  return { search, list, draw };
+}
+
 // The hospital menu that "Change" opens: a white box over the page, under the button, with a search field and one
 // button per hospital, the current one marked. One tap chooses. Plain buttons, because a phone's own list (a wheel
 // on the iPhone) is slow and needs a second step. It closes with its × button, "Change" again, Escape or a tap
 // outside it. Returns the "Change" button and the menu: put both in one element with position: relative
-// (.fact). onPick gets the chosen name.
-function hospitalPicker(onPick) {
-  const search = h('input', { type: 'text', class: 'search', placeholder: 'Search hospital', 'aria-label': 'Search hospital', autocomplete: 'off' });
-  const list = h('div', { class: 'hlist' });
+// (.fact). onPick gets the chosen name. Normally the choice is stored on this tablet at once; on the first-login
+// screen ({ save: false }) it is only stored on Continue, and current() says which one to mark.
+function hospitalPicker(onPick, { save = true, current = () => state.profile?.hospital } = {}) {
+  const { search, list, draw } = hospitalList(async (x) => { close(); if (save) await setHospital(x); onPick(x); }, current);
   const close = () => {
     panel.hidden = true;
     button.setAttribute('aria-expanded', 'false');
@@ -442,15 +477,6 @@ function hospitalPicker(onPick) {
       h('strong', {}, 'Choose hospital'),
       h('button', { class: 'hpick-x', type: 'button', 'aria-label': 'Close', onclick: () => close() }, '×')),
     search, list);
-  const draw = () => {
-    const q = search.value.trim().toLowerCase();
-    const rows = HOSPITALS.filter((x) => x.toLowerCase().includes(q)).map((x) => h('button', {
-      class: x === state.profile.hospital ? 'row-btn opt on' : 'row-btn opt', type: 'button',
-      onclick: async () => { close(); await core.setMeta('hospital', x); state.profile.hospital = x; onPick(x); },
-    }, x));
-    list.replaceChildren(...(rows.length ? rows : [h('p', { class: 'muted' }, 'No match. Choose "Other".')]));
-  };
-  search.addEventListener('input', draw);
   scrollHint(list, panel);
   const open = () => {
     search.value = '';
@@ -497,7 +523,7 @@ function openEntrySheet(proc) {
     saveBtn.textContent = role ? 'Save' : 'Choose your role';
   };
   const roles = rolesFor(proc.id);
-  const roleGroup = choices(roles.map((r) => [r.id, r.label, r.hint]), null, (v) => { role = roles.find((r) => r.id === v); showSave(); }, { required: true, wide: true });
+  const roleGroup = choices(roles.map((r) => [r.id, r.label, r.hint, { text: r.tag, on: r.tagOn }]), null, (v) => { role = roles.find((r) => r.id === v); showSave(); }, { required: true, wide: true, column: true });
   showSave();
 
   const parts = detailFieldsFor(proc.id);
@@ -562,10 +588,10 @@ function openEntrySheet(proc) {
 // A set of big buttons where one can be chosen. `options` are [value, label, hint?]. Tapping the chosen one
 // again clears it, unless the answer is required. A chosen button is filled with the main colour.
 // The buttons are in a grid, two per row; three short ones (like One, Twins, Triplets) share one row.
-function choices(options, initial, onChange, { required = false, wide = false } = {}) {
+function choices(options, initial, onChange, { required = false, wide = false, column = false } = {}) {
   let chosen = initial;
   const three = !wide && options.length === 3 && options.every(([, label]) => label.length <= 9);
-  const wrap = h('div', { class: 'choices' + (wide ? ' wide' : three ? ' three' : '') });
+  const wrap = h('div', { class: 'choices' + (wide ? ' wide' : three ? ' three' : '') + (column ? ' column' : '') });
   const paint = () => {
     for (const b of wrap.children) {
       const on = b.dataset.value === chosen;
@@ -573,12 +599,41 @@ function choices(options, initial, onChange, { required = false, wide = false } 
       b.setAttribute('aria-pressed', String(on));
     }
   };
-  wrap.append(...options.map(([v, label, hint]) => h('button', {
-    class: 'choice', type: 'button', 'data-value': v,
-    onclick: () => { chosen = chosen === v && !required ? null : v; paint(); onChange(chosen); },
-  }, h('strong', {}, label), hint ? h('span', {}, hint) : null)));
+  // An option is [value, label, hint?, tag?]; a tag ({ text, on }) is a small box on the right, in the middle of
+  // the button's height (the roles: Scrubbed / Not scrubbed), light blue when `on`, grey when not.
+  wrap.append(...options.map(([v, label, hint, tag]) => {
+    const text = [h('strong', {}, label), hint ? h('span', { class: 'choice-hint' }, hint) : null];
+    const hasTag = !!(tag && tag.text);
+    return h('button', {
+      class: hasTag ? 'choice has-tag' : 'choice', type: 'button', 'data-value': v,
+      onclick: () => { chosen = chosen === v && !required ? null : v; paint(); onChange(chosen); },
+    }, hasTag
+      ? [h('span', { class: 'choice-text' }, text), h('span', { class: tag.on ? 'choice-tag on' : 'choice-tag' }, tag.text)]
+      : text);
+  }));
   paint();
+  if (options.some(([, , , tag]) => tag && tag.text)) stackTagsTogether(wrap);
   return wrap;
+}
+
+// The boxes (tags) on the right of the choices all move under the text together: as soon as one button's text no
+// longer fits beside its box (CSS then wraps that box onto its own line), every button gets its box under the text
+// (.stacked), so they never sit half on the right and half underneath. Measured again when the width changes.
+function stackTagsTogether(wrap) {
+  let lastWidth = -1;
+  const update = () => {
+    const w = wrap.clientWidth;
+    if (!w || w === lastWidth) return; // not on the screen yet, or only the height changed
+    lastWidth = w;
+    wrap.classList.remove('stacked'); // measure the side-by-side layout (no paint in between, so no flicker)
+    const wrapped = [...wrap.querySelectorAll('.choice.has-tag')].some((b) => {
+      const text = b.querySelector('.choice-text');
+      return b.querySelector('.choice-tag').offsetTop >= text.offsetTop + text.offsetHeight - 1;
+    });
+    wrap.classList.toggle('stacked', wrapped);
+  };
+  if (typeof ResizeObserver === 'function') new ResizeObserver(update).observe(wrap);
+  document.fonts?.ready.then(() => { lastWidth = -1; update(); });
 }
 
 // Questions from DETAIL_FIELDS or FOLLOWUP_FIELDS, in parts ([{ title, note?, ids, ask?, help? }], see
@@ -663,18 +718,21 @@ function progressTab() {
     h('h2', {}, 'My progress'),
     h('div', { class: 'stats' },
       stat(total, 'cases'), stat(signed, 'signed'), stat(wk, 'this week')),
-    h('div', { class: 'card' },
+    // One white tile per procedure with a target, like the procedures on the Log tab (two per row on a tablet,
+    // one on a phone): the name, how many performed out of the target, a bar, then assisted and observed.
+    h('h3', { class: 'prog-title' }, 'Targets'),
+    h('p', { class: 'muted small prog-note' }, 'How many you performed, out of the target.'),
+    h('div', { class: 'grid ptiles' },
       Object.entries(TARGETS).map(([id, t]) => {
-        const p = { id, name: procName(id) };
+        const name = procName(id);
         const pr = prog[id] || { performed: 0, assisting: 0, observing: 0 };
         const pct = Math.min(100, Math.round((pr.performed / t) * 100));
-        return h('div', { class: 'prow' },
-          h('div', { class: 'prow-top' }, h('strong', {}, p.name), h('span', {}, `${pr.performed} / ${t}`)),
-          h('div', { class: 'bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(t), 'aria-valuenow': String(pr.performed), 'aria-label': p.name },
+        return h('div', { class: 'ptile' },
+          h('div', { class: 'prow-top' }, h('strong', {}, name), h('span', { class: 'pcount' }, `${pr.performed} / ${t}`)),
+          h('div', { class: 'bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(t), 'aria-valuenow': String(pr.performed), 'aria-label': name },
             h('div', { class: 'fill', style: `width:${pct}%` })),
-          h('div', { class: 'muted small' }, `performed ${pr.performed} · assisted ${pr.assisting} · observed ${pr.observing}`));
-      }),
-      TARGETS_ARE_PLACEHOLDER ? h('p', { class: 'muted small' }, 'Targets are examples until the real training-manual targets are added.') : null),
+          h('div', { class: 'proc-count' }, `Assisted ${pr.assisting} · Observed ${pr.observing}`));
+      })),
     others.length ? h('div', { class: 'card' }, h('h3', {}, 'Other procedures'),
       others.map(([id, p]) => h('div', { class: 'orow' }, h('span', {}, procName(id)), h('span', {}, p.total)))) : null);
 }
@@ -752,13 +810,18 @@ function openRoleFilter() {
   ]);
 }
 
-// A case from History in a pop-up: one calm table. Under the title the date and hospital; then parts with a small
-// heading (Case, then the parts of the form, then Follow-up) and a row per answered question: the question on the
-// left, the answer on the right. Changing it is not possible (the log only grows); a follow-up can be added and an
-// unsigned entry deleted from here, with the buttons at the bottom next to Close.
+// A case from History in a pop-up, kept quiet on purpose. At the top what matters most: the procedure, the date and
+// hospital, and your role with Signed / Not signed (like the row in the list). Under it two plain tabs: "Details"
+// (the answers of the form) and "Follow-up". The answers are in grey cards, a row per answered question (the
+// question on the left, the answer on the right); a card only has a heading when the tab has several (Mother, Baby,
+// Operation ...). Changing a case is not possible (the log only grows). An unsigned entry can be deleted with a
+// quiet link at the bottom of Details; on the Follow-up tab a follow-up can be added next to Close.
 function openCase(e) {
   const row = (label, value) => h('div', { class: 'case-row' }, h('span', {}, label), h('span', {}, value));
-  const part = (title, rows) => (rows.length ? h('section', { class: 'case-part' }, h('h4', {}, title), rows) : null);
+  // A heading that only repeats the tab's name ("Details", "Follow-up") is left out.
+  const part = (title, rows) => (rows.length
+    ? h('section', { class: 'case-part' }, title === 'Details' || title === 'Follow-up' ? null : h('h4', {}, title), rows)
+    : null);
   // The answers in the parts of the form; an answer to a question no longer asked comes last, under "Other".
   const parts = (fields, list, answers, fallbackTitle, extra = {}) => {
     const has = (id) => answers && answers[id] != null;
@@ -776,24 +839,62 @@ function openCase(e) {
   const details = parts(DETAIL_FIELDS, detailFieldsFor(e.procedure), e.details, 'Details',
     apgar == null ? {} : { 'Surgical Apgar': row('Score', `${apgar} of 10`) }).filter(Boolean);
   const followUp = parts(FOLLOWUP_FIELDS, followupFieldsFor(e.procedure), e.outcome, 'Follow-up').filter(Boolean);
+  // Why there is no follow-up button: the time for it is over (not the signature: a signed case can get one too).
+  const limit = FOLLOWUP_DAYS % 7 === 0 ? `${FOLLOWUP_DAYS / 7} weeks` : `${FOLLOWUP_DAYS} days`;
+  const closed = canFollowUp ? null : h('p', { class: 'muted case-note' }, `Follow-up is closed: more than ${limit} after the operation.`);
 
+  const caseTab = h('div', { class: 'case-tab', id: 'case-tab-details', role: 'tabpanel' },
+    details.length ? details : h('p', { class: 'muted case-note' }, 'No details were filled in.'),
+    // Delete: rarely needed, so a quiet red link at the bottom, not a button that catches the eye (it asks first)
+    e.sign ? null : h('div', { class: 'case-del-row' },
+      h('button', { class: 'link danger case-del', type: 'button', onclick: () => confirmDelete(e) }, 'Delete this entry')));
+  const followTab = h('div', { class: 'case-tab', id: 'case-tab-followup', role: 'tabpanel', hidden: true },
+    followUp.length ? followUp : null,
+    followUp.length && !closed ? null : closed || h('p', { class: 'muted case-note' }, 'No follow-up yet.'));
+  // Add or update the follow-up: only on the Follow-up tab, next to Close (bigger, like Save elsewhere)
+  const followBtn = canFollowUp
+    ? h('button', { class: 'btn save', type: 'button', hidden: true, onclick: () => openFollowUp(e) }, hasOutcome ? 'Update follow-up' : 'Add follow-up')
+    : null;
+  const tab = (id, label) => h('button', {
+    class: 'ctab', type: 'button', role: 'tab', 'data-tab': id, 'aria-controls': `case-tab-${id}`, onclick: () => show(id),
+  }, label);
+  const tabs = h('div', { class: 'ctabs', role: 'tablist', 'aria-label': 'Details or follow-up' }, tab('details', 'Details'), tab('followup', 'Follow-up'));
+  const show = (id) => {
+    // The pop-up keeps the height of its tallest tab so far, so it does not jump when a shorter tab is opened.
+    const sheet = caseTab.closest('.sheet');
+    if (sheet) sheet.style.minHeight = `${Math.max(parseFloat(sheet.style.minHeight) || 0, sheet.offsetHeight)}px`;
+    for (const b of tabs.children) {
+      b.classList.toggle('on', b.dataset.tab === id);
+      b.setAttribute('aria-selected', String(b.dataset.tab === id));
+    }
+    caseTab.hidden = id !== 'details';
+    followTab.hidden = id !== 'followup';
+    if (followBtn) followBtn.hidden = id !== 'followup';
+    if (caseTab.parentNode) caseTab.parentNode.scrollTop = 0; // the other tab starts at its top
+  };
+  show('details');
+
+  const signedBy = e.sign
+    ? `Signed by ${e.sign.supervisor_name || e.sign.supervisor}${e.sign.ts ? ` on ${core.fmtDate(String(e.sign.ts).slice(0, 10))}` : ''}`
+    : null;
   openSheet([
     h('div', { class: 'sheet-head' }, // stays at the top while the case scrolls
       h('h3', { class: 'case-title' }, procName(e.procedure)),
-      h('p', { class: 'case-sub' }, [core.fmtDate(e.performed_on), e.hospital].filter(Boolean).join(' · '))),
-    part('Case', [
-      row('Your role', roleDone(e.role, e.procedure)),
-      row('Signature', e.sign
-        ? `Signed by ${e.sign.supervisor_name || e.sign.supervisor}${e.sign.ts ? ` on ${core.fmtDate(String(e.sign.ts).slice(0, 10))}` : ''}`
-        : 'Not signed yet'),
-      late ? row('Logged', `${core.fmtDate(e.entered_on)} (later)`) : null,
-    ].filter(Boolean)),
-    details.length ? details : part('Details', [h('p', { class: 'muted' }, 'No details were filled in.')]),
-    followUp.length ? followUp : part('Follow-up', [h('p', { class: 'muted' }, canFollowUp ? 'No follow-up yet.' : 'No follow-up was added.')]),
-    h('div', { class: 'sheet-foot case-foot' },
+      h('p', { class: 'case-sub' }, [
+        late ? `${core.fmtDate(e.performed_on)} (logged ${core.fmtDate(e.entered_on)})` : core.fmtDate(e.performed_on),
+        e.hospital,
+      ].filter(Boolean).join(' · ')),
+      // the summary, like the row in the list: your role, and whether it is signed (by whom, when it is)
+      h('div', { class: 'case-sum' },
+        h('strong', {}, roleDone(e.role, e.procedure)),
+        e.sign ? h('span', { class: 'tag ok' }, 'Signed') : h('span', { class: 'tag warn' }, 'Not signed')),
+      signedBy ? h('p', { class: 'case-sub case-signed' }, signedBy) : null,
+      tabs),
+    caseTab,
+    followTab,
+    h('div', { class: 'sheet-foot' },
       h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Close'),
-      canFollowUp ? h('button', { class: 'btn save', type: 'button', onclick: () => openFollowUp(e) }, hasOutcome ? 'Update follow-up' : 'Add follow-up') : null,
-      e.sign ? null : h('button', { class: 'btn ghost danger', type: 'button', onclick: () => confirmDelete(e) }, 'Delete')),
+      followBtn),
   ]);
 }
 
@@ -893,7 +994,9 @@ function supervisorsCard() {
   const sups = state.meta.supervisors || [];
   return h('div', { class: 'card' }, h('h3', {}, 'Your supervisors'),
     sups.length
-      ? h('div', { class: 'facts plain' }, sups.map((s) => fact(s.name, `since ${core.fmtDate(String(s.since).slice(0, 10))}`)))
+      // the name first and plain, "since …" small and grey under it (a fact row the other way round: the name matters)
+      ? h('div', { class: 'facts plain' }, sups.map((s) => h('div', { class: 'fact' },
+        h('span', { class: 'fact-text' }, h('strong', {}, s.name), h('span', {}, `since ${core.fmtDate(String(s.since).slice(0, 10))}`)))))
       : h('p', { class: 'muted' }, 'No supervisor has added you yet.'),
     h('p', { class: 'muted small' }, 'These supervisors can see your entries and sign them.'));
 }

@@ -55,8 +55,10 @@ export function saveBlob(blob, filename) {
 // (.shell in style.css). The window itself never scrolls, so on an iPhone the header cannot be pulled along when
 // the page is scrolled far or fast, or bounces at its ends. pageScroll and setPageScroll read and set where the
 // page is scrolled to, to keep that when the screen is drawn again, or go back to the top on another tab.
+// The content sits in .page, which on a touch screen is 1 px taller than the screen (style.css), so a short page can still be dragged and bounce.
 export const appShell = (attrs, top, page) =>
-  h('div', { ...attrs, class: 'shell' }, h('div', { class: 'top-bar' }, top), h('main', { class: 'main' }, page));
+  h('div', { ...attrs, class: 'shell' }, h('div', { class: 'top-bar' }, top),
+    h('main', { class: 'main' }, h('div', { class: 'page' }, page)));
 export const pageScroll = () => document.querySelector('.shell > .main')?.scrollTop || 0;
 export function setPageScroll(y) {
   const page = document.querySelector('.shell > .main');
@@ -79,9 +81,9 @@ export function initUi({ overlayEl, toastElement }) {
 // click, so the button has to be tapped a second time. A finger that moves a little also loses the tap. That is
 // right for buttons that scroll with the page (a touch there may just mean "stop"), but not for the buttons that
 // stay in place while the content moves under them: Cancel and Save at the bottom of a pop-up, the tabs and the
-// sync button at the top, Undo in the message at the bottom, the small scroll arrows. A touch on one of those
-// always means "press", so it is pressed when the finger lifts, at once.
-const STAY_PUT = '.sheet-foot, .top-bar, #toast, .scroll-hint';
+// sync button at the top, Undo in the message at the bottom, Delete in the heading of a case. A touch on one of
+// those always means "press", so it is pressed when the finger lifts, at once.
+const STAY_PUT = '.sheet-foot, .sheet-head, .top-bar, #toast';
 let pressInstalled = false;
 function pressOnTouch() {
   if (pressInstalled) return;
@@ -147,22 +149,27 @@ export function openSheet(content, { tall = false } = {}) {
 }
 
 // Small arrows for people who are not used to scrolling: one down at the bottom of `scroller` while there is more
-// further down, one up at its top once it is scrolled down. The content fades out under them; a tap scrolls a
-// screen. They are small and quiet, so they do not get in the way once someone knows. The arrow down is placed
+// further down, one up at its top once it is scrolled down. The content fades out under them. They only show that
+// there is more: they are not buttons, and a tap goes through to what is under them (a scroll button sometimes went
+// too far). They are small and quiet, so they do not get in the way once someone knows. The arrow down is placed
 // in `downHost`, the arrow up in `upHost`: elements with a position. If they hold the scroller (a list in a
 // pop-up), the arrows are put at the top and bottom of the list; otherwise CSS places them (.scroll-hint).
 export function scrollHint(scroller, downHost, upHost = downHost) {
-  const arrow = (dir) => h('div', { class: `scroll-hint ${dir}`, hidden: true },
-    h('button', {
-      class: 'scroll-pill', type: 'button', tabindex: '-1', 'aria-label': dir === 'down' ? 'Scroll down' : 'Scroll up',
-      onclick: () => scroller.scrollBy({ top: (dir === 'down' ? 0.7 : -0.7) * scroller.clientHeight, behavior: 'smooth' }),
-    }));
+  const arrow = (dir) => h('div', { class: `scroll-hint ${dir}`, hidden: true, 'aria-hidden': 'true' },
+    h('span', { class: 'scroll-pill' }));
   const down = arrow('down');
   const up = arrow('up');
   downHost.append(down);
   upHost.append(up);
   const inHost = downHost.contains(scroller);
-  const show = (el, on) => { if (el.hidden === on) el.hidden = !on; }; // only when it changes: the observer would see it
+  // only when it changes: the observer would see it. An arrow that comes later fades in (.fade); the first time
+  // (below, while the pop-up opens) it does not, so it comes together with the pop-up and not a moment after it.
+  let first = true;
+  const show = (el, on) => {
+    if (el.hidden !== on) return;
+    if (on && !first) el.classList.add('fade');
+    el.hidden = !on;
+  };
   const update = () => {
     show(down, scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > 12);
     show(up, scroller.scrollTop > 12);
@@ -175,6 +182,8 @@ export function scrollHint(scroller, downHost, upHost = downHost) {
   // answers that show more questions, a search that makes a list shorter, a screen that turns
   new MutationObserver(update).observe(scroller, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'class'] });
   if (typeof ResizeObserver === 'function') new ResizeObserver(update).observe(scroller);
+  update(); // at once, in the same picture as the pop-up (a list not yet on the screen measures 0 and shows none)
+  first = false;
   requestAnimationFrame(update);
   return update;
 }
