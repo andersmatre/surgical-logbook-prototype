@@ -97,7 +97,7 @@ export const adminAudit = (token) => call('/api/admin/audit', { token });
 export const adminCreate = (token, role, id, name) => call('/api/admin/create', { token, body: { role, id, name } });
 export const adminCreateMany = (token, people) => call('/api/admin/create_many', { token, body: { people } });
 export const adminRename = (token, id, name) => call('/api/admin/rename', { token, body: { id, name } });
-export const adminExport = (token, kind, delimiter) => download('/api/admin/export', { token, body: { kind, delimiter } });
+export const adminExport = (token, kind, delimiter, anonymous = false) => download('/api/admin/export', { token, body: { kind, delimiter, anonymous } });
 export const adminBackup = (token) => download('/api/admin/backup', { token });
 export const adminReset = (token, id) => call('/api/admin/reset', { token, body: { id } });
 export const adminSetDisabled = (token, id, disabled) => call(`/api/admin/${disabled ? 'disable' : 'enable'}`, { token, body: { id } });

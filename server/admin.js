@@ -12,6 +12,7 @@
 //   node server/admin.js revoke S1234                             log out everywhere (e.g. lost tablet)
 //   node server/admin.js list
 //   node server/admin.js backup /data/backups/logbook-2026-11-01.db   consistent copy of the live database
+//   node server/admin.js mark-restored     after restoring a disk snapshot: tablets send everything again (not needed for a backup file)
 //
 // Initial passwords are printed once, as CSV on stdout. Hand them out through CapaCare.
 // Everyone must choose their own password at first login.
@@ -19,7 +20,7 @@
 import fs from 'node:fs';
 import {
   openDb, addUser, resetPassword, setDisabled, revokeSessions, generatePassword, normCandidate, validCandidate,
-  assign, unassign, renameUser, backupTo, logAudit, deleteUser,
+  assign, unassign, renameUser, backupTo, newDatabaseId, logAudit, deleteUser,
 } from './lib.js';
 
 const [cmd, ...rest] = process.argv.slice(2);
@@ -52,6 +53,7 @@ function usage() {
     '  admin.js delete <id>   (erases a disabled account and its data for good)',
     '  admin.js list',
     '  admin.js backup <new-file.db>',
+    '  admin.js mark-restored   (after restoring a disk snapshot, not needed for a backup file)',
   ].join('\n'));
   process.exit(1);
 }
@@ -109,6 +111,11 @@ try {
     const written = backupTo(db, args[0]);
     logAudit(db, 'cli', 'backup', null, 'command line');
     console.log(`Backup written to ${written}`);
+  } else if (cmd === 'mark-restored') {
+    // a backup file made by the app or `backup` already has an id of its own; a disk snapshot does not
+    newDatabaseId(db);
+    logAudit(db, 'cli', 'mark_restored', null, null);
+    console.log('Marked as restored: tablets send their entries again and fetch everything at their next sync.');
   } else if (cmd === 'list') {
     const rows = db.prepare(`
       SELECT u.candidate, u.role, u.display_name, u.disabled, u.must_change, u.last_login_at,

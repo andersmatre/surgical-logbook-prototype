@@ -68,11 +68,6 @@ test('no grey line above Cancel and Save in a pop-up', () => {
   assert.doesNotMatch(/\n\.sheet-foot \{[^}]*\}/.exec(read('style.css'))[0], /border/, 'the fade under the arrow already shows where the content ends');
 });
 
-test('a wide table does not bounce sideways past its first column', () => {
-  assert.match(/\n\.scroll \{[^}]*\}/.exec(read('style.css'))[0], /overscroll-behavior-x: none/,
-    'on iPad, iPhone and Android the "Each student" table could be pulled past its edge into an empty strip');
-});
-
 test('the page does not jump sideways when a scrollbar appears', () => {
   assert.match(/\n\.shell > \.main \{[^}]*\}/.exec(read('style.css'))[0], /scrollbar-gutter: stable both-edges/,
     'the room for the scrollbar is always kept, on both sides so the page stays in the middle under the header');

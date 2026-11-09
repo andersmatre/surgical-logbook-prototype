@@ -44,7 +44,7 @@ docker compose up --build
 docker compose exec logbook node --no-warnings=ExperimentalWarning server/admin.js add-admin ADMIN-ANDERS --name "Anders"
 ```
 
-Then log in as the administrator and create supervisors and students on the Add users tab.
+Then log in as the administrator and create supervisors and students under Manage users, Add users.
 
 Open `http://localhost:8080`. The server serves the app itself, exactly as a rented server will. Use two browser profiles (or one normal and one private window) to be a student and a supervisor at the same time. `docker compose down` stops it and keeps the data; `docker compose down -v` deletes the database. (`docker-compose.yml` has not been run by its author: no Docker was available where it was written.)
 
@@ -104,7 +104,7 @@ Install the Fly command-line tool (`flyctl`) and sign in (`fly auth login`). In 
    fly secrets unset ADMIN_PASSWORD
    ```
 
-   Create supervisors and students in the app (**Add users**). Each gets an initial password that is shown **once**; pass it on through CapaCare. Later administrators are created the same way, in the app.
+   Create supervisors and students in the app (**Manage users → Add users**). Each gets an initial password that is shown **once**; pass it on through CapaCare. Later administrators are created the same way, in the app.
 
 4. Open the address (`fly status` shows it) and run the checklist below.
 
@@ -198,8 +198,11 @@ The app downloads a plain database file, the same as the command line makes.
 1. Stop the server (`fly machine stop`, or `docker stop logbook`).
 2. Put the backup file in place of `/data/logbook.db`, and delete `/data/logbook.db-wal` and `/data/logbook.db-shm` if they exist.
 3. Start the server and check the list: `admin.js list`.
+4. Only if you restored a **disk snapshot** from the host instead of a backup file: run `admin.js mark-restored`. A backup file made by the app or by `admin.js backup` does not need this.
 
-Practice this once on a test deployment so you know it works before you need it.
+What happens next, by itself: each backup file has its own database id, and the tablets notice the change at their next sync. They send the students' entries, follow-ups and deletes again (also those made after the backup) and fetch everything from the start. Tell the supervisors to check their students: signatures and targets made after the backup are lost and must be done again, and so are accounts created after it.
+
+Practice this once on a test deployment so you know it works before you need it. On Fly, check how to reach the volume while the app is stopped (for example a temporary machine with the volume attached); `fly ssh console` does not work on a stopped machine. This has not been tried yet.
 
 ## Moving off GitHub Pages
 

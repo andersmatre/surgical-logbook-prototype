@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 import { createServer } from '../server/app.js';
-import { addUser } from '../server/lib.js';
+import { addUser, newDatabaseId } from '../server/lib.js';
 import { HOSPITALS } from '../config.js';
 import * as core from '../core.js';
 
@@ -470,6 +470,43 @@ test('deleting an entry that a supervisor signed in the meantime keeps it, and s
   assert.match(row().textContent, /Signed/);
   assert.doesNotMatch(row().textContent, /Not signed/);
   assert.equal($('.chip'), null, 'no sync button when everything is up to date');
+});
+
+test('after the server is restored from a backup, the tablet sends its entries again and shows what the server has', async () => {
+  window.dispatchEvent(new window.Event('online'));
+  await comeBack();
+  assert.ok(await core.getMeta('server_db', null), 'the tablet remembers which copy of the data it synced with');
+  const one = (sql) => server.db.prepare(sql).get();
+  // The backup was taken just before the hernia repair was logged (the test above): the entry and its signature
+  // are lost. The server starts from the backup: a new database id, and the numbering continues from the backup's.
+  const hernia = one("SELECT seq, id FROM events WHERE owner = 'CC1234' AND type = 'entry' AND payload LIKE '%strang_hernia%'");
+  const herniaSign = one(`SELECT id FROM events WHERE type = 'sign' AND target = '${hernia.id}'`);
+  server.db.prepare('DELETE FROM events WHERE seq >= ?').run(hernia.seq);
+  server.db.prepare("UPDATE sqlite_sequence SET seq = ? WHERE name = 'events'").run(hernia.seq - 1);
+  newDatabaseId(server.db);
+  // on the restored server a supervisor signs an older entry: its number is lower than where this tablet had got to
+  const older = one(`SELECT id FROM events e WHERE owner = 'CC1234' AND type = 'entry'
+    AND NOT EXISTS (SELECT 1 FROM events g WHERE g.type IN ('sign', 'void') AND g.target = e.id) ORDER BY seq DESC LIMIT 1`);
+  assert.equal((await post('/api/sup/sign', await supervisorToken(), { candidate: 'CC1234', ids: [older.id] })).signed, 1);
+
+  await comeBack();
+  await wait(800);
+  assert.equal(one(`SELECT COUNT(*) AS n FROM events WHERE id = '${hernia.id}'`).n, 1, 'the lost entry was sent again');
+  const local = await core.allEvents();
+  const entries = core.derive(local);
+  assert.ok(entries.find((e) => e.id === older.id).sign, 'the new signature arrived, although its number is low');
+  assert.equal(entries.find((e) => e.id === hernia.id).sign, null, 'the lost signature is gone from the tablet too');
+  assert.ok(!local.some((e) => e.id === herniaSign.id));
+  assert.equal(await core.getMeta('resync', false), false, 'finished');
+  assert.equal(core.unsyncedCount(local, await core.sentIds()), 0, 'everything is on the server again');
+  await click(byText('.tab', 'History'));
+  assert.match($$('.entry').find((e) => e.textContent.includes('Strangulated hernia repair')).textContent, /Not signed/);
+  assert.equal($('.chip'), null, 'no sync button: everything is up to date');
+
+  // a later sync is an ordinary one again
+  const n = serverEvents();
+  await comeBack();
+  assert.equal(serverEvents(), n);
 });
 
 test('role and details are on one screen, and a follow-up can be added later from History', async () => {

@@ -1,11 +1,11 @@
-// ui.js — small pieces of interface shared by the student app (app.js) and the
-// supervisor app (supervisor.js): the DOM helper, toast, sheets and the password form.
+// ui.js — small pieces of interface shared by the student app (app.js), the supervisor app (supervisor.js) and the
+// administrator app (administrator.js): the DOM helper, toast, sheets, the password form, case rows and the case pop-up.
 // Plain JavaScript, no build step.
 
 import * as api from './api.js';
 import {
-  PRIVACY, PRIVACY_IS_PLACEHOLDER, DETAIL_FIELDS, FOLLOWUP_FIELDS, FOLLOWUP_DAYS, procName, roleDone, detailFieldsFor, followupFieldsFor,
-  surgicalApgar, answerLabel,
+  PRIVACY, PRIVACY_IS_PLACEHOLDER, DETAIL_FIELDS, FOLLOWUP_FIELDS, FOLLOWUP_DAYS, TARGET_PROCEDURES, procName, roleDone, roleDoneBy,
+  detailFieldsFor, followupFieldsFor, surgicalApgar, answerLabel,
 } from './config.js';
 import * as core from './core.js';
 
@@ -42,7 +42,6 @@ export const stat = (n, label) => h('div', { class: 'stat' }, h('strong', {}, n)
 // A number of entries in words: "1 case", "3 cases".
 export const cases = (n) => `${n} ${n === 1 ? 'case' : 'cases'}`;
 
-export const kv = (k, v) => h('div', { class: 'kv' }, h('span', {}, k), h('strong', {}, v));
 
 // Hands a file to the browser as a download. Tests replace this with globalThis.LOGBOOK_SAVE_FILE.
 export function saveBlob(blob, filename) {
@@ -261,15 +260,23 @@ export const fact = (label, value, ...extra) => h('div', { class: 'fact' }, h('s
 export const privacyFact = (role) => fact('Your data', 'What is stored and who can see it',
   h('button', { class: 'change', type: 'button', onclick: () => openPrivacy(role) }, 'Read'));
 
-// The things rarely needed, folded away at the bottom of More: parts of [heading, rows]. The line under
-// "Advanced" says what is inside: "Data and about", or just "About" when that is the only part. Whether it is
-// open is kept here, so a redraw of the tab (after a sync) does not fold it shut.
-let advancedOpen = false;
-export function advancedCard(parts) {
-  const sub = parts.length === 1 ? parts[0][0] : 'Data and about';
-  return h('details', { class: 'card advanced', open: advancedOpen, ontoggle: (ev) => { advancedOpen = ev.target.open; } },
-    h('summary', {}, h('span', { class: 'fold-title' }, h('strong', {}, 'Advanced'), h('span', { class: 'muted small' }, sub))),
-    parts.map(([title, rows]) => [h('h3', {}, title), h('div', { class: 'facts plain' }, rows)]));
+// A card that folds open and shut (closed at first), with a big touch target: the title, a grey line under it
+// saying what is inside, and an arrow on the right. "Advanced" under More, and an administrator's "Recent changes".
+// Whether it is open is kept per key while the app is open, so a redraw of the tab (after a sync, or a fresh answer
+// from the server) does not fold it shut.
+const foldOpen = new Map();
+export function foldCard(key, title, sub, content, cls = '') {
+  return h('details', { class: `card fold ${cls}`.trim(), open: !!foldOpen.get(key), ontoggle: (ev) => { foldOpen.set(key, ev.target.open); } },
+    h('summary', {}, h('span', { class: 'fold-title' }, h('strong', {}, title), h('span', { class: 'muted small' }, sub))),
+    content);
+}
+
+// The things rarely needed, folded away at the bottom of More: parts of [heading, rows] (rows: a list of fact rows,
+// or one element shown as it is, like an administrator's list of recent changes). The line under "Advanced" says
+// what is inside: `sub`, or just the heading when there is one part, or "Data and about".
+export function advancedCard(parts, sub = parts.length === 1 ? parts[0][0] : 'Data and about') {
+  return foldCard('advanced', 'Advanced', sub,
+    parts.map(([title, rows]) => [h('h3', {}, title), Array.isArray(rows) ? h('div', { class: 'facts plain' }, rows) : rows]), 'advanced');
 }
 
 // ---- password form (forced at first login, or chosen from the More tab) --------------
@@ -312,6 +319,92 @@ export function passwordForm({ forced, candidate, token, onDone, onAuthError }) 
     }
   });
   return form;
+}
+
+// ---- "Show only" filters -----------------------------------------------------------
+// A student's History (procedure, role) and an administrator's Users (kind of account).
+
+// A big button: what it filters, small and grey, and what is chosen under it, with an arrow on the right. Coloured
+// when something other than "all" is chosen (on).
+export function filterButton(label, value, on, onclick) {
+  return h('button', { class: 'filter' + (on ? ' on' : ''), type: 'button', onclick },
+    h('span', { class: 'filter-text' }, h('span', {}, label), h('strong', {}, value)));
+}
+
+// A pop-up with one big row per choice and how many it has; one tap chooses. options: [{ label, n, on, pick }].
+export function openFilterSheet(title, options, { tall = false } = {}) {
+  openSheet([
+    h('h3', {}, title),
+    h('div', { class: 'plist' }, options.map((o) => h('button', {
+      class: 'row-btn opt' + (o.on ? ' on' : ''), type: 'button', onclick: () => { closeSheet(); o.pick(); },
+    }, h('span', {}, o.label), h('span', { class: 'opt-n' }, String(o.n))))),
+    h('button', { class: 'btn ghost wide', type: 'button', onclick: closeSheet }, 'Cancel'),
+  ], { tall });
+}
+
+// ---- cases and procedures in lists ------------------------------------------------
+
+// One case as a short row on a supervisor's or an administrator's page of one student, like the student's History: the
+// procedure, under it the role and the date, then the hospital, tags on the right. Tapping it opens the whole case in
+// the same pop-up the student sees (openCase), only to read. The role is worded about the student ("Operated alone").
+// box: a tick box on the left (a supervisor's To sign); tapping the box ticks, it does not open the case.
+export function caseRow(e, { box = null, tags = [] } = {}) {
+  const open = () => openCase(e, { roleText: roleDoneBy });
+  return h('li', {
+    class: box ? 'entry tap has-box' : 'entry tap', role: 'button', tabindex: '0',
+    'aria-label': `Open ${procName(e.procedure)}, ${core.fmtDate(e.performed_on)}`,
+    onclick: open,
+    onkeydown: (ev) => { if (ev.target === ev.currentTarget && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); open(); } },
+  },
+    box ? h('label', { class: 'pick', onclick: (ev) => ev.stopPropagation() }, box) : null,
+    h('div', { class: 'e-text' },
+      h('strong', {}, procName(e.procedure)),
+      h('span', { class: 'e-sub' }, `${roleDoneBy(e.role, e.procedure)} · ${core.fmtDate(e.performed_on)}`),
+      e.hospital ? h('span', { class: 'e-sub' }, e.hospital) : null), // where it was done, on a line of its own
+    h('div', { class: 'e-tags' },
+      Object.keys(e.outcome || {}).length ? h('span', { class: 'tag fu' }, 'Follow-up added') : null,
+      tags));
+}
+
+// A white tile for one procedure (or hospital): the name and a number on top, a bar when there is a target
+// (bar: { done, of }), and a grey line under it. The student's Progress, an administrator's Overview.
+export function procTile(name, count, sub, bar = null) {
+  return h('div', { class: 'ptile' },
+    h('div', { class: 'prow-top' }, h('strong', {}, name), h('span', { class: 'pcount' }, count)),
+    bar ? h('div', { class: 'bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(bar.of), 'aria-valuenow': String(bar.done), 'aria-label': name },
+      h('div', { class: 'fill', style: `width:${Math.min(100, Math.round((bar.done / bar.of) * 100))}%` })) : null,
+    h('div', { class: 'proc-count' }, sub));
+}
+
+// Procedure ids in the order the supervisor sees them (TARGET_PROCEDURES); an id not in that list comes last.
+const targetOrder = (ids) => {
+  const pos = new Map(TARGET_PROCEDURES.map((p, i) => [p.id, i]));
+  return [...ids].sort((a, b) => (pos.get(a) ?? 1e9) - (pos.get(b) ?? 1e9));
+};
+
+// One student's procedures, as on the student's Progress: "Procedures with a target" (a tile each, two per row on
+// a tablet: performed out of the target, a bar, observed and assisted), then "Procedures without a target" that
+// have at least one case, the most cases first. note: the line under the first heading; none: when there are no targets.
+export function procedureProgress(entries, events, { note, none }) {
+  const prog = core.progress(entries);
+  const targets = core.targets(events); // set by a supervisor
+  const withTarget = Object.keys(targets);
+  const others = Object.entries(prog).filter(([id, p]) => !(id in targets) && p.total > 0)
+    .sort((a, b) => b[1].total - a[1].total || procName(a[0]).localeCompare(procName(b[0])));
+  const targetTile = (id) => {
+    const p = prog[id] || { performed: 0, assisting: 0, observing: 0 };
+    return procTile(procName(id), `${p.performed} / ${targets[id]}`, `Observed ${p.observing} · Assisted ${p.assisting}`, { done: p.performed, of: targets[id] });
+  };
+  return [
+    h('h3', { class: 'prog-title' }, 'Procedures with a target'),
+    withTarget.length
+      ? [h('p', { class: 'muted small prog-note' }, note), h('div', { class: 'grid ptiles' }, targetOrder(withTarget).map(targetTile))]
+      : h('p', { class: 'muted small prog-note' }, none),
+    others.length
+      ? [h('h3', { class: 'prog-title' }, 'Procedures without a target'),
+        h('div', { class: 'prows' }, others.map(([id, p]) => procTile(procName(id), cases(p.total), `Observed ${p.observing} · Assisted ${p.assisting} · Performed ${p.performed}`)))]
+      : null,
+  ];
 }
 
 // ---- a case in a pop-up --------------------------------------------------------

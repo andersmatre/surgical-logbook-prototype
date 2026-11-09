@@ -6,7 +6,7 @@
 //   POST /api/password   (auth) { old_password, new_password }
 //
 // Students:
-//   POST /api/sync       (auth) { events, cursor } -> { accepted, rejected, events, cursor, has_more, supervisors }
+//   POST /api/sync       (auth) { events, cursor } -> { accepted, rejected, events, cursor, has_more, supervisors, db_id }
 //
 // Supervisors (every call checks that the student is assigned to the caller):
 //   POST /api/sup/students    -> { students: [{ candidate, entries, unsigned, since, last_received }] }
@@ -24,7 +24,7 @@
 //   POST /api/admin/create      { role, id, name? } -> { id, password }     (password is shown once)
 //   POST /api/admin/create_many { people: [{id, name?}] } -> { created: [{id, password}], skipped: [{id, reason}] }   (students)
 //   POST /api/admin/rename      { id, name }
-//   POST /api/admin/export      { kind: procedures|hospitals|entries, delimiter } -> CSV file
+//   POST /api/admin/export      { kind: progress|procedures|hospitals|entries|codebook, delimiter, anonymous } -> CSV file
 //   POST /api/admin/backup      -> a copy of the database file
 //   POST /api/admin/reset | disable | enable | revoke   { id }              (not on your own account, except revoke)
 //   POST /api/admin/delete      { id } -> { ok, events, assignments }       (erases a disabled account and its data; not your own)
@@ -41,7 +41,7 @@ import {
   openDb, hashPassword, verifyPassword, sha256, normCandidate, validCandidate, validatePassword, validateEvent,
   insertEvent, isSigned, signEntries, setTargets, InputError, assign, unassign, isAssigned, LookupError,
   addUser, resetPassword, setDisabled, revokeSessions, generatePassword, ROLES, listUsers, adminStats, recentAudit,
-  renameUser, exportCsv, EXPORT_KINDS, backupTo, logAudit, deleteUser,
+  renameUser, exportCsv, EXPORT_KINDS, backupTo, databaseId, logAudit, deleteUser,
 } from './lib.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -262,7 +262,8 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
          FROM assignments a JOIN users u ON u.candidate = a.supervisor
          WHERE a.student = ? AND u.disabled = 0 ORDER BY a.created_at`,
       ).all(a.candidate);
-      return send(res, 200, { accepted, rejected, supervisors, name: a.name, ...eventsPage(a.candidate, cursorOf(body)) });
+      // db_id: which copy of the data this is; a tablet that sees it change knows the server was restored from a backup
+      return send(res, 200, { accepted, rejected, supervisors, name: a.name, db_id: databaseId(db), ...eventsPage(a.candidate, cursorOf(body)) });
     }
 
     // ---- supervisors --------------------------------------------------------
@@ -404,10 +405,13 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
 
       if (action === 'export') {
         const kind = EXPORT_KINDS.includes(body.kind) ? body.kind : null;
-        if (!kind) throw new HttpError(400, 'bad_kind', 'Choose procedures, hospitals or entries.');
+        if (!kind) throw new HttpError(400, 'bad_kind', `Choose one of: ${EXPORT_KINDS.join(', ')}.`);
         const delimiter = body.delimiter === ';' ? ';' : ',';
-        logAudit(db, a.candidate, 'export', null, kind, new Date(now()));
-        return sendFile(res, 'text/csv; charset=utf-8', `logbook-${kind}-${new Date(now()).toISOString().slice(0, 10)}.csv`, exportCsv(db, kind, delimiter));
+        // anonymous: codes instead of candidate numbers and names (the codebook has no people in it)
+        const anonymous = body.anonymous === true && kind !== 'codebook' && kind !== 'hospitals';
+        const today = new Date(now()).toISOString().slice(0, 10);
+        logAudit(db, a.candidate, 'export', null, anonymous ? `${kind} (anonymous)` : kind, new Date(now()));
+        return sendFile(res, 'text/csv; charset=utf-8', `logbook-${kind}${anonymous ? '-anonymous' : ''}-${today}.csv`, exportCsv(db, kind, delimiter, { anonymous, today }));
       }
 
       if (action === 'backup') {

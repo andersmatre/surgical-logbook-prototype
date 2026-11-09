@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { procName, roleLabel, surgicalApgar, DETAIL_FIELDS, FOLLOWUP_FIELDS, TARGET_PROCEDURES, MAX_TARGET } from '../config.js';
+import { procName, roleLabel, surgicalApgar, DETAIL_FIELDS, FOLLOWUP_FIELDS, FOLLOWUP_DAYS, TARGET_PROCEDURES, MAX_TARGET } from '../config.js';
 
 const scrypt = promisify(crypto.scrypt);
 const SCRYPT_N = 16384;
@@ -62,7 +62,15 @@ export function initSchema(db) {
       target TEXT,
       detail TEXT
     );
+    CREATE TABLE IF NOT EXISTS settings (        -- values about the database itself, one row per key
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
+  // The id of this copy of the data (databaseId). Made once; a backup copy gets a new one (backupTo).
+  db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('db_id', ?)").run(crypto.randomUUID());
+  // The secret behind the codes that replace people in the anonymous spreadsheets (pseudonyms). Made once, never shown.
+  db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('pseudonym_key', ?)").run(crypto.randomBytes(32).toString('hex'));
 
   // Upgrade a database created by v0.2 (no roles, no type/target columns).
   const columns = (table) => new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
@@ -84,13 +92,30 @@ export function openDb(file = ':memory:') {
   return db;
 }
 
-// A consistent copy of the live database (safe while the server runs). Used by `admin.js backup`.
+// A consistent copy of the live database (safe while the server runs). Used by `admin.js backup` and the app.
+// The copy gets a database id of its own, so a server started from it after a restore tells the tablets (see databaseId).
 export function backupTo(db, file) {
   const target = path.resolve(file);
   if (fs.existsSync(target)) throw new Error(`${target} already exists; choose a new file name.`);
   fs.mkdirSync(path.dirname(target), { recursive: true });
   db.prepare('VACUUM INTO ?').run(target);
+  const copy = new DatabaseSync(target);
+  try { newDatabaseId(copy); } finally { copy.close(); }
   return target;
+}
+
+// The id of this copy of the data, sent with every sync. A tablet remembers it; when it changes, the server was
+// restored from a backup and has lost what came after it, so the tablet sends all its own events again and fetches
+// everything from the start (syncCore in app.js). Sending twice is harmless: the server stores each event once.
+export const databaseId = (db) => db.prepare("SELECT value FROM settings WHERE key = 'db_id'").get().value;
+
+// Gives the database a new id: done to every backup copy, and by `admin.js mark-restored` after restoring a copy
+// that was not made by backupTo (a disk snapshot from the host).
+export function newDatabaseId(db) {
+  initSchema(db); // a copy of an older database may not have the settings table yet
+  const id = crypto.randomUUID();
+  db.prepare("INSERT INTO settings (key, value) VALUES ('db_id', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value").run(id);
+  return id;
 }
 
 // ---- passwords --------------------------------------------------------------
@@ -360,7 +385,8 @@ export function toCsv(header, rows, delimiter = ',') {
   return `\uFEFF${[header, ...rows].map((r) => r.map((c) => csvCell(c, d)).join(d)).join('\r\n')}\r\n`;
 }
 
-export const EXPORT_KINDS = ['procedures', 'hospitals', 'entries'];
+// The files an administrator can download. 'entries' is "Every case" on the screen (the id stays for the API).
+export const EXPORT_KINDS = ['progress', 'procedures', 'hospitals', 'entries', 'codebook'];
 
 // The follow-up answers of every entry, merged oldest to newest like derive() in core.js does on the tablet.
 // Key: owner + NUL + entry id. Value: { answers, on } (on = known_on of the newest follow-up).
@@ -381,7 +407,33 @@ function followUpOutcomes(db) {
   return out;
 }
 
-export function exportCsv(db, kind, delimiter = ',') {
+const daysFrom = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
+
+// Where a case's follow-up stands, as on the tablet (followUpOpen in core.js): 'done' (it has answers), 'open'
+// (none yet, still within FOLLOWUP_DAYS of the operation) or 'missed' (none, and the time is over).
+function followUpStatus(performedOn, outcome, today) {
+  if (outcome && Object.keys(outcome.answers).length) return 'done';
+  return daysFrom(performedOn, today) <= FOLLOWUP_DAYS ? 'open' : 'missed';
+}
+
+// In the anonymous files a person is a code instead of a candidate number and name: S- for a student, V- for a
+// supervisor, then 8 characters made from the id with a secret key kept in the database (settings). The same person
+// always gets the same code, in every file and every download, so files can be put side by side; the code cannot be
+// turned back into the id without the key.
+function pseudonym(db) {
+  const key = db.prepare("SELECT value FROM settings WHERE key = 'pseudonym_key'").get().value;
+  return (prefix, id) => (id ? `${prefix}-${crypto.createHmac('sha256', key).update(id).digest('hex').slice(0, 8).toUpperCase()}` : id);
+}
+
+// options: anonymous (codes instead of candidate numbers and names; supervisors too), today ('YYYY-MM-DD', for
+// whether a follow-up is still open).
+export function exportCsv(db, kind, delimiter = ',', { anonymous = false, today = new Date().toISOString().slice(0, 10) } = {}) {
+  if (kind === 'codebook') return toCsv(['file', 'column', 'meaning', 'code', 'code_meaning'], codebookRows(), delimiter);
+  const code = anonymous ? pseudonym(db) : null;
+  // who a row is about: the candidate number and name, or one code
+  const whoHead = anonymous ? ['student_code'] : ['candidate', 'name'];
+  const who = (candidate, name) => (anonymous ? [code('S', candidate)] : [candidate, name]);
+  const supervisor = (id) => (anonymous ? code('V', id) : id);
   const rows = db.prepare(
     `SELECT e.owner AS candidate, u.display_name AS name, e.id AS entry_id,
             json_extract(e.payload, '$.performed_on') AS performed_on, json_extract(e.payload, '$.entered_on') AS entered_on,
@@ -394,45 +446,159 @@ export function exportCsv(db, kind, delimiter = ',') {
      ORDER BY performed_on, e.owner, e.id`,
   ).all();
   const performed = (r) => r === 'supervised' || r === 'independent';
+  const outcomes = followUpOutcomes(db);
+  const outcomeOf = (r) => outcomes.get(`${r.candidate}\u0000${r.entry_id}`) || null;
 
   if (kind === 'entries') {
     // Details and follow-up answers as stored codes (option ids, numbers), one column per question, and the
-    // Surgical Apgar added up (empty when a part is missing).
-    // The follow-up columns hold the newest answer; followup_on is the day the newest follow-up was known.
-    const outcomes = followUpOutcomes(db);
+    // Surgical Apgar added up (empty when a part is missing). The follow-up columns hold the newest answer;
+    // followup_on is the day the newest follow-up was known, followup_day how many days after the operation.
     const detailIds = Object.keys(DETAIL_FIELDS);
     const followIds = Object.keys(FOLLOWUP_FIELDS);
     return toCsv(
-      ['candidate', 'name', 'entry_id', 'performed_on', 'entered_on', 'hospital', 'procedure_id', 'procedure', 'role', 'performed', 'signed', 'signed_by', 'signed_at',
-        ...detailIds, 'surgical_apgar', ...followIds.map((id) => `followup_${id}`), 'followup_on'],
+      [...whoHead, 'entry_id', 'performed_on', 'entered_on', 'hospital', 'procedure_id', 'procedure', 'role', 'performed', 'signed', 'signed_by', 'signed_at',
+        ...detailIds, 'surgical_apgar', 'followup_status', ...followIds.map((id) => `followup_${id}`), 'followup_on', 'followup_day'],
       rows.map((r) => {
         const d = r.details ? JSON.parse(r.details) : {};
-        const o = outcomes.get(`${r.candidate}\u0000${r.entry_id}`) || { answers: {}, on: null };
-        return [r.candidate, r.name, r.entry_id, r.performed_on, r.entered_on, r.hospital, r.procedure, procName(r.procedure), roleLabel(r.role, r.procedure),
-          performed(r.role) ? 'yes' : 'no', r.signed_by ? 'yes' : 'no', r.signed_by, r.signed_at,
-          ...detailIds.map((id) => d[id]), surgicalApgar(d), ...followIds.map((id) => o.answers[id]), o.on];
+        const o = outcomeOf(r) || { answers: {}, on: null };
+        const status = followUpStatus(r.performed_on, outcomeOf(r), today);
+        return [...who(r.candidate, r.name), r.entry_id, r.performed_on, r.entered_on, r.hospital, r.procedure, procName(r.procedure), roleLabel(r.role, r.procedure),
+          performed(r.role) ? 'yes' : 'no', r.signed_by ? 'yes' : 'no', supervisor(r.signed_by), r.signed_at,
+          ...detailIds.map((id) => d[id]), surgicalApgar(d), status, ...followIds.map((id) => o.answers[id]), o.on,
+          status === 'done' && o.on ? daysFrom(r.performed_on, o.on) : null];
       }),
       delimiter,
     );
   }
-  // Counts per (group, procedure): by student, or by hospital.
+
+  if (kind === 'progress') return progressCsv(db, rows, { whoHead, who, supervisor }, delimiter);
+
+  // Counts per (group, procedure): by student, or by hospital. With the follow-ups: done, still open, missed.
   const byHospital = kind === 'hospitals';
   const groups = new Map();
   for (const r of rows) {
     const g = byHospital ? (r.hospital || '(not recorded)') : r.candidate;
     const key = `${g}\u0000${r.procedure}`;
-    const x = groups.get(key) || { g, name: r.name, procedure: r.procedure, observing: 0, assisting: 0, supervised: 0, independent: 0, signed: 0, people: new Set() };
+    const x = groups.get(key) || {
+      g, name: r.name, procedure: r.procedure, observing: 0, assisting: 0, supervised: 0, independent: 0, signed: 0, done: 0, open: 0, missed: 0, people: new Set(),
+    };
     x[r.role] += 1;
     if (r.signed_by) x.signed += 1;
+    x[followUpStatus(r.performed_on, outcomeOf(r), today)] += 1;
     x.people.add(r.candidate);
     groups.set(key, x);
   }
   const list = [...groups.values()].sort((a, b) => String(a.g).localeCompare(String(b.g)) || String(a.procedure).localeCompare(String(b.procedure)));
-  const counts = (x) => [x.observing, x.assisting, x.supervised, x.independent, x.supervised + x.independent, x.observing + x.assisting + x.supervised + x.independent, x.signed];
-  const countHead = ['observing', 'assisting', 'surgeon_supervised', 'surgeon_independent', 'performed', 'total', 'signed'];
+  const counts = (x) => [x.observing, x.assisting, x.supervised, x.independent, x.supervised + x.independent, x.observing + x.assisting + x.supervised + x.independent, x.signed,
+    x.done, x.open, x.missed];
+  const countHead = ['observing', 'assisting', 'surgeon_supervised', 'surgeon_independent', 'performed', 'total', 'signed', 'followup_done', 'followup_open', 'followup_missed'];
+  if (!byHospital && anonymous) list.sort((a, b) => code('S', a.g).localeCompare(code('S', b.g)) || String(a.procedure).localeCompare(String(b.procedure))); // not in candidate order
   return byHospital
     ? toCsv(['hospital', 'procedure_id', 'procedure', ...countHead, 'students'], list.map((x) => [x.g, x.procedure, procName(x.procedure), ...counts(x), x.people.size]), delimiter)
-    : toCsv(['candidate', 'name', 'procedure_id', 'procedure', ...countHead], list.map((x) => [x.g, x.name, x.procedure, procName(x.procedure), ...counts(x)]), delimiter);
+    : toCsv([...whoHead, 'procedure_id', 'procedure', ...countHead], list.map((x) => [...who(x.g, x.name), x.procedure, procName(x.procedure), ...counts(x)]), delimiter);
+}
+
+// Progress per student: a row per target in force (the newest target event per procedure, 0 removes it, as
+// core.targets on the tablet), in the order a supervisor sees the procedures: the target, how many performed and
+// the share, the other roles, and who set it and when. Students without targets have no rows.
+function progressCsv(db, entries, { whoHead, who, supervisor }, delimiter) {
+  const events = db.prepare(
+    `SELECT e.owner AS candidate, u.display_name AS name, e.payload FROM events e JOIN users u ON u.candidate = e.owner
+     WHERE e.type = 'target' ORDER BY e.seq`,
+  ).all();
+  const latest = new Map(); // owner + NUL + procedure -> { candidate, name, event }
+  for (const r of events) {
+    const p = JSON.parse(r.payload);
+    const key = `${r.candidate}\u0000${p.procedure}`;
+    const before = latest.get(key);
+    if (!before || p.ts >= before.p.ts) latest.set(key, { candidate: r.candidate, name: r.name, p });
+  }
+  const done = new Map(); // owner + NUL + procedure -> counts per role
+  for (const e of entries) {
+    const key = `${e.candidate}\u0000${e.procedure}`;
+    const c = done.get(key) || { observing: 0, assisting: 0, supervised: 0, independent: 0 };
+    c[e.role] += 1;
+    done.set(key, c);
+  }
+  const order = new Map(TARGET_PROCEDURES.map((p, i) => [p.id, i]));
+  const list = [...latest.values()].filter((x) => x.p.count > 0)
+    .sort((a, b) => who(a.candidate, a.name)[0].localeCompare(who(b.candidate, b.name)[0]) || (order.get(a.p.procedure) ?? 1e9) - (order.get(b.p.procedure) ?? 1e9));
+  return toCsv(
+    [...whoHead, 'procedure_id', 'procedure', 'target', 'performed', 'percent', 'assisting', 'observing', 'target_set_by', 'target_set_on'],
+    list.map((x) => {
+      const c = done.get(`${x.candidate}\u0000${x.p.procedure}`) || { observing: 0, assisting: 0, supervised: 0, independent: 0 };
+      const perf = c.supervised + c.independent;
+      return [...who(x.candidate, x.name), x.p.procedure, procName(x.p.procedure), x.p.count, perf, Math.round((perf / x.p.count) * 100),
+        c.assisting, c.observing, supervisor(x.p.supervisor), String(x.p.ts).slice(0, 10)];
+    }),
+    delimiter,
+  );
+}
+
+// What every column of the other files means, and every code in them, made from config.js so it is never out of
+// date. Rows: file, column, meaning, code, code_meaning (a coded column has a row per code).
+function codebookRows() {
+  const out = [];
+  const add = (file, column, meaning) => out.push([file, column, meaning, null, null]);
+  const codes = (file, column, options) => { for (const [code, label] of options) out.push([file, column, null, code, label]); };
+  const all = 'all files';
+  add(all, '', 'Only cases that are not deleted. Every file is made at the moment of downloading.');
+  add(all, 'candidate', 'The student\'s candidate number (the files with names).');
+  add(all, 'name', 'The student\'s name, if an administrator has set one (the files with names).');
+  add(all, 'student_code', 'Instead of candidate and name in the anonymous files: S- and 8 characters. The same student always has the same code, in every file and download.');
+  add(all, 'performed', 'Surgeon, supervised or Surgeon, independent (for a delivery: delivered, supervised or alone): the student did it.');
+  add(all, 'followup_*', `The follow-up is asked up to ${FOLLOWUP_DAYS} days after the operation. done: it has answers. open: none yet, still within ${FOLLOWUP_DAYS} days. missed: none, and the ${FOLLOWUP_DAYS} days are over.`);
+  add(all, '', 'The same operation can be logged by several students (one operating, one assisting), each with their own follow-up. Nothing links them. To count patients or outcomes, use only the cases with performed = yes.');
+
+  add('progress', '', 'A row per target a supervisor has set for a student (students without targets have no rows).');
+  add('progress', 'procedure_id', 'The id of the procedure. It never changes, so use it to count or to join files.');
+  add('progress', 'procedure', 'The name of the procedure.');
+  add('progress', 'target', 'How many the student should perform (as surgeon), set by a supervisor. The newest target counts.');
+  add('progress', 'performed', 'How many the student has performed (surgeon supervised or independent).');
+  add('progress', 'percent', 'performed out of target, in per cent (can be more than 100).');
+  add('progress', 'assisting', 'How many the student assisted.');
+  add('progress', 'observing', 'How many the student observed.');
+  add('progress', 'target_set_by', 'The supervisor who set the target (a code, V- and 8 characters, in the anonymous file).');
+  add('progress', 'target_set_on', 'The day it was set.');
+
+  for (const file of ['procedures', 'hospitals']) {
+    add(file, '', file === 'procedures' ? 'A row per student and procedure.' : 'A row per hospital and procedure.');
+    add(file, 'observing / assisting / surgeon_supervised / surgeon_independent', 'How many cases in each role.');
+    add(file, 'performed', 'surgeon_supervised + surgeon_independent.');
+    add(file, 'total', 'All cases.');
+    add(file, 'signed', 'How many a supervisor has signed.');
+    add(file, 'followup_done / followup_open / followup_missed', 'How many cases have a follow-up, can still get one, or missed it (see followup_*).');
+    if (file === 'hospitals') add(file, 'students', 'How many students logged it there.');
+  }
+
+  const e = 'entries';
+  add(e, '', 'Every case: a row per case.');
+  add(e, 'entry_id', 'The case\'s own id (made on the tablet).');
+  add(e, 'performed_on', 'The day it was done, as the student says.');
+  add(e, 'entered_on', 'The day it was logged (from the tablet).');
+  add(e, 'hospital', 'Where it was done, as chosen by the student.');
+  add(e, 'procedure_id', 'The id of the procedure. It never changes, so use it to count or to join files.');
+  add(e, 'procedure', 'The name of the procedure.');
+  add(e, 'role', 'What the student did, in words.');
+  add(e, 'signed', 'yes when a supervisor has signed it.');
+  add(e, 'signed_by', 'The supervisor who signed it (a code, V- and 8 characters, in the anonymous file).');
+  add(e, 'signed_at', 'When it was signed (the server\'s clock).');
+  const question = (prefix, fields, id) => {
+    const f = fields[id];
+    const col = `${prefix}${id}`;
+    if (f.number) add(e, col, `${f.label}: a whole number from ${f.number.min} to ${f.number.max}. Empty: not answered.`);
+    else {
+      add(e, col, `${f.label}. Empty: not answered (or not asked for this procedure).`);
+      codes(e, col, f.options);
+    }
+  };
+  for (const id of Object.keys(DETAIL_FIELDS)) question('', DETAIL_FIELDS, id);
+  add(e, 'surgical_apgar', 'Surgical Apgar score, 0 to 10, from blood loss, lowest mean arterial pressure and lowest heart rate. Empty when a part is missing.');
+  add(e, 'followup_status', 'done, open or missed (see followup_* under all files).');
+  for (const id of Object.keys(FOLLOWUP_FIELDS)) question('followup_', FOLLOWUP_FIELDS, id);
+  add(e, 'followup_on', 'The day the newest follow-up answer was known. A later answer to the same question replaces an earlier one.');
+  add(e, 'followup_day', 'How many days after the operation that was.');
+  return out;
 }
 
 // ---- events -------------------------------------------------------------------

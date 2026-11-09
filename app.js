@@ -4,13 +4,14 @@
 // Plain JavaScript, no build step. Shared interface pieces live in ui.js.
 
 import {
-  PROCEDURE_GROUPS, PROCEDURES, ALL_PROCEDURES, LOG_SURGERY, LOG_DELIVERIES, TARGET_PROCEDURES,
+  PROCEDURE_GROUPS, PROCEDURES, ALL_PROCEDURES, LOG_SURGERY, LOG_DELIVERIES,
   HOSPITALS, APP_VERSION, DETAIL_FIELDS, FOLLOWUP_FIELDS, FOLLOWUP_DAYS, findProcedure, procName, rolesFor, roleDone, detailFieldsFor, followupFieldsFor,
 } from './config.js';
 import * as core from './core.js';
 import * as api from './api.js';
 import {
   h, timeAgo, stat, cases, initUi, appShell, pageScroll, setPageScroll, toast, hideToast, openSheet, closeSheet, openCase, confirmOver, scrollHint, passwordForm, openPrivacy, fact, privacyFact, advancedCard,
+  procedureProgress, filterButton, openFilterSheet,
 } from './ui.js';
 import { mountSupervisor } from './supervisor.js';
 import { mountAdministrator } from './administrator.js';
@@ -99,17 +100,35 @@ function updateChip() {
 }
 
 // Send what the server has not confirmed yet, then fetch what this tablet has not seen.
+// If the server was restored from a backup (its db_id changed), it has lost what came after the backup: this tablet
+// sends all its own events again and fetches everything from the start (core.restartSync). Once everything is
+// fetched, signatures and targets the server no longer has are removed here too. An interrupted resync starts over.
 async function syncCore() {
   const token = state.session.token;
   let sent = 0;
   let pulled = 0;
   let warning = null;
+  let resync = !!(await core.getMeta('resync', false));
+  if (resync) await core.setMeta('cursor', 0);
+  const seen = new Set(); // during a resync: the ids of everything the server sent
+  let done = false;
   for (let round = 0; round < 100; round++) {
     const all = await core.allEvents();
     const known = await core.sentIds();
     const unsent = all.filter((e) => !known.has(e.id)).slice(0, 200);
     const cursor = (await core.getMeta('cursor', 0)) || 0;
     const res = await api.sync(token, unsent, cursor);
+    if (res.db_id) { // an older server sends none
+      const was = await core.getMeta('server_db', null);
+      if (was !== res.db_id) await core.setMeta('server_db', res.db_id);
+      if (was && was !== res.db_id) { // restored: start over (what was just sent is simply sent once more)
+        await core.restartSync();
+        resync = true;
+        seen.clear();
+        continue;
+      }
+    }
+    if (resync) for (const e of res.events || []) seen.add(e.id);
     const ok = new Set(res.accepted || []);
     await core.markSent(unsent.filter((e) => ok.has(e.id)).map((e) => e.id));
     sent += ok.size;
@@ -127,8 +146,9 @@ async function syncCore() {
       refused += 1;
     }
     if (refused) warning = `${refused} entr${refused > 1 ? 'ies were' : 'y was'} refused by the server.`;
-    if (!res.has_more && !(unsent.length === 200 && ok.size > 0)) break;
+    if (!res.has_more && !(unsent.length === 200 && ok.size > 0)) { done = true; break; }
   }
+  if (resync && done) await core.dropServerEventsExcept(seen);
   await core.setMeta('sync_warning', warning);
   await core.setMeta('last_sync_at', new Date().toISOString());
   return { sent, pulled };
@@ -728,53 +748,17 @@ function questions(fields, parts, initial) {
 // ---- Progress tab ----------------------------------------------------------
 
 function progressTab() {
-  const prog = core.progress(state.entries);
   const total = state.entries.length;
   const signed = state.entries.filter((e) => e.sign).length;
   const wk = core.weekEntries(state.entries).length;
-  const targets = core.targets(state.events); // set by a supervisor, they come with the sync
-  const withTarget = Object.keys(targets);
-  // the procedures without a target that have at least one case, the most cases first
-  const others = Object.entries(prog).filter(([id, p]) => !(id in targets) && p.total > 0)
-    .sort((a, b) => b[1].total - a[1].total || procName(a[0]).localeCompare(procName(b[0])));
-  // A white tile per procedure, like the procedures on the New case tab (two per row on a tablet, one on a phone).
-  // With a target: the name, how many performed out of the target, a bar, then assisted and observed.
-  // Without: the name, how many cases, then how many of each role.
-  const targetTile = (id, t) => {
-    const name = procName(id);
-    const pr = prog[id] || { performed: 0, assisting: 0, observing: 0 };
-    const pct = Math.min(100, Math.round((pr.performed / t) * 100));
-    return h('div', { class: 'ptile' },
-      h('div', { class: 'prow-top' }, h('strong', {}, name), h('span', { class: 'pcount' }, `${pr.performed} / ${t}`)),
-      h('div', { class: 'bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(t), 'aria-valuenow': String(pr.performed), 'aria-label': name },
-        h('div', { class: 'fill', style: `width:${pct}%` })),
-      h('div', { class: 'proc-count' }, `Observed ${pr.observing} · Assisted ${pr.assisting}`));
-  };
-  // without a target: one per row, the name and how many cases, and how many in each role under it
-  const caseTile = ([id, p]) => h('div', { class: 'ptile' },
-    h('div', { class: 'prow-top' }, h('strong', {}, procName(id)), h('span', { class: 'pcount' }, cases(p.total))),
-    h('div', { class: 'proc-count' }, `Observed ${p.observing} · Assisted ${p.assisting} · Performed ${p.performed}`));
-
+  // A white tile per procedure, like the procedures on the New case tab (procedureProgress in ui.js, which an
+  // administrator's page of one student shows too). Targets are set by a supervisor and come with the sync.
   return h('section', {},
     h('h2', {}, 'My progress'),
     h('div', { class: 'stats' },
       stat(total, 'cases'), stat(signed, 'signed'), stat(wk, 'this week')),
-    h('h3', { class: 'prog-title' }, 'Procedures with a target'),
-    withTarget.length
-      ? [h('p', { class: 'muted small prog-note' }, 'Set by your supervisor.'),
-        h('div', { class: 'grid ptiles' }, TARGET_ORDER(withTarget).map((id) => targetTile(id, targets[id])))]
-      : h('p', { class: 'muted small prog-note' }, 'No targets yet. Your supervisor sets them.'),
-    others.length
-      ? [h('h3', { class: 'prog-title' }, 'Procedures without a target'),
-        h('div', { class: 'prows' }, others.map(caseTile))]
-      : null);
+    procedureProgress(state.entries, state.events, { note: 'Set by your supervisor.', none: 'No targets yet. Your supervisor sets them.' }));
 }
-
-// Procedure ids in the order the supervisor sees them (TARGET_PROCEDURES); an id not in that list comes last.
-const TARGET_ORDER = (ids) => {
-  const pos = new Map(TARGET_PROCEDURES.map((p, i) => [p.id, i]));
-  return [...ids].sort((a, b) => (pos.get(a) ?? 1e9) - (pos.get(b) ?? 1e9));
-};
 
 // ---- History tab -----------------------------------------------------------
 
@@ -813,30 +797,16 @@ function setHistoryFilter(change) {
   render();
 }
 
-function filterButton(label, value, on, onclick) {
-  return h('button', { class: 'filter' + (on ? ' on' : ''), type: 'button', onclick },
-    h('span', { class: 'filter-text' }, h('span', {}, label), h('strong', {}, value)));
-}
-
-// A pop-up with one big row per choice and how many entries it has. The counts take the other filter into account.
-function openFilterSheet(title, options, { tall = false } = {}) {
-  openSheet([
-    h('h3', {}, title),
-    h('div', { class: 'plist' }, options.map((o) => h('button', {
-      class: 'row-btn opt' + (o.on ? ' on' : ''), type: 'button', onclick: () => setHistoryFilter(o.change),
-    }, h('span', {}, o.label), h('span', { class: 'opt-n' }, String(o.n))))),
-    h('button', { class: 'btn ghost wide', type: 'button', onclick: closeSheet }, 'Cancel'),
-  ], { tall });
-}
-
+// The buttons and the pop-up are filterButton and openFilterSheet in ui.js (an administrator's Users has one too).
+// The counts take the other filter into account.
 function openProcedureFilter() {
   const base = state.entries.filter((e) => !historyFilter.role || e.role === historyFilter.role);
   const n = (id) => base.filter((e) => e.procedure === id).length;
   // Only procedures the student has logged, in the same order as on the Log tab.
   const ids = ALL_PROCEDURES.map((p) => p.id).filter((id) => n(id) || id === historyFilter.procedure);
   openFilterSheet('Show only this procedure', [
-    { label: 'All procedures', n: base.length, on: !historyFilter.procedure, change: { procedure: null } },
-    ...ids.map((id) => ({ label: procName(id), n: n(id), on: historyFilter.procedure === id, change: { procedure: id } })),
+    { label: 'All procedures', n: base.length, on: !historyFilter.procedure, pick: () => setHistoryFilter({ procedure: null }) },
+    ...ids.map((id) => ({ label: procName(id), n: n(id), on: historyFilter.procedure === id, pick: () => setHistoryFilter({ procedure: id }) })),
   ], { tall: ids.length > 6 });
 }
 
@@ -844,8 +814,8 @@ function openRoleFilter() {
   const base = state.entries.filter((e) => !historyFilter.procedure || e.procedure === historyFilter.procedure);
   const n = (id) => base.filter((e) => e.role === id).length;
   openFilterSheet('Show only this role', [
-    { label: 'All roles', n: base.length, on: !historyFilter.role, change: { role: null } },
-    ...rolesFor(historyFilter.procedure).map((r) => ({ label: r.done, n: n(r.id), on: historyFilter.role === r.id, change: { role: r.id } })),
+    { label: 'All roles', n: base.length, on: !historyFilter.role, pick: () => setHistoryFilter({ role: null }) },
+    ...rolesFor(historyFilter.procedure).map((r) => ({ label: r.done, n: n(r.id), on: historyFilter.role === r.id, pick: () => setHistoryFilter({ role: r.id }) })),
   ]);
 }
 

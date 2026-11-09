@@ -5,11 +5,11 @@
 // students and their entries are fetched from the server each time, and signing is checked by the server.
 // app.js decides when to show this (the logged-in account has the role "supervisor").
 
-import { TARGET_PROCEDURES, MAX_TARGET, procName, roleDoneBy } from './config.js';
+import { TARGET_PROCEDURES, MAX_TARGET, procName } from './config.js';
 import * as core from './core.js';
 import * as api from './api.js';
 import {
-  h, timeAgo, stat, cases, appShell, pageScroll, setPageScroll, keepTyping, toast, openSheet, closeSheet, openCase, passwordForm, fact, privacyFact, advancedCard,
+  h, timeAgo, stat, cases, appShell, pageScroll, setPageScroll, keepTyping, toast, openSheet, closeSheet, caseRow, passwordForm, fact, privacyFact, advancedCard,
 } from './ui.js';
 
 const ENDED = Symbol('session ended'); // the server ended the session; app.js shows the login screen
@@ -194,7 +194,7 @@ function studentsView() {
     const drawList = () => {
       sv.myQuery = input.value;
       const q = core.normCandidate(input.value);
-      const shown = list.filter((s) => s.candidate.includes(q) || (s.name || '').toUpperCase().replace(/s+/g, '').includes(q));
+      const shown = list.filter((s) => s.candidate.includes(q) || (s.name || '').toUpperCase().replace(/\s+/g, '').includes(q));
       ul.replaceChildren(...(shown.length ? shown.map((s) => h('li', {},
         h('button', { class: 'srow', onclick: () => { setPageScroll(0); sv.detailTab = 'sign'; loadDetail(s.candidate); } },
           h('span', { class: 'srow-main' },
@@ -219,27 +219,8 @@ function errorBox() {
 
 // ---- one student ----------------------------------------------------------------------
 
-// One case as a short row, like in the student's History: the procedure, under it the role and the date, then the
-// hospital, tags on the right. Tapping it opens the whole case in the same pop-up the student sees (openCase in ui.js), only to read.
-// box: a tick box on the left (To sign); tapping the box ticks, it does not open the case.
-function caseRow(e, { box = null, tags = [] } = {}) {
-  const open = () => openCase(e, { roleText: roleDoneBy }); // the role about the student: "Operated alone"
-  return h('li', {
-    class: box ? 'entry tap has-box' : 'entry tap', role: 'button', tabindex: '0',
-    'aria-label': `Open ${procName(e.procedure)}, ${core.fmtDate(e.performed_on)}`,
-    onclick: open,
-    onkeydown: (ev) => { if (ev.target === ev.currentTarget && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); open(); } },
-  },
-    box ? h('label', { class: 'pick', onclick: (ev) => ev.stopPropagation() }, box) : null,
-    h('div', { class: 'e-text' },
-      h('strong', {}, procName(e.procedure)),
-      h('span', { class: 'e-sub' }, `${roleDoneBy(e.role, e.procedure)} · ${core.fmtDate(e.performed_on)}`),
-      e.hospital ? h('span', { class: 'e-sub' }, e.hospital) : null), // where it was done, on a line of its own
-    h('div', { class: 'e-tags' },
-      Object.keys(e.outcome || {}).length ? h('span', { class: 'tag fu' }, 'Follow-up added') : null,
-      tags));
-}
-
+// Each case is a short row (caseRow in ui.js, shared with an administrator's page of one student); tapping it opens
+// the whole case in the same pop-up the student sees, only to read.
 function detailView() {
   const d = sv.detail;
   // back to the list: only an arrow pointing left, in a round outlined button

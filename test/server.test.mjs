@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
-  addUser, setDisabled, revokeSessions, resetPassword, generatePassword, initSchema, openDb, backupTo, bootstrapAdmin,
+  addUser, setDisabled, revokeSessions, resetPassword, generatePassword, initSchema, openDb, backupTo, bootstrapAdmin, databaseId, newDatabaseId,
 } from '../server/lib.js';
 
 async function start(opts = {}) {
@@ -507,6 +507,49 @@ test('a database made by v0.2 is upgraded in place and keeps its data', async ()
   assert.deepEqual(old.prepare('SELECT type, target FROM events ORDER BY seq').all().map((r) => ({ ...r })),
     [{ type: 'entry', target: null }, { type: 'void', target: 'aaaaaaaa-0000' }]);
   assert.ok(old.prepare("SELECT name FROM sqlite_master WHERE name = 'assignments'").get());
+  assert.match(databaseId(old), /^[0-9a-f-]{36}$/, 'an older database gets a database id');
+  const id = databaseId(old);
+  initSchema(old);
+  assert.equal(databaseId(old), id, 'made once, kept at every start');
+  assert.match(old.prepare("SELECT value FROM settings WHERE key = 'pseudonym_key'").get().value, /^[0-9a-f]{64}$/, 'and the key for the anonymous spreadsheets');
+});
+
+test('every sync says which copy of the data it is; a backup copy and mark-restored get a new one', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'logbook-dbid-'));
+  const t = await start();
+  try {
+    const student = await ready(t, 'S001', 'initial-pw-1', 'second-pw-22');
+    const a = await t.call('/api/sync', { token: student, body: { events: [entry()], cursor: 0 } });
+    const b = await t.call('/api/sync', { token: student, body: { events: [], cursor: 0 } });
+    assert.match(a.body.db_id, /^[0-9a-f-]{36}$/);
+    assert.equal(b.body.db_id, a.body.db_id, 'the same while the data is the same');
+    const live = databaseId(t.s.db);
+    assert.equal(a.body.db_id, live);
+
+    // a backup gets an id of its own, so a server started from it after a restore is told apart; the live one keeps its id
+    const file = path.join(dir, 'copy.db');
+    backupTo(t.s.db, file);
+    assert.equal(databaseId(t.s.db), live);
+    const copy = openDb(file);
+    assert.notEqual(databaseId(copy), live);
+    assert.equal(copy.prepare('SELECT COUNT(*) AS n FROM events').get().n, 1, 'the data itself is the same');
+    copy.close();
+    const r = await createServer({ dbPath: file });
+    const port = await r.listen(0, '127.0.0.1');
+    try {
+      const restored = await (await fetch(`http://127.0.0.1:${port}/api/sync`, {
+        method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${student}` }, body: JSON.stringify({ events: [], cursor: 0 }),
+      })).json();
+      assert.equal(restored.events.length, 1, 'the restored server has the data and the session');
+      assert.notEqual(restored.db_id, live, 'and tells the tablet it is another copy');
+    } finally { await r.close(); }
+
+    // after restoring a disk snapshot (the same id as before): admin.js mark-restored
+    const before = databaseId(t.s.db);
+    newDatabaseId(t.s.db);
+    assert.notEqual(databaseId(t.s.db), before);
+    assert.notEqual((await t.call('/api/sync', { token: student, body: { events: [], cursor: 0 } })).body.db_id, before);
+  } finally { await t.s.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('admin backup writes a complete, readable copy and refuses to overwrite', async () => {
@@ -796,7 +839,7 @@ test('students can have a name; an administrator creates, changes and sees it; s
 });
 
 test('CSV exports: counts per student, per hospital and every entry; safe for spreadsheets; administrators only', async () => {
-  const t = await start();
+  const t = await start({ now: () => Date.parse('2026-11-09T12:00:00Z') }); // a fixed day: whether a follow-up is open or missed
   try {
     const admin = await adminReady(t);
     const a = await ready(t, 'S001', 'initial-pw-1', 'second-pw-22');
@@ -807,17 +850,19 @@ test('CSV exports: counts per student, per hospital and every entry; safe for sp
     const e1 = entry({ procedure: 'cs', role: 'independent', hospital: 'Masanga Hospital' });
     const e2 = entry({ procedure: 'cs', role: 'observing', hospital: 'Bo Government Hospital' });
     const e3 = entry({ procedure: 'appendectomy', role: 'supervised', hospital: 'Masanga Hospital' });
+    const e4 = entry({ procedure: 'appendectomy', role: 'assisting', hospital: 'Masanga Hospital', performed_on: '2026-08-01', entered_on: '2026-08-01' }); // too old for a follow-up
     const gone = entry({ procedure: 'laparotomy', role: 'assisting' });
-    await t.call('/api/sync', { token: a, body: { events: [e1, e2, gone, { id: '66666666-0000-4000-8000-000000000001', type: 'void', ts: new Date().toISOString(), target: gone.id }], cursor: 0 } });
-    await t.call('/api/sync', { token: b, body: { events: [e3], cursor: 0 } });
+    const followUp = { id: '77777777-0000-4000-8000-000000000001', type: 'followup', ts: new Date().toISOString(), target: e1.id, known_on: '2026-11-01', answers: { mother: 'alive' } };
+    await t.call('/api/sync', { token: a, body: { events: [e1, e2, gone, followUp, { id: '66666666-0000-4000-8000-000000000001', type: 'void', ts: new Date().toISOString(), target: gone.id }], cursor: 0 } });
+    await t.call('/api/sync', { token: b, body: { events: [e3, e4], cursor: 0 } });
     await sup(t, supToken, 'assign', { candidate: 'S001' });
     await sup(t, supToken, 'sign', { candidate: 'S001', ids: [e1.id] });
 
-    const get = async (kind, delimiter) => {
-      const r = await raw(t, admin, 'export', { kind, delimiter });
+    const get = async (kind, delimiter, anonymous = false, named = anonymous && kind !== 'hospitals' && kind !== 'codebook') => {
+      const r = await raw(t, admin, 'export', { kind, delimiter, anonymous });
       assert.equal(r.status, 200);
       assert.match(r.headers.get('content-type'), /text\/csv/);
-      assert.match(r.headers.get('content-disposition'), new RegExp(`attachment; filename="logbook-${kind}-\\d{4}-\\d{2}-\\d{2}\\.csv"`));
+      assert.match(r.headers.get('content-disposition'), new RegExp(`attachment; filename="logbook-${kind}${named ? '-anonymous' : ''}-2026-11-09\\.csv"`));
       const text = r.buf.toString('utf8');
       assert.ok(text.startsWith('﻿'), 'byte order mark so Excel reads UTF-8');
       return text.slice(1).split('\r\n').filter(Boolean);
@@ -828,32 +873,72 @@ test('CSV exports: counts per student, per hospital and every entry; safe for sp
       + 'sex,age_years,gravida,para,children_alive,induction,babies,'
       + 'baby_outcome,baby_presentation,baby_sex,baby_weight_g,baby_apgar1,baby_apgar5,baby2_outcome,baby2_presentation,baby2_sex,baby2_weight_g,baby2_apgar1,baby2_apgar5,'
       + 'baby3_outcome,baby3_presentation,baby3_sex,baby3_weight_g,baby3_apgar1,baby3_apgar5,urgency,cs_reason,anaesthesia,duration_min,blood_loss_ml,'
-      + 'sapgar_blood,sapgar_map,sapgar_hr,side,mesh,cs_indication,surgical_apgar,followup_mat_complication,followup_patient,followup_mother,followup_died_day,'
-      + 'followup_death_cause,followup_wound_infection,followup_reoperation,followup_referral,followup_days_in_hospital,followup_complication,followup_baby,followup_on');
-    assert.equal(entries.length, 4, 'header and three live entries; the deleted one is left out');
+      + 'sapgar_blood,sapgar_map,sapgar_hr,side,mesh,cs_indication,surgical_apgar,followup_status,followup_mat_complication,followup_patient,followup_mother,followup_died_day,'
+      + 'followup_death_cause,followup_wound_infection,followup_reoperation,followup_referral,followup_days_in_hospital,followup_complication,followup_baby,followup_on,followup_day');
+    assert.equal(entries.length, 5, 'header and four live entries; the deleted one is left out');
+    const col = (line, name) => line.split(',').at(entries[0].split(',').indexOf(name) - entries[0].split(',').length); // from the end: names and roles may hold commas
+    // follow-up: done (with the day it was known, and how many days after the operation), open (still within 42 days), missed
+    const firstLine = entries.find((l) => l.includes(e1.id));
+    assert.deepEqual([col(firstLine, 'followup_status'), col(firstLine, 'followup_mother'), col(firstLine, 'followup_on'), col(firstLine, 'followup_day')], ['done', 'alive', '2026-11-01', '12']);
+    assert.equal(col(entries.find((l) => l.includes(e3.id)), 'followup_status'), 'open', '20 days after the operation');
+    assert.equal(col(entries.find((l) => l.includes(e4.id)), 'followup_status'), 'missed', 'more than 42 days, no follow-up');
     const first = entries.find((l) => l.includes(e1.id));
     assert.match(first, /^S001,"'=HYPERLINK\(""x""\)",/, 'a name starting with = cannot become a formula');
     assert.match(first, /Masanga Hospital,cs,Caesarean section,Surgeon, independent|Masanga Hospital,cs,Caesarean section,"Surgeon, independent"/);
     assert.match(first, /,yes,yes,SUP-ANNA,\d{4}-/, 'performed, signed, who signed');
-    assert.match(entries.find((l) => l.includes(e2.id)), /,Observed,no,no,+$/, 'not signed, no details, no follow-up: every cell after it is empty');
+    assert.match(entries.find((l) => l.includes(e2.id)), /,Observed,no,no,+open,+$/, 'not signed, no details, no follow-up yet: only the status');
     assert.match(entries.find((l) => l.includes(e3.id)), /^S002,"Doe, Jane",/, 'commas in a name are quoted');
 
     const procs = await get('procedures');
-    assert.equal(procs[0], 'candidate,name,procedure_id,procedure,observing,assisting,surgeon_supervised,surgeon_independent,performed,total,signed');
-    assert.ok(procs.includes("S001,\"'=HYPERLINK(\"\"x\"\")\",cs,Caesarean section,1,0,0,1,1,2,1"), procs.join('\n'));
+    assert.equal(procs[0], 'candidate,name,procedure_id,procedure,observing,assisting,surgeon_supervised,surgeon_independent,performed,total,signed,followup_done,followup_open,followup_missed');
+    assert.ok(procs.includes("S001,\"'=HYPERLINK(\"\"x\"\")\",cs,Caesarean section,1,0,0,1,1,2,1,1,1,0"), procs.join('\n'));
+    assert.ok(procs.includes('S002,"Doe, Jane",appendectomy,Appendectomy,0,1,1,0,1,2,0,0,1,1'), procs.join('\n'));
     assert.equal(procs.length, 3, 'header, S001 caesarean, S002 appendectomy');
 
     const hosp = await get('hospitals', ';');
-    assert.equal(hosp[0], 'hospital;procedure_id;procedure;observing;assisting;surgeon_supervised;surgeon_independent;performed;total;signed;students');
-    assert.ok(hosp.includes('Masanga Hospital;appendectomy;Appendectomy;0;0;1;0;1;1;0;1'), hosp.join('\n'));
-    assert.ok(hosp.includes('Bo Government Hospital;cs;Caesarean section;1;0;0;0;0;1;0;1'));
+    assert.equal(hosp[0], 'hospital;procedure_id;procedure;observing;assisting;surgeon_supervised;surgeon_independent;performed;total;signed;followup_done;followup_open;followup_missed;students');
+    assert.ok(hosp.includes('Masanga Hospital;appendectomy;Appendectomy;0;1;1;0;1;2;0;0;1;1;1'), hosp.join('\n'));
+    assert.ok(hosp.includes('Bo Government Hospital;cs;Caesarean section;1;0;0;0;0;1;0;0;1;0;1'));
+
+    // ---- progress per student: the targets in force (the newest per procedure; 0 removes one), performed and the share
+    assert.equal((await sup(t, supToken, 'targets', { candidate: 'S001', targets: { cs: 4, appendectomy: 2 } })).status, 200);
+    assert.equal((await sup(t, supToken, 'targets', { candidate: 'S001', targets: { cs: 5, appendectomy: 0 } })).status, 200);
+    const prog = await get('progress');
+    assert.equal(prog[0], 'candidate,name,procedure_id,procedure,target,performed,percent,assisting,observing,target_set_by,target_set_on');
+    assert.deepEqual(prog.slice(1), ["S001,\"'=HYPERLINK(\"\"x\"\")\",cs,Caesarean section,5,1,20,0,1,SUP-ANNA,2026-11-09"], 'one target left; S002 has none');
+
+    // ---- anonymous: a code instead of each candidate number and name (supervisors too), the same in every file and download
+    const anonEntries = await get('entries', ',', true);
+    assert.match(anonEntries[0], /^student_code,entry_id,/);
+    const all = (await Promise.all(['entries', 'procedures', 'progress'].map((k) => get(k, ',', true)))).flat().join('\n');
+    for (const secret of ['S001', 'S002', 'HYPERLINK', 'Doe', 'SUP-ANNA']) assert.ok(!all.includes(secret), `${secret} is not in the anonymous files`);
+    const codeOf = (line) => line.split(',')[0];
+    const s1 = codeOf(anonEntries.find((l) => l.includes(e1.id)));
+    assert.match(s1, /^S-[0-9A-F]{8}$/);
+    assert.notEqual(s1, codeOf(anonEntries.find((l) => l.includes(e3.id))), 'two students, two codes');
+    assert.match(anonEntries.find((l) => l.includes(e1.id)), /,yes,yes,V-[0-9A-F]{8},/, 'the supervisor who signed is a code too');
+    assert.equal(codeOf((await get('progress', ',', true))[1]), s1, 'the same code in another file');
+    assert.equal(codeOf((await get('entries', ',', true)).find((l) => l.includes(e1.id))), s1, 'and in a later download');
+    const anonHosp = await get('hospitals', ';', true);
+    assert.deepEqual(anonHosp, hosp, 'the hospital file has no people in it: the same either way');
+
+    // ---- the codebook: every column of the case file is explained, and every code
+    const book = await get('codebook', ',', true);
+    assert.equal(book[0], 'file,column,meaning,code,code_meaning');
+    const explained = new Set(book.slice(1).map((l) => l.split(',')[1]));
+    for (const c of entries[0].split(',')) assert.ok(explained.has(c), `the codebook explains ${c}`);
+    assert.ok(book.includes('entries,followup_mother,,died,Died'), 'a row per code');
+    assert.ok(explained.has('student_code'));
 
     assert.equal((await adm(t, admin, 'export', { kind: 'everything' })).status, 400);
     assert.equal((await raw(t, a, 'export', { kind: 'entries' })).status, 403);
     assert.equal((await raw(t, supToken, 'export', { kind: 'entries' })).status, 403);
     const stats = (await adm(t, admin, 'stats')).body;
-    assert.deepEqual(stats.hospitals.map((h) => [h.hospital, h.entries, h.performed, h.students]), [['Masanga Hospital', 2, 2, 2], ['Bo Government Hospital', 1, 0, 1]]);
-    assert.match((await adm(t, admin, 'audit')).body.log.map((e) => `${e.action}:${e.detail}`).join(), /export:entries/);
+    assert.deepEqual(stats.hospitals.map((h) => [h.hospital, h.entries, h.performed, h.students]), [['Masanga Hospital', 3, 2, 2], ['Bo Government Hospital', 1, 0, 1]]); // the old assisted appendectomy too
+    const log = (await adm(t, admin, 'audit')).body.log.map((e) => `${e.action}:${e.detail}`).join();
+    assert.match(log, /export:entries,/);
+    assert.match(log, /export:entries \(anonymous\)/, 'the log says when a file was anonymous');
+    assert.match(log, /export:codebook,/, 'a codebook is never called anonymous');
   } finally { await t.s.close(); }
 });
 

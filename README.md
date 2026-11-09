@@ -17,7 +17,7 @@ To put the server online, read [`DEPLOY.md`](DEPLOY.md). Instructions for people
     npm run admin -- add-admin ADMIN-ANDERS --name "Anders"            # prints an initial password once
     npm start                                                          # app and API on http://localhost:8080
 
-Open http://localhost:8080. Log in as `ADMIN-ANDERS`, choose your own password, and create a supervisor and a student under "Add users". In other browser profiles log in as them: the student logs a procedure, the supervisor adds the student under "Add students" and signs the entry.
+Open http://localhost:8080. Log in as `ADMIN-ANDERS`, choose your own password, and create a supervisor and a student under "Manage users", "Add users". In other browser profiles log in as them: the student logs a procedure, the supervisor adds the student under "Add students" and signs the entry.
 The database is `./data/logbook.db`.
 
 **Working on the screens?** Run `npm run dev` instead: http://localhost:5173 with demo accounts (password `demo1234`) and a page that reloads when you save a file. See `PROJECT.md`, section 10.9.

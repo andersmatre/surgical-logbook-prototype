@@ -289,6 +289,34 @@ export async function addPulled(events) {
 
 export const unsyncedCount = (events, sentSet) => events.filter((e) => !sentSet.has(e.id)).length;
 
+// ---- after the server was restored from a backup ---------------------------------
+// The server has lost what came after the backup. This tablet still has it, but had marked it as sent, and its
+// cursor may be past the server's newest event. So: forget what was sent and start fetching from the beginning.
+// Only the student's own events are sent again; signatures and targets are made by the server, which would refuse
+// them from a tablet. Which of those the server still has is known once everything has been fetched again
+// (dropServerEventsExcept). Kept in meta ('resync') until then, so an interrupted sync starts over.
+const SERVER_TYPES = new Set(['sign', 'target']);
+
+export async function restartSync() {
+  const fromServer = (await allEvents()).filter((e) => SERVER_TYPES.has(e.type)).map((e) => e.id);
+  const db = await openDb();
+  const tx = db.transaction(['sent', 'meta'], 'readwrite');
+  tx.objectStore('sent').clear();
+  for (const id of fromServer) tx.objectStore('sent').put({ id }); // not sent again
+  tx.objectStore('meta').put({ key: 'cursor', value: 0 });
+  tx.objectStore('meta').put({ key: 'resync', value: true });
+  await txDone(tx);
+}
+
+// After everything was fetched again: signatures and targets the server no longer has are removed from this tablet
+// too (the supervisor signs again), so the tablet shows what the server has. Returns how many were removed.
+export async function dropServerEventsExcept(seen) {
+  const gone = (await allEvents()).filter((e) => SERVER_TYPES.has(e.type) && !seen.has(e.id)).map((e) => e.id);
+  for (const id of gone) await dropEvent(id);
+  await setMeta('resync', false);
+  return gone.length;
+}
+
 // ---- counts ------------------------------------------------------------------
 
 // Counts of what is in the logbook. How the app is used (seconds to log, offline, undo, app opens) is not
