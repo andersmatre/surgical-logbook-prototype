@@ -59,7 +59,7 @@ export function saveBlob(blob, filename) {
 // the page is scrolled far or fast, or bounces at its ends. pageScroll and setPageScroll read and set where the
 // page is scrolled to, to keep that when the screen is drawn again, or go back to the top on another tab.
 // The content sits in .page, which on a touch screen is 1 px taller than the screen (style.css), so a short page can still be dragged and bounce.
-// bottom: buttons that stay at the bottom of the screen (a supervisor's Sign), in a white bar under the page, as wide
+// bottom: buttons that stay at the bottom of the screen (a supervisor's Sign, an administrator's Download), in a white bar under the page, as wide
 // as the top bar; the page scrolls above it, not under it.
 export const appShell = (attrs, top, page, bottom = null) =>
   h('div', { ...attrs, class: 'shell' }, h('div', { class: 'top-bar' }, top),
@@ -368,8 +368,9 @@ export function caseRow(e, { box = null, tags = [] } = {}) {
 
 // A white tile for one procedure (or hospital): the name and a number on top, a bar when there is a target
 // (bar: { done, of }), and a grey line under it. The student's Progress, an administrator's Overview.
-export function procTile(name, count, sub, bar = null) {
-  return h('div', { class: 'ptile' },
+// cls: "mid" puts the number on the right in the middle of the tile's height (an administrator's Overview).
+export function procTile(name, count, sub, bar = null, cls = '') {
+  return h('div', { class: cls ? `ptile ${cls}` : 'ptile' },
     h('div', { class: 'prow-top' }, h('strong', {}, name), h('span', { class: 'pcount' }, count)),
     bar ? h('div', { class: 'bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(bar.of), 'aria-valuenow': String(bar.done), 'aria-label': name },
       h('div', { class: 'fill', style: `width:${Math.min(100, Math.round((bar.done / bar.of) * 100))}%` })) : null,
@@ -414,7 +415,7 @@ export function procedureProgress(entries, events, { note, none }) {
 // (the answers of the form) and "Follow-up". The answers are in grey cards, a row per answered question (the
 // question on the left, the answer on the right); a card only has a heading when the tab has several (Mother, Baby,
 // Operation ...). Changing a case is not possible (the log only grows). With onDelete an unsigned entry can be deleted
-// with a quiet link at the bottom of Details; with onFollowUp a follow-up can be added on the Follow-up tab next to
+// with a red "Delete this case" on the line of the tabs, on the right; with onFollowUp a follow-up can be added on the Follow-up tab next to
 // Close. A supervisor gets neither: they only read.
 // roleText: how the role is worded (roleDone for the student; a supervisor passes roleDoneBy).
 // tab: the tab to open on ('details', or 'followup' when coming back from the follow-up form).
@@ -440,16 +441,13 @@ export function openCase(e, { onDelete = null, onFollowUp = null, roleText = rol
   const hasOutcome = Object.keys(e.outcome || {}).length > 0;
   const details = parts(DETAIL_FIELDS, detailFieldsFor(e.procedure), e.details, 'Details',
     apgar == null ? {} : { 'Surgical Apgar': row('Score', `${apgar} of 10`) }).filter(Boolean);
-  const followUp = parts(FOLLOWUP_FIELDS, followupFieldsFor(e.procedure), e.outcome, 'Follow-up').filter(Boolean);
+  const followUp = parts(FOLLOWUP_FIELDS, followupFieldsFor(e.procedure, e.details), e.outcome, 'Follow-up').filter(Boolean);
   // Why there is no follow-up button: the time for it is over (not the signature: a signed case can get one too).
   const limit = FOLLOWUP_DAYS % 7 === 0 ? `${FOLLOWUP_DAYS / 7} weeks` : `${FOLLOWUP_DAYS} days`;
   const closed = canFollowUp ? null : h('p', { class: 'muted case-note' }, `Follow-up is closed: more than ${limit} after the operation.`);
 
   const caseTab = h('div', { class: 'case-tab', id: 'case-tab-details', role: 'tabpanel' },
-    details.length ? details : h('p', { class: 'muted case-note' }, 'No details were filled in.'),
-    // Delete: rarely needed, so a quiet red link at the bottom, not a button that catches the eye (it asks first)
-    e.sign || !onDelete ? null : h('div', { class: 'case-del-row' },
-      h('button', { class: 'link danger case-del', type: 'button', onclick: () => onDelete(e) }, 'Delete this case')));
+    details.length ? details : h('p', { class: 'muted case-note' }, 'No details were filled in.'));
   const followTab = h('div', { class: 'case-tab', id: 'case-tab-followup', role: 'tabpanel', hidden: true },
     followUp.length ? followUp : null,
     followUp.length && !closed ? null : closed || h('p', { class: 'muted case-note' }, 'No follow-up yet.'));
@@ -461,6 +459,11 @@ export function openCase(e, { onDelete = null, onFollowUp = null, roleText = rol
     class: 'ctab', type: 'button', role: 'tab', 'data-tab': id, 'aria-controls': `case-tab-${id}`, onclick: () => show(id),
   }, label);
   const tabs = h('div', { class: 'ctabs', role: 'tablist', 'aria-label': 'Details or follow-up' }, tab('details', 'Details'), tab('followup', 'Follow-up'));
+  // Delete: on the line of the tabs, all the way to the right, in red; on both tabs, as it is about the whole case. Only an
+  // unsigned case, and only for the student (onDelete). It asks first. Just "Delete" on a narrow phone, so the tabs fit.
+  const del = e.sign || !onDelete ? null : h('button', {
+    class: 'link danger case-del', type: 'button', 'aria-label': 'Delete this case', onclick: () => onDelete(e),
+  }, 'Delete', h('span', { class: 'wide-only' }, ' this case'));
   const show = (id) => {
     const sheet = caseTab.closest('.sheet');
     const top = sheet ? sheet.getBoundingClientRect().top : null;
@@ -495,7 +498,7 @@ export function openCase(e, { onDelete = null, onFollowUp = null, roleText = rol
           hasOutcome ? h('span', { class: 'tag fu' }, 'Follow-up added') : null,
           e.sign ? h('span', { class: 'tag ok' }, 'Signed') : h('span', { class: 'tag warn' }, 'Not signed'))),
       signedBy ? h('p', { class: 'case-sub case-signed' }, signedBy) : null,
-      tabs),
+      h('div', { class: 'case-tabbar' }, tabs, del)),
     caseTab,
     followTab,
     h('div', { class: 'sheet-foot' },

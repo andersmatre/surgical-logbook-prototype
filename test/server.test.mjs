@@ -874,7 +874,8 @@ test('CSV exports: counts per student, per hospital and every entry; safe for sp
       + 'baby_outcome,baby_presentation,baby_sex,baby_weight_g,baby_apgar1,baby_apgar5,baby2_outcome,baby2_presentation,baby2_sex,baby2_weight_g,baby2_apgar1,baby2_apgar5,'
       + 'baby3_outcome,baby3_presentation,baby3_sex,baby3_weight_g,baby3_apgar1,baby3_apgar5,urgency,cs_reason,anaesthesia,duration_min,blood_loss_ml,'
       + 'sapgar_blood,sapgar_map,sapgar_hr,side,mesh,cs_indication,surgical_apgar,followup_status,followup_mat_complication,followup_patient,followup_mother,followup_died_day,'
-      + 'followup_death_cause,followup_wound_infection,followup_reoperation,followup_referral,followup_days_in_hospital,followup_complication,followup_baby,followup_on,followup_day');
+      + 'followup_death_cause,followup_wound_infection,followup_reoperation,followup_referral,followup_days_in_hospital,followup_complication,followup_baby,'
+      + 'followup_baby_after,followup_baby_died_day,followup_baby2_after,followup_baby2_died_day,followup_baby3_after,followup_baby3_died_day,followup_on,followup_day');
     assert.equal(entries.length, 5, 'header and four live entries; the deleted one is left out');
     const col = (line, name) => line.split(',').at(entries[0].split(',').indexOf(name) - entries[0].split(',').length); // from the end: names and roles may hold commas
     // follow-up: done (with the day it was known, and how many days after the operation), open (still within 42 days), missed
@@ -1018,8 +1019,10 @@ test('details and follow-ups: only known questions and allowed answers are store
 
     // a follow-up is not a change: a signed entry still takes follow-ups
     await sup(t, supToken, 'sign', { candidate: 'S001', ids: [e1.id] });
-    const late = fu(e1.id, { mother: 'died' }, { ts: '2026-11-02T10:00:00.000Z', known_on: '2026-11-02' });
+    const late = fu(e1.id, { mother: 'died', baby_after: 'died', baby_died_day: 3, baby2_after: 'maybe' }, { ts: '2026-11-02T10:00:00.000Z', known_on: '2026-11-02' });
     assert.deepEqual((await t.call('/api/sync', { token: student, body: { events: [late], cursor: 0 } })).body.accepted, [late.id]);
+    assert.deepEqual(JSON.parse(t.s.db.prepare('SELECT payload FROM events WHERE id = ?').get(late.id).payload).answers,
+      { mother: 'died', baby_after: 'died', baby_died_day: 3 }, 'the follow-up of a baby is kept; an answer not on the list is dropped');
 
     const view = (await sup(t, supToken, 'entries', { candidate: 'S001', cursor: 0 })).body.events;
     assert.equal(view.find((e) => e.id === e1.id).details.anaesthesia, 'spinal', 'supervisors see the details');
@@ -1037,6 +1040,7 @@ test('details and follow-ups: only known questions and allowed answers are store
     assert.equal(one('followup_mother'), 'died');
     assert.equal(one('followup_baby'), 'stillbirth', 'an answer not given again is kept');
     assert.equal(one('followup_on'), '2026-11-02');
+    assert.deepEqual([one('followup_baby_after'), one('followup_baby_died_day')], ['died', '3'], 'the baby in the spreadsheet');
     assert.equal(row(e2.id)('followup_patient'), '', 'an undone follow-up is left out');
   } finally { await t.s.close(); }
 });

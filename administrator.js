@@ -4,7 +4,7 @@
 // Plain JavaScript, no build step. Needs internet; nothing is stored on the tablet.
 // app.js decides when to show this (the logged-in account has the role "admin").
 
-import { procName } from './config.js';
+import { procName, findProcedure, LOG_SURGERY } from './config.js';
 import * as core from './core.js';
 import * as api from './api.js';
 import {
@@ -23,6 +23,7 @@ const fresh = () => ({
   loading: false, error: '', query: '', filter: 'all', addRole: 'student', draft: { ids: '', id: '', name: '' },
   adding: false, // Manage users: the page to add users is open (instead of the list)
   people: 'anonymous', // the spreadsheets: 'anonymous' (codes instead of people) or 'names'; anonymous at every login
+  picked: new Set(), // the spreadsheets ticked on Download data (none at first)
   delim: getDelim(), // the spreadsheets: ';' (Excel in most of Europe) or ','; remembered on this device
   overTab: 'students', studentQuery: '', procQuery: '', hospQuery: '', // Overview: the tab on show, and the search on each tab
   detail: null, // one student's page: { candidate, events, entries, loading, error }; part of the tab it was opened from
@@ -46,10 +47,13 @@ function draw() {
   if (ctx && ctx.root.querySelector('[data-admin]')) paint();
 }
 
+let bottomBar = null; // set while the page is drawn: the buttons for the bar at the bottom of the screen (Download data)
 function paint() {
   const y = pageScroll();
   const typing = keepTyping(ctx.root);
-  ctx.root.replaceChildren(appShell({ 'data-admin': '' }, [header(), nav()], body()));
+  bottomBar = null;
+  const page = body();
+  ctx.root.replaceChildren(appShell({ 'data-admin': '' }, [header(), nav()], page, bottomBar));
   if (y) setPageScroll(y);
   typing();
 }
@@ -142,6 +146,10 @@ function switcher(key, tabs, label, onPick = null) {
 }
 
 const people = (n) => `${n} ${n === 1 ? 'student' : 'students'}`;
+// Surgeries and Deliveries like the two lists of a new case: a delivery is a way of giving birth (delivery: true in
+// config.js), everything else is a surgery; a caesarean is in both (it is on the Surgery list of a new case too).
+const isDelivery = (id) => !!findProcedure(id)?.delivery;
+const isSurgery = (id) => !isDelivery(id) || LOG_SURGERY.includes(id);
 
 // The numbers at the top, then three tabs: Students (a row each, tap for their page), and Procedures and Hospitals
 // (a tile each, the most cases first). The log of recent changes is under More.
@@ -157,7 +165,9 @@ function overviewView() {
       ? searchable({
         key: 'procQuery', placeholder: 'Search procedure', items: s.procedures,
         matches: (p, q) => procName(p.procedure).toLowerCase().includes(lower(q)),
-        item: (p) => procTile(procName(p.procedure), cases(p.total), `Observed ${p.observing} · Assisted ${p.assisting} · Performed ${p.performed} · ${people(p.students)}`),
+        item: (p) => procTile(procName(p.procedure), cases(p.total), `Observed ${p.observing} · Assisted ${p.assisting} · Performed ${p.performed} · ${people(p.students)}`, null, 'mid'),
+        // like the Surgery and Delivery tabs of a new case: a caesarean is under both
+        sections: [['Surgeries', (p) => isSurgery(p.procedure)], ['Deliveries', (p) => isDelivery(p.procedure)]],
         noMatch: 'No procedure matches.',
       })
       : nothing),
@@ -165,7 +175,7 @@ function overviewView() {
       ? searchable({
         key: 'hospQuery', placeholder: 'Search hospital', items: s.hospitals,
         matches: (x, q) => x.hospital.toLowerCase().includes(lower(q)),
-        item: (x) => procTile(x.hospital, cases(x.entries), `Performed ${x.performed} · ${people(x.students)}`),
+        item: (x) => procTile(x.hospital, cases(x.entries), `Performed ${x.performed} · ${people(x.students)}`, null, 'mid'),
         noMatch: 'No hospital matches.',
       })
       : nothing),
@@ -195,12 +205,17 @@ function studentsPart(s) {
 
 // A search field right under the switch, and under it the list, which narrows while typing.
 // What was typed is kept in ad[key] while the app is open, so a fresh answer from the server does not clear it.
-function searchable({ key, placeholder, items, matches, item, noMatch, caps = false, list = h('div', { class: 'prows' }) }) {
+// sections: [[heading, (item) => belongs]]: the list under small grey headings (like the week headings in History),
+// only the headings that have something; an item can be under more than one (a caesarean: surgery and delivery).
+function searchable({ key, placeholder, items, matches, item, noMatch, caps = false, sections = null, list = h('div', { class: sections ? '' : 'prows' }) }) {
   const input = h('input', { type: 'search', placeholder, class: 'search', value: ad[key], autocapitalize: caps ? 'characters' : null, autocomplete: 'off' });
   const drawList = () => {
     ad[key] = input.value;
     const shown = items.filter((x) => matches(x, input.value));
-    list.replaceChildren(...(shown.length ? shown.map(item) : [h('p', { class: 'muted' }, noMatch)]));
+    const content = !sections ? shown.map(item)
+      : sections.map(([title, belongs]) => [title, shown.filter(belongs)]).filter(([, xs]) => xs.length)
+        .flatMap(([title, xs]) => [h('h3', { class: 'day-head' }, title), h('div', { class: 'prows' }, xs.map(item))]);
+    list.replaceChildren(...(shown.length ? content : [h('p', { class: 'muted' }, noMatch)]));
   };
   input.addEventListener('input', drawList);
   drawList();
@@ -245,8 +260,7 @@ async function downloadFile(label, fetcher, filename) {
   }
 }
 
-// Laid out like the rest of More: the two choices in the same switch as elsewhere, each with a grey line under it, then
-// a row per file with a short line about what is in it and a round Download button on the right.
+// The spreadsheets an administrator can download (Download data): [kind, name on the screen, what is in it].
 // Anonymous is chosen at every login, so names are only in a file when someone chose them on purpose.
 const FILES = [
   ['progress', 'Progress per student', 'The targets set by supervisors, and how many each student has performed.'],
@@ -257,28 +271,67 @@ const FILES = [
 ];
 const FILE_NAME = Object.fromEntries(FILES.map(([kind, title]) => [kind, title]));
 
-// The Download data tab: the spreadsheets, in a card like those under More. (The backup is under More.)
+// The Download data tab, laid out like a supervisor's To sign: a card with the two choices (people, file format), then a
+// row per file with a tick box (none ticked at first; tapping anywhere on the row ticks it), and in the bar at the
+// bottom of the screen "Tick all" and "Download N files". The backup is under More.
 function downloadView() {
-  return h('section', { class: 'more-tab' }, h('h2', {}, 'Download data'), downloadsCard());
+  const anonymous = ad.people === 'anonymous';
+  const dlBtn = h('button', { class: 'btn', type: 'button', onclick: () => downloadPicked(anonymous) });
+  const allBtn = h('button', {
+    class: 'btn ghost', type: 'button',
+    onclick: () => {
+      const tick = ad.picked.size < FILES.length;
+      for (const [kind, box] of boxes) { box.checked = tick; if (tick) ad.picked.add(kind); else ad.picked.delete(kind); }
+      update();
+    },
+  });
+  const update = () => {
+    const n = ad.picked.size;
+    dlBtn.textContent = n ? `Download ${n} file${n === 1 ? '' : 's'}` : 'Select files to download';
+    dlBtn.disabled = n === 0;
+    allBtn.textContent = n < FILES.length ? 'Tick all' : 'Untick all';
+  };
+  const boxes = new Map();
+  const rows = FILES.map(([kind, title, about]) => {
+    const box = h('input', { type: 'checkbox', checked: ad.picked.has(kind), 'aria-label': title });
+    boxes.set(kind, box);
+    box.addEventListener('change', () => { if (box.checked) ad.picked.add(kind); else ad.picked.delete(kind); update(); });
+    return h('li', { class: 'entry dl-row' },
+      h('label', { class: 'dl-pick' }, box,
+        h('span', { class: 'e-text' }, h('strong', {}, title), h('span', { class: 'e-sub' }, about))));
+  });
+  update();
+  bottomBar = h('div', { class: 'sign-bar' }, allBtn, dlBtn);
+  return h('section', { class: 'more-tab' }, h('h2', {}, 'Download data'),
+    // the two choices straight on the page, without a white card around them
+    h('div', { class: 'downloads' },
+      h('h3', { class: 'day-head' }, 'People in the files'),
+      switcher('people', [['anonymous', 'Anonymous'], ['names', 'With names']], 'People in the files'),
+      h('h3', { class: 'day-head' }, 'File format'),
+      switcher('delim', [[';', 'Excel'], [',', 'Other programs']], 'File format', (v) => { try { localStorage.setItem(DELIM_KEY, v); } catch { /* the choice is just not remembered */ } })),
+    h('h3', { class: 'day-head' }, 'Files'),
+    h('ul', { class: 'list dl-files' }, rows));
 }
 
-function downloadsCard() {
-  const anonymous = ad.people === 'anonymous';
-  const fileRow = ([kind, title, about]) => {
-    const anon = anonymous && kind !== 'hospitals' && kind !== 'codebook'; // the hospital file and the codebook have no people in them
-    return h('div', { class: 'fact' },
-      h('span', { class: 'fact-text' }, h('strong', {}, title), h('span', {}, about)),
-      h('button', {
-        class: 'change', type: 'button', 'aria-label': `Download ${title}`,
-        onclick: () => downloadFile(title, (t) => api.adminExport(t, kind, ad.delim, anon), `logbook-${kind}${anon ? '-anonymous' : ''}-${today()}.csv`),
-      }, 'Download'));
-  };
-  return h('div', { class: 'card downloads' }, h('h3', {}, 'Spreadsheets'),
-    h('p', { class: 'muted small card-note' }, 'Files to open in Excel or another spreadsheet program.'),
-    h('p', { class: 'dl-label' }, 'People in the files'),
-    switcher('people', [['anonymous', 'Anonymous'], ['names', 'With names']], 'People in the files'),
-    h('p', { class: 'dl-label' }, 'File format'),
-    switcher('delim', [[';', 'Excel'], [',', 'Other programs']], 'File format', (v) => { try { localStorage.setItem(DELIM_KEY, v); } catch { /* the choice is just not remembered */ } }),    h('div', { class: 'facts plain dl-files' }, FILES.map(fileRow)));
+// Downloads the ticked files one after the other, in the order of the list, then says so once. What was ticked stays
+// ticked, so the same files can be downloaded again in the other format. (A browser may ask once whether this site
+// may download several files.)
+async function downloadPicked(anonymous) {
+  const kinds = FILES.map(([kind]) => kind).filter((kind) => ad.picked.has(kind));
+  const done = [];
+  try {
+    for (const kind of kinds) {
+      const anon = anonymous && kind !== 'hospitals' && kind !== 'codebook'; // the hospital file and the codebook have no people in them
+      const blob = await call((t) => api.adminExport(t, kind, ad.delim, anon));
+      if (blob === ENDED) return;
+      saveBlob(blob, `logbook-${kind}${anon ? '-anonymous' : ''}-${today()}.csv`);
+      done.push(FILE_NAME[kind]);
+    }
+    toast(`${done.length} file${done.length === 1 ? '' : 's'} downloaded`, { sub: done.join(' · ') });
+  } catch (e) {
+    toast('Could not download', { sub: done.length ? `${done.join(' · ')} downloaded; then: ${e.message}` : e.message });
+  }
+  loadAll({ quiet: true }); // the downloads are listed under Recent changes
 }
 
 const AUDIT_TEXT = {
@@ -487,7 +540,7 @@ function openUser(id) {
     fact('Status', u.disabled ? 'Disabled, cannot log in' : 'Active', me ? null : pill(u.disabled ? 'Enable' : 'Disable', () => confirmDisable(u))),
     // the student's page (from that page itself: just back to it)
     u.role === 'student'
-      ? fact('Cases', String(u.entries), pill('See', () => (ad.detail?.candidate === u.id ? closeSheet() : openStudent(u.id)), 'See cases'))
+      ? fact('Cases', String(u.entries), pill('View', () => (ad.detail?.candidate === u.id ? closeSheet() : openStudent(u.id)), 'View cases'))
       : null);
 
   let people = null;

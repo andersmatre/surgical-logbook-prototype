@@ -555,7 +555,7 @@ test('role and details are on one screen, and a follow-up can be added later fro
   assert.deepEqual(visible('.sheet .qcard .qsection').map((x) => x.textContent), ['Your role', 'Mother', 'Baby', 'Operation', 'Surgical Apgar']);
   const sapgar = byText('.sheet .qcard', 'Surgical Apgar');
   await click(sapgar.querySelector('.qsection-wrap .qtip-btn'), 50);
-  assert.match(sapgar.querySelector('.qsection-wrap .qhelp').textContent, /mother's/, 'a "?" after the heading says whose Surgical Apgar it is');
+  assert.match(sapgar.querySelector('.qsection-wrap .qhelp').textContent, /for the mother/, 'a "?" after the heading says whose Surgical Apgar it is');
   await click(sapgar.querySelector('.qsection-wrap .qtip-btn'), 50);
   assert.ok(sapgar.textContent.includes('Lowest blood pressure (MAP)'));
   assert.ok(sapgar.textContent.includes('Lowest heart rate (BPM)'));
@@ -619,8 +619,8 @@ test('role and details are on one screen, and a follow-up can be added later fro
   const rows = () => $$('.sheet .case-row').map((r) => [...r.children].map((c) => c.textContent).join(': '));
   assert.deepEqual(rows(), ['Anaesthesia: General', 'Operation time: 50 minutes']);
   assert.equal($('#case-tab-followup').textContent, 'No follow-up yet.');
-  // Delete: a quiet link at the bottom of Details; at the bottom Close and the follow-up, the bigger one (.save)
-  assert.equal($('#case-tab-details .case-del').textContent, 'Delete this case');
+  // Delete: in red on the line of the tabs, on the right; at the bottom Close and the follow-up, the bigger one (.save)
+  assert.equal($('.sheet-head .case-tabbar .case-del').textContent, 'Delete this case');
   // two tabs: Details (open first) and Follow-up; the follow-up button only on the Follow-up tab
   const tabsShown = () => ({
     tabs: $$('.sheet-head .ctab').map((t) => [t.textContent, t.classList.contains('on')]),
@@ -643,14 +643,20 @@ test('role and details are on one screen, and a follow-up can be added later fro
   await click(row());
   await click(byText('.sheet-head .ctab', 'Follow-up'));
   await click(byText('.sheet .btn', 'Add follow-up'));
-  // headed like the case: the procedure, the role and the date, the hospital; a round arrow goes back to the case
-  assert.equal($('.sheet .case-title').textContent, 'Caesarean section');
-  assert.equal($('.sheet .case-hosp').textContent, 'Bo Government Hospital');
+  // headed like the case pop-up (the procedure, your role and the date, the hospital), with a round arrow back to the
+  // case before it; then, like a new case, the questions in grey cards, and only Save at the bottom
+  assert.equal($('.sheet .sheet-head .case-title').textContent, 'Caesarean section');
+  assert.deepEqual($$('.sheet .sheet-head .case-sub').map((p) => p.textContent),
+    [`Operated with supervisor · ${core.fmtDate(core.localDateISO())}`, 'Bo Government Hospital']);
+  assert.ok($('.sheet .sheet-head .back-btn'), 'the arrow back, like on other pages');
+  assert.ok($$('.sheet .qcard').length > 0, 'the questions in grey cards');
+  assert.deepEqual($$('.sheet .sheet-foot .btn').map((b) => b.textContent), ['Save']);
   await click($('.sheet .back-btn'));
   assert.equal($('.sheet-head .ctab.on').textContent, 'Follow-up', 'back on the case, on its Follow-up tab');
   await click(byText('.sheet .btn', 'Add follow-up'));
   assert.deepEqual(visible('.sheet .qlabel').map((l) => l.textContent),
-    ['Complication at birth', 'Mother', 'Wound infection', 'Back to theatre', 'Referred to another hospital', 'Days in hospital afterwards']);
+    ['Outcome', 'Outcome', 'Complication at birth', 'Wound infection', 'Back to theatre', 'Referred to another hospital', 'Days in hospital after the operation']);
+  assert.deepEqual(visible('.sheet .qcard .qsection').map((x) => x.textContent), ['Mother', 'Baby', 'Complications', 'Hospital stay'], 'in parts named like the details; the baby too (born alive, as far as the details say)');
   await click(byText('.sheet .btn', 'Save'));
   assert.match($('.sheet .error').textContent, /Nothing new/);
   await click(byText('.choice', 'Alive')); // the mother
@@ -662,7 +668,7 @@ test('role and details are on one screen, and a follow-up can be added later fro
     await click(byText('.sheet .btn', 'Close'));
     return out;
   };
-  assert.deepEqual(await caseFollowUp(), ['Mother: Alive'], 'the follow-up answers are in the pop-up');
+  assert.deepEqual(await caseFollowUp(), ['Outcome: Alive'], 'the follow-up answers are in the pop-up');
   assert.deepEqual($$('.tag', row()).map((t) => t.textContent), ['Follow-up added', 'Not signed'], 'the row shows that it has a follow-up');
   assert.deepEqual(JSON.parse(stored().get('followup').payload).answers, { mother: 'alive' });
 
@@ -674,7 +680,7 @@ test('role and details are on one screen, and a follow-up can be added later fro
   assert.equal(visible('.sheet .qlabel').some((l) => /Cause of death/.test(l.textContent)), false, 'the cause of death is only asked after "Died"');
   await click(byText('.qrow', 'Wound infection').querySelector('.choice'));
   await click(byText('.sheet .btn', 'Save'), 400);
-  assert.deepEqual(await caseFollowUp(), ['Mother: Alive', 'Wound infection: Yes']);
+  assert.deepEqual(await caseFollowUp(), ['Outcome: Alive', 'Wound infection: Yes']);
   assert.deepEqual(JSON.parse(stored().get('followup').payload).answers, { wound_infection: 'yes' });
   assert.equal($('.chip'), null, 'everything was sent');
 

@@ -117,7 +117,9 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.equal(csTile.querySelector('.pcount').textContent, '2 cases');
   assert.equal(csTile.querySelector('.proc-count').textContent, 'Observed 0 · Assisted 0 · Performed 2 · 2 students');
   // a search on Procedures and Hospitals too, kept per tab
-  assert.equal($$('.ptile').length, 2);
+  // under small headings like the two lists of a new case: a caesarean is under both
+  assert.deepEqual($$('.main .day-head').map((x) => [x.textContent, [...x.nextElementSibling.querySelectorAll('.ptile strong')].map((e) => e.textContent)]),
+    [['Surgeries', ['Caesarean section', 'Appendectomy']], ['Deliveries', ['Caesarean section']]]);
   type($('.search'), 'APPEND');
   assert.deepEqual($$('.ptile strong').map((e) => e.textContent), ['Appendectomy'], 'the search narrows the tiles, any case');
   type($('.search'), 'zzz');
@@ -163,7 +165,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   await click(byText('.ctab', 'Progress'));
   assert.match($('.main').textContent, /No targets yet\. A supervisor sets them\./);
   assert.ok(byText('.ptile', 'Appendectomy'), 'procedures without a target');
-  // Account: the same pop-up as under Users; "See cases" there just goes back to the page
+  // Account: the same pop-up as under Users; "View" by Cases there just goes back to the page
   await click(byText('.detail-head .btn', 'Account'), 200);
   assert.ok(byText('.sheet .acct-title', 'Supervisors'));
   await click(byText('.sheet .fact', 'Cases').querySelector('.change'));
@@ -405,17 +407,31 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   await click(byText('.tab', 'More'), 400);
   assert.equal(changes().open, true, 'still open after a fresh answer from the server');
 
-  // ---- spreadsheet downloads, on their own tab: two switches (people, file format) and a row per file with a Download button
+  // ---- spreadsheet downloads, on their own tab: two switches (people, file format), a row per file with a tick box,
+  // and Tick all and Download in the bar at the bottom of the screen, like a supervisor's To sign
   await click(byText('.tab', 'Download data'), 300);
   assert.equal($('.main h2').textContent, 'Download data');
-  const dl = byText('.more-tab .card', 'Spreadsheets');
+  const dl = $('.downloads');
   assert.equal($('select', dl), null, 'no drop-down list');
   assert.deepEqual($$('.ctab', dl).map((b) => b.textContent), ['Anonymous', 'With names', 'Excel', 'Other programs']);
   assert.deepEqual($$('.ctab.on', dl).map((b) => b.textContent), ['Anonymous', 'Excel'], 'anonymous at first; Excel format (;) at first');
-  assert.deepEqual($$('.dl-files .fact-text strong', dl).map((e) => e.textContent), ['Progress per student', 'Procedures per student', 'Procedures per hospital', 'Every case', 'Codebook']);
-  const download = async (title) => click(byText('.dl-files .fact', title).querySelector('.change'), 400);
+  assert.deepEqual($$('.dl-files .dl-row strong').map((e) => e.textContent), ['Progress per student', 'Procedures per student', 'Procedures per hospital', 'Every case', 'Codebook']);
+  assert.equal($$('.dl-files input[type=checkbox]:checked').length, 0, 'nothing ticked at first');
+  const dlBtn = () => byText('.bottom-bar .btn', 'ownload');
+  const allBtn = () => byText('.bottom-bar .btn', 'ick all');
+  assert.equal(dlBtn().textContent, 'Select files to download');
+  assert.ok(dlBtn().disabled);
+  const tick = (title) => byText('.dl-row', title).querySelector('input').click(); // tapping the row ticks it too (a label)
+  await click(allBtn(), 50);
+  assert.equal(dlBtn().textContent, 'Download 5 files');
+  assert.equal(allBtn().textContent, 'Untick all');
+  await click(allBtn(), 50);
+  assert.equal(dlBtn().textContent, 'Select files to download');
   // anonymous: a code instead of the candidate number, and no names
-  await download('Procedures per student');
+  tick('Procedures per student');
+  assert.equal(dlBtn().textContent, 'Download 1 file');
+  await click(dlBtn(), 600);
+  assert.match($('#toast').textContent, /1 file downloaded/);
   assert.equal(saved.length, 1);
   assert.match(saved[0].filename, /^logbook-procedures-anonymous-\d{4}-\d{2}-\d{2}\.csv$/);
   const csv1 = await saved[0].blob.text(); // text() drops the byte order mark; the file itself keeps it
@@ -425,17 +441,23 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.doesNotMatch(csv1, /CC1001|CC1002/);
   // with names, in the other format
   await click(byText('.ctab', 'With names', dl));
-  await click(byText('.ctab', 'Other programs', byText('.more-tab .card', 'Spreadsheets')));
-  await download('Every case');
+  await click(byText('.ctab', 'Other programs', $('.downloads')));
+  assert.ok(byText('.dl-row', 'Procedures per student').querySelector('input').checked, 'what was ticked stays ticked');
+  tick('Procedures per student');
+  tick('Codebook');
+  tick('Every case');
+  assert.equal(dlBtn().textContent, 'Download 2 files');
+  await click(dlBtn(), 900);
+  assert.match($('#toast').textContent, /2 files downloaded/);
+  assert.equal(saved.length, 3, 'in the order of the list');
   assert.match(saved[1].filename, /^logbook-entries-\d{4}-\d{2}-\d{2}\.csv$/);
   const csv2 = await saved[1].blob.text();
   assert.match(csv2, /^candidate,name,entry_id,performed_on,entered_on,hospital,/);
   assert.match(csv2, /,Masanga Hospital,cs,Caesarean section,/);
   assert.match(csv2, /,followup_status,/);
-  await download('Codebook');
   assert.match(saved[2].filename, /^logbook-codebook-\d{4}-\d{2}-\d{2}\.csv$/);
   assert.match(await saved[2].blob.text(), /^file,column,meaning,code,code_meaning/);
-  await click(byText('.ctab', 'Excel', byText('.more-tab .card', 'Spreadsheets')));
+  await click(byText('.ctab', 'Excel', $('.downloads')));
   clean();
   await click(byText('.tab', 'More'), 400);
   assert.match(byText('.card', 'Recent changes').textContent, /downloaded the anonymous "Procedures per student" spreadsheet/, 'downloads are listed under Recent changes');

@@ -226,6 +226,14 @@ test('the procedure list: ids are valid and unique, every group and Log-tab butt
   }
   assert.ok(ids2(cfg.detailFieldsFor('cs')).includes('cs_reason') && ids2(cfg.detailFieldsFor('cs')).includes('sapgar_map'), 'a caesarean asks both logbooks');
   assert.ok(ids2(cfg.followupFieldsFor('cs')).includes('mother') && !ids2(cfg.followupFieldsFor('cs')).includes('patient'));
+  // The follow-up asks about each baby born alive, named like in the details; a stillbirth is already in the details.
+  const titles = (p, d) => cfg.followupFieldsFor(p, d).map((x) => x.title);
+  assert.deepEqual(titles('cs'), ['Mother', 'Baby', 'Complications', 'Hospital stay'], 'one baby when the number was not answered');
+  assert.deepEqual(titles('cs', { babies: '2' }), ['Mother', 'Baby', 'Second baby', 'Complications', 'Hospital stay']);
+  assert.deepEqual(titles('normal_delivery', { babies: '3', baby2_outcome: 'fresh_stillbirth' }), ['Mother', 'Baby', 'Third baby', 'Complications', 'Hospital stay']);
+  assert.deepEqual(titles('cs', { baby_outcome: 'macerated' }), ['Mother', 'Complications', 'Hospital stay'], 'no card for a stillborn baby');
+  assert.deepEqual(titles('appendectomy', { babies: '2' }), ['Patient', 'Complications', 'Hospital stay'], 'never at an operation without a birth');
+  assert.deepEqual(cfg.FOLLOWUP_FIELDS.baby2_died_day.showIf, { baby2_after: ['died'] }, 'the days only after "Died"');
   // Surgical Apgar: the three parts added up; the blood loss can come from millilitres.
   assert.equal(cfg.surgicalApgar({ sapgar_blood: '2', sapgar_map: '3', sapgar_hr: '1' }), 6);
   assert.equal(cfg.surgicalApgar({ blood_loss_ml: 1200, sapgar_map: '3', sapgar_hr: '4' }), 7);

@@ -843,10 +843,11 @@ function entryRow(e) {
 // What happened to the patient afterwards, up to FOLLOWUP_DAYS after the operation. Saved as a new
 // 'followup' event; the entry itself never changes. Current answers are preselected.
 function openFollowUp(e) {
-  const form = questions(FOLLOWUP_FIELDS, followupFieldsFor(e.procedure), e.outcome);
+  const form = questions(FOLLOWUP_FIELDS, followupFieldsFor(e.procedure, e.details), e.outcome); // a baby card only for a baby born alive
   const err = h('p', { class: 'error', role: 'alert' }, '');
-  // the heading like the case's: a round arrow back to the case (its Follow-up tab), the procedure, the role and the
-  // date, and the hospital on a line of its own
+  // The heading like the case pop-up's (openCase in ui.js): the procedure, a grey line with your role and the date, the
+  // hospital on a line of its own; it stays at the top. A round arrow before it, like on other pages, goes back to the
+  // case, on its Follow-up tab, where the form was opened. Then, like a new case, the questions in grey cards and Save.
   const back = h('button', {
     class: 'back-btn', type: 'button', 'aria-label': 'Back to the case', onclick: () => openCase(e, { ...caseActions, tab: 'followup' }),
   });
@@ -857,18 +858,17 @@ function openFollowUp(e) {
           h('h3', { class: 'case-title' }, procName(e.procedure)),
           h('p', { class: 'case-sub' }, `${roleDone(e.role, e.procedure)} · ${core.fmtDate(e.performed_on)}`),
           e.hospital ? h('p', { class: 'case-sub case-hosp' }, e.hospital) : null))),
-    h('p', { class: 'muted' }, 'Follow-up: what do you know now? Tap only what you know. You can add more later.'),
+    h('p', { class: 'muted small fu-note' }, 'Tap only what you know now. You can add more later.'),
     form.el,
     err,
     h('div', { class: 'sheet-foot' },
-      h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Cancel'),
       h('button', {
         class: 'btn save', type: 'button',
         onclick: async () => {
           const v = form.values();
           if (v.error) { err.textContent = v.error; return; }
           const changed = Object.fromEntries(Object.entries(v.answers).filter(([id, a]) => e.outcome[id] !== a));
-          if (!Object.keys(changed).length) { err.textContent = 'Nothing new to save. Tap an answer, or Cancel.'; return; }
+          if (!Object.keys(changed).length) { err.textContent = 'Nothing new to save. Tap an answer, or go back with the arrow.'; return; }
           closeSheet();
           const ev = await core.addFollowUp(e.id, changed);
           await refresh();

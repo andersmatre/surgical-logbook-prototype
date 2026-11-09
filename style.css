@@ -290,11 +290,12 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
    and the Sign button in a bar that stays at the bottom of the screen while the list scrolls under it. */
 .entry.tap.has-box { padding-left: 0; }
 .pick { align-self: stretch; display: flex; align-items: center; padding: 0 4px 0 14px; cursor: pointer; }
-/* The bar at the bottom of the screen (appShell in ui.js: To sign on a supervisor's student page): white with a thin
-   line on top, across the whole screen, also on a PC; the page scrolls above it. Inside, the buttons line up with the
-   page: the same room for a scrollbar on each side, and .bottom-bar-in gets the same padding as .page from the same width. */
-.bottom-bar { flex: none; overflow: hidden; scrollbar-gutter: stable both-edges; background: var(--card); border-top: 1px solid var(--line); }
-.bottom-bar-in { padding: 16px max(16px, calc((100% - 928px) / 2)) calc(16px + env(safe-area-inset-bottom)); }
+/* The bar at the bottom of the screen (appShell in ui.js: To sign on a supervisor's student page, an administrator's
+   Download data): white with a thin line on top, as wide as the bar at the top (.top-bar: at most 960 px, in the
+   middle); the page scrolls above it. Inside, 16 px on each side, like the header, so on a wide screen the buttons line
+   up with the page under the header. */
+.bottom-bar { flex: none; width: 100%; max-width: 960px; margin: 0 auto; background: var(--card); border-top: 1px solid var(--line); }
+.bottom-bar-in { padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); }
 .sign-bar { display: flex; gap: 10px; }
 .shell:has(> .bottom-bar) > .main > .page { padding-bottom: 10px; } /* the last case: as far from the bar as the cases are from each other */
 /* A student's page (.sv-detail) is a column on every tab, so the top does not move when the tab changes. */
@@ -404,14 +405,21 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .case-top-text { flex: 1 1 auto; min-width: 0; }
 .case-top .case-sub { font-size: 15px; margin-top: 2px; }
 .case-top .case-hosp { margin-top: 0; } /* the hospital right under the role and date */
-.fu-head { padding-bottom: 12px; } /* the follow-up form: the same heading, without tabs under it */
+.fu-head { padding-bottom: 12px; } /* the follow-up form: the case's heading, without tabs under it */
+.fu-note { margin: 12px 0 16px; } /* the follow-up form: the line between the heading and the questions */
 .case-top .e-tags { flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 45%; }
 .case-signed { font-size: 15px; margin-top: 2px; }
 /* The two tabs, "Details" and "Follow-up": plain words, the open one dark with a line under it. */
 .ctabs { display: flex; gap: 28px; margin-top: 12px; border-bottom: 1px solid var(--line); }
+/* The case pop-up: the tabs and, all the way to the right on the same line, "Delete this case" in red (only for a
+   student's unsigned case). The line under the tabs runs under both. */
+.case-tabbar { display: flex; align-items: flex-end; gap: 12px; margin-top: 12px; border-bottom: 1px solid var(--line); }
+.case-tabbar > .ctabs { flex: 1 1 auto; min-width: 0; margin-top: 0; border-bottom: 0; }
+.case-del { flex: none; margin-left: auto; min-height: 44px; padding: 0 2px; text-decoration: none; font-weight: 400; font-size: 15px; white-space: nowrap; } /* red, but quiet: normal weight and a little smaller than the tabs */
 .ctab { flex: none; min-height: 44px; padding: 0 2px; margin-bottom: -1px; border: 0; border-bottom: 3px solid transparent; background: none; font-weight: 500; color: var(--muted); }
 .ctab.on { font-weight: 600; color: var(--main-dark); border-bottom-color: var(--main); }
 .ctab:not(.on):active { color: var(--main-dark); }
+.case-del:active { color: var(--danger-press); }
 .case-tab[hidden], .sheet-foot > .btn[hidden] { display: none; }
 /* The answers: a grey card per part, like the parts of the form when logging. A card has a heading only when the
    tab has several (Mother, Baby, Operation ...). */
@@ -541,6 +549,9 @@ h4 { font-size: 17px; margin: 16px 0 6px; }
   .tab:not(.on):hover { background: var(--bg); }
   .link:hover { background: var(--main-light); border-radius: 8px; }
   .link.danger:hover { background: var(--danger-bg); }
+  /* the tabs and "Delete this case" on their line: no box, only a darker colour, all three alike */
+  .ctab:not(.on):hover { color: var(--main-dark); }
+  .link.danger.case-del:hover { background: none; color: var(--danger-hover); }
   .proc:hover, .srow:hover, .row-btn:hover, .choice:hover, .filter:hover { border-color: var(--main); box-shadow: 0 2px 8px rgba(0, 0, 0, .08); }
   .choice.on:hover { background: var(--main-hover); }
   .change:hover { background: var(--main-light); }
@@ -582,8 +593,21 @@ h4 { font-size: 17px; margin: 16px 0 6px; }
 /* The new initial passwords: a row per person in a grey box, the password on the right. */
 .pw-list { margin-top: 4px; }
 .pw { flex: none; font-weight: 500; }
-/* Download as a spreadsheet (administrator, More): a label over each switch, a grey line under it, then a row per file. */
-.dl-label { margin: 16px 0 0; font-weight: 500; }
-.downloads .ctabs.log-parts { margin: 6px 0 6px; }
-.facts.plain.dl-files { margin-top: 32px; } /* more specific than .facts.plain, which sets the margin to 0 */
-.dl-files .fact-text strong { font-weight: 500; } /* the file's name, like a name in a list */
+/* Download data (administrator): three small grey headings (People in the files, File format, Files) like the week
+   headings in History, each with the same room: 24 px above it, 8 px to what is under it. Set here, because
+   .log-parts + .day-head (a student's page) would put no room above "File format". */
+.downloads > .day-head, .downloads + .day-head { margin: 24px 0 8px 2px; }
+.downloads > .day-head:first-child { margin-top: 0; } /* right under the page heading */
+.downloads .ctabs.log-parts { margin: 0; }
+/* An administrator's Overview, Procedures and Hospitals: the number of cases on the right, in the middle of the tile's
+   height; the name and the grey line on the left. */
+.ptile.mid { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; }
+.ptile.mid .prow-top { display: contents; }
+.ptile.mid .prow-top > strong { grid-column: 1; grid-row: 1; }
+.ptile.mid .pcount { grid-column: 2; grid-row: 1 / span 2; }
+.ptile.mid .proc-count { grid-column: 1; grid-row: 2; }
+/* Download data: a row per file like a supervisor's To sign, the tick box on the left; the whole row ticks it. */
+.entry.dl-row { padding: 0; }
+.dl-pick { display: flex; align-items: center; gap: 14px; min-height: 64px; padding: 12px 16px; cursor: pointer; }
+.dl-row:active { background: var(--main-light); }
+.search + div > .day-head:first-child { margin-top: 4px; } /* Overview, Procedures: the first heading right under the search */

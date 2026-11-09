@@ -1,7 +1,7 @@
 // config.js — content, not logic. Edit procedure lists, targets and hospitals here.
 // (Supervisors are accounts on the server now, created with `admin.js add-supervisor`.)
 
-export const APP_VERSION = '0.13.12';
+export const APP_VERSION = '0.13.13';
 
 // Where the logbook server lives. '' = the same address the app was loaded from
 // (when the server also serves the app). If the app is hosted elsewhere, for example
@@ -174,13 +174,23 @@ function babyFields(n) {
 }
 const babyIds = (n) => Object.keys(babyFields(n));
 
+// The follow-up of baby n (1, 2 or 3): alive or died after the birth, and if it died, after how many days.
+function babyFollowUpFields(n) {
+  const p = n === 1 ? 'baby_' : `baby${n}_`;
+  const who = n === 1 ? 'Baby' : `Baby ${n}`;
+  return {
+    [`${p}after`]: { label: `${who}, after birth`, ask: 'Outcome', options: [['alive', 'Alive'], ['died', 'Died'], ['unknown', 'Not known']] },
+    [`${p}died_day`]: { label: `${who}, died on day`, ask: 'Days from birth until death', unit: 'days', number: { min: 0, max: 365 }, showIf: { [`${p}after`]: ['died'] } },
+  };
+}
+
 // Asked after the role, before saving. All optional: "Save" works with nothing filled in.
 // In this order in summaries and in the CSV file.
 export const DETAIL_FIELDS = {
   // the patient, or the mother
   sex: { label: 'Sex', options: [['male', 'Male'], ['female', 'Female']] },
   age_years: { label: 'Age', unit: 'years', number: { min: 0, max: 120 } },
-  gravida: { label: 'Gravida', help: 'Pregnancies, this one too', number: { min: 1, max: 20 } },
+  gravida: { label: 'Gravida', help: 'Pregnancies including this one', number: { min: 1, max: 20 } },
   para: { label: 'Para', help: 'Births before this one', number: { min: 0, max: 20 } },
   children_alive: { label: 'Children alive', number: { min: 0, max: 20 } },
   induction: { label: 'Start of labour', ask: 'How labour started', options: [['spontaneous', 'Spontaneous'], ['oxytocin', 'Oxytocin'], ['foley', 'Foley catheter'], ['rom', 'Rupture of membranes']] },
@@ -209,17 +219,21 @@ export const DETAIL_FIELDS = {
 // A newer follow-up replaces older answers to the same question.
 export const FOLLOWUP_FIELDS = {
   mat_complication: { label: 'Complication at birth', options: [['none', 'None'], ['pph', 'Heavy bleeding (PPH)'], ['shoulder_dystocia', 'Shoulder dystocia']] },
-  patient: { label: 'Patient', options: [['alive', 'Alive'], ['died', 'Died'], ['unknown', 'Not known']] },
-  mother: { label: 'Mother', options: [['alive', 'Alive'], ['died', 'Died'], ['unknown', 'Not known']] },
-  died_day: { label: 'Died on day', ask: 'Died how many days after?', unit: 'days', number: { min: 0, max: 365 }, showIf: { patient: ['died'], mother: ['died'] } },
+  patient: { label: 'Patient', ask: 'Outcome', options: [['alive', 'Alive'], ['died', 'Died'], ['unknown', 'Not known']] },
+  mother: { label: 'Mother', ask: 'Outcome', options: [['alive', 'Alive'], ['died', 'Died'], ['unknown', 'Not known']] },
+  died_day: { label: 'Died on day', ask: 'Days from operation until death', unit: 'days', number: { min: 0, max: 365 }, showIf: { patient: ['died'], mother: ['died'] } },
   death_cause: { label: 'Cause of death', options: [['hypertensive', 'High blood pressure (eclampsia)'], ['haemorrhage', 'Bleeding'], ['sepsis', 'Sepsis or infection'], ['obstructed_labour', 'Obstructed labour'], ['anaemia', 'Anaemia'], ['hiv', 'HIV/AIDS'], ['embolism', 'Embolism'], ['uterine_rupture', 'Uterine rupture'], ['other_direct', 'Other direct cause'], ['other_indirect', 'Other indirect cause']], showIf: { mother: ['died'] } },
-  wound_infection: { label: 'Wound infection', help: 'Antibiotics started for the wound', options: YES_NO },
-  reoperation: { label: 'Back to theatre', help: 'Another operation during the same stay', options: YES_NO },
+  wound_infection: { label: 'Wound infection', options: YES_NO },
+  reoperation: { label: 'Back to theatre', options: YES_NO },
   referral: { label: 'Referred', ask: 'Referred to another hospital', options: YES_NO },
-  days_in_hospital: { label: 'Days in hospital', ask: 'Days in hospital afterwards', unit: 'days', number: { min: 0, max: 365 } },
+  days_in_hospital: { label: 'Days in hospital', ask: 'Days in hospital after the operation', unit: 'days', number: { min: 0, max: 365 } },
   // From the first, invented list: no longer asked, kept so old entries still show them.
   complication: { label: 'Complication', options: [['none', 'None'], ['wound_infection', 'Wound infection'], ['wound_breakdown', 'Wound opened up'], ['bleeding', 'Bleeding'], ['reoperation', 'Back to theatre'], ['other', 'Other']] },
   baby: { label: 'Baby', options: [['alive', 'Alive'], ['stillbirth', 'Stillborn'], ['died', 'Died after birth'], ['unknown', 'Not known']] },
+  // Each baby born alive: how it went afterwards (a stillbirth is already in the details, "Outcome at birth").
+  ...babyFollowUpFields(1),
+  ...babyFollowUpFields(2),
+  ...babyFollowUpFields(3),
 };
 
 // How long after the operation a follow-up can be added from the History tab (6 weeks).
@@ -231,7 +245,7 @@ export const FOLLOWUP_DAYS = 42;
 // A part can have a `note`, shown behind a "?" after its heading, and word a question differently with `ask` or `help`
 // ({id: words}, null for none).
 // The Surgical Apgar is about the operated patient: at a caesarean, the mother (the baby's is the Apgar under Baby).
-const SAPGAR_NOTE_MOTHER = "The mother's, during the operation. The baby's Apgar is under Baby.";
+const SAPGAR_NOTE_MOTHER = 'This is for the mother';
 const BABIES = [
   { title: 'Baby', ids: ['babies', ...babyIds(1)] },
   { title: 'Second baby', ids: babyIds(2) },
@@ -255,9 +269,30 @@ const DETAILS_BIRTH_OPERATION = [
 const DETAILS_BY_PROCEDURE = {
   cs: DETAILS_BIRTH_OPERATION.map((s) => (s.title === 'Operation' ? { ...s, ids: ['urgency', 'cs_reason', 'anaesthesia', 'duration_min'] } : s)),
 };
-const FOLLOWUP_OPERATION = [{ ids: ['patient', 'died_day', 'wound_infection', 'reoperation', 'referral', 'days_in_hospital'] }];
-const FOLLOWUP_BIRTH = [{ ids: ['mat_complication', 'mother', 'died_day', 'death_cause', 'referral', 'days_in_hospital'] }];
-const FOLLOWUP_BIRTH_OPERATION = [{ ids: ['mat_complication', 'mother', 'died_day', 'death_cause', 'wound_infection', 'reoperation', 'referral', 'days_in_hospital'] }];
+// The follow-up questions in parts, named and worded like the details (Patient or Mother, then short labels, a "?" where
+// a word needs explaining): each a grey card with its heading in the follow-up form and in the case pop-up's Follow-up
+// tab. At a delivery that is not an operation the questions count from the birth instead of the operation (ask).
+const FOLLOWUP_OPERATION = [
+  { title: 'Patient', ids: ['patient', 'died_day'] },
+  { title: 'Complications', ids: ['wound_infection', 'reoperation'] },
+  { title: 'Hospital stay', ids: ['referral', 'days_in_hospital'] },
+];
+// A card per baby, named like in the details; followupFieldsFor leaves out the babies that were not born alive.
+const FU_BABIES = [1, 2, 3].map((n) => ({
+  title: ['Baby', 'Second baby', 'Third baby'][n - 1], baby: n, ids: n === 1 ? ['baby_after', 'baby_died_day'] : [`baby${n}_after`, `baby${n}_died_day`],
+}));
+const FOLLOWUP_BIRTH = [
+  { title: 'Mother', ids: ['mother', 'died_day', 'death_cause'], ask: { died_day: 'Days from birth until death' } },
+  ...FU_BABIES,
+  { title: 'Complications', ids: ['mat_complication'] },
+  { title: 'Hospital stay', ids: ['referral', 'days_in_hospital'], ask: { days_in_hospital: 'Days in hospital after the birth' } },
+];
+const FOLLOWUP_BIRTH_OPERATION = [
+  { title: 'Mother', ids: ['mother', 'died_day', 'death_cause'] },
+  ...FU_BABIES,
+  { title: 'Complications', ids: ['mat_complication', 'wound_infection', 'reoperation'] },
+  { title: 'Hospital stay', ids: ['referral', 'days_in_hospital'] },
+];
 
 // Hospitals from CapaCare's logbook (Logbook_softcopy_2021.xlsx, "Hospital name"), sorted by name, obvious
 // spelling mistakes corrected. The name is stored in every entry: if one is renamed, old entries keep the old name.
@@ -375,9 +410,18 @@ export function detailFieldsFor(procedure) {
   const k = kind(procedure);
   return k.birth ? (k.operation ? DETAILS_BIRTH_OPERATION : DETAILS_BIRTH) : DETAILS_OPERATION;
 }
-export function followupFieldsFor(procedure) {
+// details: what was logged with the case. A baby's card is only there for a baby that was born (by the number of
+// babies; one when not answered) and not stillborn ("Outcome at birth"; asked when that was not answered).
+export function followupFieldsFor(procedure, details = {}) {
   const k = kind(procedure);
-  return k.birth ? (k.operation ? FOLLOWUP_BIRTH_OPERATION : FOLLOWUP_BIRTH) : FOLLOWUP_OPERATION;
+  const parts = k.birth ? (k.operation ? FOLLOWUP_BIRTH_OPERATION : FOLLOWUP_BIRTH) : FOLLOWUP_OPERATION;
+  const d = details || {};
+  const babies = Number(d.babies) || 1;
+  const bornAlive = (n) => {
+    const outcome = d[n === 1 ? 'baby_outcome' : `baby${n}_outcome`];
+    return outcome == null || outcome === 'alive';
+  };
+  return parts.filter((p) => !p.baby || (p.baby <= babies && bornAlive(p.baby)));
 }
 // Surgical Apgar (0–10) from an entry's details, or null when a part is missing. The blood loss can also come
 // from the blood loss in ml (asked instead at a delivery that is an operation).
