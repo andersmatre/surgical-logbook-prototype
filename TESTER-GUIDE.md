@@ -55,7 +55,7 @@ You need internet for all of this (the supervisor screens do not work offline).
 2. Log in with your **candidate number** and the password you were given. Choose your own password and keep it to yourself.
 3. Tap **Add students**, find the candidate numbers of the students you supervise and tap **Add**. The student can see your name, so nobody is added in secret.
 4. Tap **My students**. A student with entries waiting shows "to sign". Tap the student.
-5. Look at the list. **Untick anything that is not correct**, then tap **Sign**. Only sign procedures you supervised. A signature cannot be undone.
+5. Look at the list. Nothing is ticked at first. **Tick the procedures you supervised** ("Tick all" ticks every one), then tap **Sign**. Only sign procedures you supervised and that are correct. A signature cannot be undone.
 6. Tell us:
    - What was confusing or slow?
    - Would you do this after each operation, once a day or once a week? Where would you be when you do it?

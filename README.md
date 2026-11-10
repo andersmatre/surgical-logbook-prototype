@@ -1,4 +1,4 @@
-# Surgical logbook — prototype v0.5 (login, sync, supervisor sign-off, administrator screens, downloads)
+# Surgical logbook — prototype (login, sync, supervisor sign-off, administrator screens, downloads)
 
 An installable web app (PWA) for logging surgical procedures on a tablet, plus a small server for accounts, sync and supervisor sign-off.
 Built for CapaCare's Surgical Training Programme in Sierra Leone, to find out whether it can be better than the existing e-logbook.
@@ -7,7 +7,7 @@ Built for CapaCare's Surgical Training Programme in Sierra Leone, to find out wh
 - **Supervisors** log in with a candidate number from CapaCare, add the students they supervise, see their entries and sign them. The server checks every signature.
 - **Administrators** log in too: they see all procedures across students and hospitals, add accounts (with names), give new passwords, disable accounts, choose who supervises whom, and download spreadsheets (CSV) and a backup. No command line needed.
 
-This is a prototype. It is deployed on Fly.io (see "Current deployment" in `DEPLOY.md`) and works in Chrome on a Windows PC and an iPhone, but it has **not yet been tried on a Samsung tablet**. Read "Known limits" in `PROJECT.md` before real use.
+This is a prototype; the current version is in section 2 of `PROJECT.md`. It is deployed on Fly.io (see "Current deployment" in `DEPLOY.md`) and works in Chrome on a Windows PC and an iPhone, but it has **not yet been tried on a Samsung tablet**. Read "Known limits" in `PROJECT.md` before real use.
 
 **New to the project? Read [`PROJECT.md`](PROJECT.md).** It explains how things are structured, the rules the design depends on, how to make changes, and what a new maintainer needs.
 To put the server online, read [`DEPLOY.md`](DEPLOY.md). Instructions for people trying the app: [`TESTER-GUIDE.md`](TESTER-GUIDE.md).
@@ -46,7 +46,7 @@ Initial passwords are printed once. Hand them out through CapaCare, one at a tim
 
 ## Put it online
 
-The server is one Node process plus one SQLite file. It needs a persistent disk, HTTPS and a single running copy, in an EU/EEA region. [`DEPLOY.md`](DEPLOY.md) has step-by-step guides (Fly.io, or your own server with Docker and Caddy), a checklist for after the first deploy, and backup and restore. The Dockerfile has not been run on a real host yet.
+The server is one Node process plus one SQLite file. It needs a persistent disk, HTTPS and a single running copy, in an EU/EEA region. [`DEPLOY.md`](DEPLOY.md) has step-by-step guides (Fly.io, or your own server with Docker and Caddy), a checklist for after the first deploy, and backup and restore. The current deployment on Fly.io is built from the `Dockerfile`.
 
 Environment variables: `PORT` (8080), `HOST`, `LOGBOOK_DB` (`./data/logbook.db`), `ALLOWED_ORIGIN`, `SERVE_STATIC` (`0` to turn off serving the app).
 
@@ -57,9 +57,9 @@ Open the server's address in Chrome, menu (three dots), "Add to Home screen" / "
 ## Tests
 
     npm install
-    npm test            # 54 tests, about 1 minute
+    npm test            # 72 tests, about 1 minute
 
-`core` (data layer), `server` (API, login, sync, supervisor rules, upgrade of an old database, backup), `ui` (the whole student flow in a simulated browser against a real server), `ui-supervisor` (the whole supervisor flow), `files` (file lists stay in step), `dev` (the developer tools). They do not replace trying the app on a real tablet.
+`core` (data layer), `server` (API, login, sync, supervisor rules, upgrade of an old database, backup), `api` (the localhost-only server override), `ui` (the whole student flow in a simulated browser against a real server), `ui-supervisor` (the whole supervisor flow), `ui-admin` (the whole administrator flow), `files` (file lists stay in step), `dev` (the developer tools). They do not replace trying the app on a real tablet.
 
 ## Files
 
