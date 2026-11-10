@@ -16,7 +16,7 @@ body {
   margin: 0; background: var(--bg); color: var(--ink);
   font: 18px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
-button, input, select { font: inherit; color: inherit; }
+button, input { font: inherit; color: inherit; }
 button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 h1 { font-size: 28px; margin: 0 0 8px; }
 h2 { font-size: 24px; margin: 8px 0 16px; }
@@ -92,7 +92,6 @@ h1, h2, h3, h4, strong, b { font-weight: 600; }
 .btn.wide { width: 100%; }
 .link { background: none; border: 0; color: var(--main-dark); text-decoration: underline; padding: 10px 6px; min-height: 44px; }
 .link.danger { color: var(--danger); }
-/* A supervisor's student page: "‹ Back" on the left, "Remove student" on the right */
 /* A supervisor's student page: one line at the top with a round arrow back, the candidate number and the name under
    it, and "Remove student" on the right (a little smaller than other buttons, so it all fits on a phone). */
 .detail-head { display: flex; align-items: center; gap: 12px; margin: 0 0 16px; }
@@ -272,20 +271,18 @@ html:has(.shell), html:has(.shell) body { overscroll-behavior: none; } /* the wi
 /* The roles: one per row on every screen, so the label, the box and the line under it each fit on one line. */
 .choices.wide.column { grid-template-columns: 1fr; }
 .choices.wide.column .choice { min-height: 64px; }
-.search, .pin, select {
+.search {
   width: 100%; min-height: 52px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; margin: 4px 0 12px;
 }
 input[type=text], .setup-form input[type=password] { width: 100%; min-height: 52px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; margin: 4px 0 14px; background: #fff; }
-.pin { letter-spacing: 6px; font-size: 24px; text-align: center; }
 .plist { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 .search + .list { margin-top: 0; } /* My students: the list right under its search, like on Add students */
 /* A group heading in the list of all operations. */
 .plist-group { margin: 12px 0 0; color: var(--main-dark); }
 .plist-group:first-child { margin-top: 0; }
 .row-btn { text-align: left; min-height: 56px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
-.radio, .check { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 4px; }
 input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-color: var(--main); flex: none; }
-.sign-bar .btn { flex: 1 1 auto; } .sign-bar .btn.ghost { flex: 0 0 auto; background: var(--card); } /* Tick all as wide as its word, Sign the rest */
+.sign-bar .btn { flex: 1 1 auto; } .sign-bar .btn.ghost { flex: 0 0 auto; background: var(--card); } /* Select all as wide as its words, Sign the rest */
 /* A supervisor's student page, To sign: short rows with a tick box on the left (tapping the row opens the case),
    and the Sign button in a bar that stays at the bottom of the screen while the list scrolls under it. */
 .entry.tap.has-box { padding-left: 0; }
@@ -321,8 +318,6 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .prow-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .bar { height: 14px; background: #ece9df; border-radius: 7px; overflow: hidden; margin: 8px 0 6px; }
 .fill { height: 100%; background: var(--main); border-radius: 7px; }
-.orow { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #efede6; }
-.orow + .btn { margin-top: 16px; } /* Targets: room between the last target and "Change targets" */
 /* Setting targets (supervisor): a row per procedure, the name on the left, a number field on the right. */
 .trow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid #efede6; }
 .trow[hidden] { display: none; }
@@ -353,11 +348,11 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .fold summary:active { background: var(--main-light); }
 
 .list { list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 10px; }
-/* History: a quiet heading above each month's entries. */
-.day-head { font-size: 14px; font-weight: 400; color: var(--muted); margin: 20px 0 8px 2px; } /* History: a small heading per week */
+/* History: a quiet heading above each week's cases (also the group headings on other pages). */
+.day-head { font-size: 14px; font-weight: 400; color: var(--muted); margin: 20px 0 8px 2px; }
 .day-head + .list { margin-top: 0; }
 
-/* History: "Procedure" and "Role" buttons that open a pop-up to show only some entries. A button with a choice made is coloured. */
+/* History: "Procedure" and "Role" buttons that open a pop-up to show only some cases. A button with a choice made is coloured. */
 .filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .filters.one { grid-template-columns: minmax(0, 1fr); } /* an administrator's Users: one filter, across the page */
 .filter {
@@ -390,9 +385,9 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 @media (hover: hover) { .entry.tap:hover { border-color: var(--main); box-shadow: 0 2px 8px rgba(0, 0, 0, .08); } }
 .e-text { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .e-text strong, .srow-main strong { font-weight: 500; } /* names in lists: medium, like the procedures on the Log tab */
-/* The case pop-up (openCase in app.js), kept quiet: few boxes, little colour. At the top the procedure, the date
-   and hospital, and your role with Signed / Not signed; then two plain tabs; then the answers in grey cards, a row
-   per answer: the question on the left (semi-bold), the answer against the right edge (plain), a thin line between. */
+/* The case pop-up (openCase in ui.js), kept quiet: few boxes, little colour. At the top the procedure, the date
+   and hospital, and your role with Signed / Not signed yet; then two plain tabs; then the answers in grey cards, a row
+   per answer: the question on the left (grey), the answer against the right edge, a thin line between. */
 /* The heading stays at the top while the rest of the case scrolls (.sheet-body; -24px: over the pop-up's padding,
    to its very top edge). */
 .sheet-head { position: relative; z-index: 4; margin: -24px -24px 0; padding: 22px 24px 0; background: var(--card); }
@@ -430,18 +425,17 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .case-row > span:last-child { overflow-wrap: anywhere; text-align: right; } /* the answer against the right edge of the card */
 .case-row:last-child { border-bottom: 0; }
 .case-note { margin: 14px 0 4px; }
-/* Delete: a quiet red link at the bottom of Details (only while not signed). */
+/* An administrator's account pop-up: "Delete account and data for good", a quiet red link at the bottom. */
 .case-del-row { text-align: center; margin-top: 12px; }
-/* The role of an entry, as text in one colour. */
-/* "Delete" on the right of the second line. The negative margins keep the big touch target without making the line taller. */
+/* The small boxes on the right of a row: Signed (green), N to sign and Logged N days later (orange), Follow-up added
+   (blue); grey for a state that needs nothing (Not signed yet, Disabled, First login waiting). */
 .tag { font-size: 13px; padding: 2px 10px; border-radius: 999px; background: #ece9df; color: var(--ink); }
 .tag.ok { background: var(--ok-bg); color: var(--ok-ink); }
 .tag.warn { background: var(--warn-bg); color: var(--warn-ink); }
 .tag.fu { background: var(--main-light); color: var(--main-dark); } /* "Follow-up added" */
 .tag.closed { background: none; box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); } /* History: too old for a follow-up */
-/* Details and follow-up under an entry: one line each, the follow-up button on the right. */
 
-/* Questions (role, details, follow-up): a label, an optional grey line that explains it, then choices or a number.
+/* Questions (role, details, follow-up): a label, maybe a "?" that explains it, then choices or a number.
    Each part (Your role, Mother, Baby, Operation, ...) is a grey card like the hospital and date, with one heading. */
 .questions { margin: 0 0 4px; }
 .questions [hidden] { display: none; }
@@ -465,8 +459,11 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .qhelp[hidden] { display: none; }
 .numrow { display: flex; align-items: center; gap: 8px; margin-top: 8px; white-space: nowrap; }
 .num { width: 100%; max-width: 140px; min-width: 0; min-height: 52px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-size: 20px; }
+/* A number that is not allowed: a red frame and the message right under it (questions() in app.js). */
+.num[aria-invalid=true] { border: 2px solid var(--danger); }
+.num-error { min-height: 0; margin: 6px 0 0; font-size: 15px; }
+.num-error[hidden] { display: none; }
 /* Cancel and Save stay in view at the bottom of a long pop-up. Save is the wide one. */
-/* No line above the buttons: while there is more further down the content fades out above them instead. */
 .sheet-foot { position: relative; z-index: 3; display: flex; gap: 12px; margin: 0 -24px -24px; padding: 16px 24px; background: var(--card); box-shadow: inset 0 1px 0 var(--line); } /* a thin line on top, always, like the bar on a supervisor's To sign page */
 .sheet-foot .btn { flex: 1; padding-left: 12px; padding-right: 12px; white-space: nowrap; }
 .sheet-foot .btn.save { flex: 2; }
@@ -491,6 +488,7 @@ textarea {
 }
 .mono { font-family: ui-monospace, Menlo, monospace; font-size: 18px; letter-spacing: .5px; }
 .audit { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #efede6; }
+.audit-at { flex: none; white-space: nowrap; } /* Recent changes: the date and time on the right */
 h4 { font-size: 17px; margin: 16px 0 6px; }
 /* The privacy notice ("Your data"): one grey card per part, like the parts of the entry pop-up. */
 .pv-title { margin-bottom: 4px; }
@@ -516,6 +514,13 @@ h4 { font-size: 17px; margin: 16px 0 6px; }
 /* an administrator's backup reminder: the text on the left, the button on the right (under it on a narrow phone) */
 .note.reminder { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin: 0 0 16px; padding: 10px 10px 10px 16px; }
 .note.reminder > span { flex: 1 1 180px; }
+/* History: "N cases can get a follow-up" with Show, the same row in the light blue of Follow-up added. */
+.note-info.reminder { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin: 12px 0 0; padding: 10px 10px 10px 16px; }
+.note-info.reminder > span { flex: 1 1 180px; }
+/* A supervisor's student page, Progress: Set targets on top, then the procedures as the student sees them. */
+.set-targets { margin-bottom: 4px; }
+.btn.ghost.set-targets { background: var(--card); } /* white, not see-through, like Add users and Account (hover and press still show) */
+.targets-name { margin: -12px 0 12px; } /* the student's name under "Targets for …" */
 
 #toast {
   position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translate(-50%, 20px); opacity: 0; pointer-events: none;

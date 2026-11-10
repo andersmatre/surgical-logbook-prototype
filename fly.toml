@@ -1,4 +1,4 @@
-# Fly.io settings for the logbook server. Not run by its author before the first real deploy.
+# Fly.io settings for the logbook server (the current deployment, see "Current deployment" in DEPLOY.md).
 # Keep it to ONE machine: the database is a single SQLite file on one volume.
 app = "capacare-logbook"
 primary_region = "arn"   # Stockholm

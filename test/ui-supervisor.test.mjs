@@ -102,7 +102,7 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   assert.match($('.main .list').textContent, /No match/);
   type($('.search'), 'mohamed');
   assert.match($('.addrow').textContent, /CC1001\s*Mohamed Kamara/, 'a student can be found by name');
-  assert.match($('.addrow').textContent, /3 cases · last update/, 'with how many cases and the last update, like My students');
+  assert.match($('.addrow').textContent, /3 cases · last case logged (\d+ days ago|\d+ \w+)/, 'with how many cases and when the last was logged, like My students');
   type($('.search'), '');
   await click(byText('.btn', 'Add', $('.addrow')));
   assert.match($('.main .list').textContent, /Every student is already added/);
@@ -133,7 +133,7 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   const boxes = $$('.signlist input[type=checkbox]');
   assert.equal(boxes.length, 3);
   assert.ok(boxes.every((b) => !b.checked), 'nothing is ticked at first');
-  assert.equal(byText('.btn', 'Select entries to sign').disabled, true);
+  assert.equal(byText('.btn', 'Select cases to sign').disabled, true);
   // each case is a short row; tapping it opens the case to read (no Delete, no follow-up button)
   const firstRow = $('.signlist .entry');
   assert.match(firstRow.querySelector('.e-sub').textContent, /^Operated with supervisor · \d+ \w+$/, 'the role and the date, like in History');
@@ -150,32 +150,33 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   await wait(50);
   assert.equal($('#overlay').classList.contains('open'), false, 'the tick box does not open the case');
   assert.equal(boxes[0].checked, true);
-  assert.equal(byText('.btn', 'Sign 1 selected').textContent, 'Sign 1 selected');
-  // "Tick all" / "Untick all" next to the Sign button
+  assert.equal(byText('.btn', 'Sign 1 case').textContent, 'Sign 1 case');
+  // "Select all" / "Select none" next to the Sign button
   const all = () => $('.sign-bar .btn.ghost');
-  assert.equal(all().textContent, 'Tick all', 'not everything is ticked');
+  assert.equal(all().textContent, 'Select all', 'not everything is ticked');
   await click(all(), 50);
   assert.ok(boxes.every((b) => b.checked));
-  assert.equal(byText('.btn', 'Sign 3 selected').textContent, 'Sign 3 selected');
-  assert.equal(all().textContent, 'Untick all');
+  assert.equal(byText('.btn', 'Sign 3 cases').textContent, 'Sign 3 cases');
+  assert.equal(all().textContent, 'Select none');
   await click(all(), 50);
   assert.ok(boxes.every((b) => !b.checked));
-  assert.equal(byText('.btn', 'Select entries to sign').disabled, true);
+  assert.equal(byText('.btn', 'Select cases to sign').disabled, true);
   for (const b of boxes.slice(0, 2)) { b.checked = true; b.dispatchEvent(new window.Event('change')); }
-  assert.equal(byText('.btn', 'Sign 2 selected').textContent, 'Sign 2 selected');
-  await click(byText('.btn', 'Sign 2 selected'), 100);
-  assert.match($('.sheet').textContent, /Sign 2 entries\?/);
+  assert.equal(byText('.btn', 'Sign 2 cases').textContent, 'Sign 2 cases');
+  await click(byText('.btn', 'Sign 2 cases'), 100);
+  assert.match($('.sheet').textContent, /Sign 2 cases\?/);
+  assert.deepEqual($$('.sheet .row .btn').map((b) => b.textContent), ['Cancel', 'Sign'], 'Cancel on the left, the action on the right, as everywhere');
   assert.match($('.sheet').textContent, /you supervised/);
   await click(byText('.sheet .btn', 'Sign'), 600);
-  assert.match($('#toast').textContent, /Signed 2 entries/);
+  assert.match($('#toast').textContent, /Signed 2 cases/);
   assert.equal(signsOf('CC1001'), 2);
   assert.equal($$('.signlist input[type=checkbox]').length, 1, 'one entry is still waiting');
   assert.equal($('.signlist input[type=checkbox]').checked, false, 'the one left out stays unticked after signing');
   assert.match($('.main').textContent, /Mohamed Kamara/, 'the name is still there after signing');
   assert.match($('.nav .badge').textContent, /^2$/, 'the badge counts what is still waiting');
-  assert.equal(byText('.btn', 'Select entries to sign').disabled, true);
-  // the page has three tabs: To sign (open), Signed and Targets
-  assert.deepEqual($$('.ctab').map((x) => x.textContent), ['To sign', 'Signed', 'Targets']);
+  assert.equal(byText('.btn', 'Select cases to sign').disabled, true);
+  // the page has three tabs: To sign (open), Signed and Progress
+  assert.deepEqual($$('.ctab').map((x) => x.textContent), ['To sign', 'Signed', 'Progress']);
   assert.equal($('.ctab.on').textContent, 'To sign');
   assert.match($('.nav .tab.on').textContent, /My students/, 'a student\'s page is part of My students: that tab stays chosen');
   assert.equal($$('.entry .tag.ok').length, 0, 'the signed ones are under Signed');
@@ -197,19 +198,24 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   left.dispatchEvent(new window.Event('change'));
   await post('/api/sync', s1, { events: [{
     id: '00000000-0000-4000-8000-000000000999', type: 'entry', ts: new Date().toISOString(), hospital: 'Masanga Hospital',
-    procedure: 'hydrocele', role: 'supervised', performed_on: '2026-10-21', entered_on: '2026-10-21', schema: 1,
+    procedure: 'hydrocele', role: 'supervised', performed_on: '2026-10-10', entered_on: '2026-10-21', schema: 1,
   }], cursor: pulled.cursor });
   document.dispatchEvent(new window.Event('visibilitychange'));
   await wait(500);
   assert.deepEqual($$('.signlist input[type=checkbox]').map((b) => b.checked).sort(), [false, true], 'the new entry shows up by itself, unticked; the ticked one stays ticked');
-  assert.equal(byText('.btn', 'Sign 1 selected').textContent, 'Sign 1 selected');
+  assert.equal(byText('.btn', 'Sign 1 case').textContent, 'Sign 1 case');
+  // logged 11 days after it was done: worth a second look (a case logged the next day is normal: no tag)
+  assert.deepEqual($$('.signlist .tag.warn').map((t) => t.textContent), ['Logged 11 days later']);
 
-  // ---- targets: none at first; set two in the pop-up, see them with how many were performed
-  const tcard = () => byText('.card', 'Targets');
-  await click(byText('.ctab', 'Targets'), 50);
-  assert.match(tcard().textContent, /No targets yet/);
-  await click(byText('.btn', 'Set targets', tcard()), 100);
+  // ---- Progress: the student's progress as the student sees it; no targets at first; set two in the pop-up
+  await click(byText('.ctab', 'Progress'), 50);
+  assert.match($('.main').textContent, /No targets yet/);
+  const ptiles = () => $$('.main .ptile').map((t) => t.querySelector('.prow-top').textContent);
+  assert.deepEqual($$('.main .prog-title').map((x) => x.textContent), ['Procedures with a target', 'Procedures without a target']);
+  assert.deepEqual(ptiles(), ['Appendectomy1 case', 'Caesarean section1 case', 'Laparotomy1 case', 'Scrotal hydrocele1 case'], 'every procedure with a case, like the student sees it');
+  await click(byText('.main .btn', 'Set targets'), 100);
   assert.match($('.sheet h3').textContent, /Targets for CC1001/);
+  assert.equal($('.sheet .targets-name').textContent, 'Mohamed Kamara', 'the name under the heading');
   assert.equal($$('.sheet .trow').length, TARGET_PROCEDURES.length, 'every procedure that is offered');
   assert.equal($('.sheet .trow label').textContent, 'Caesarean section', 'those on the New case tab first');
   await click(byText('.sheet .btn', 'Save'), 50);
@@ -223,15 +229,16 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   type($('#t-appendectomy'), '10');
   await click(byText('.sheet .btn', 'Save'), 700);
   assert.match($('#toast').textContent, /Targets saved/);
-  assert.deepEqual($$('.orow', tcard()).map((r) => r.textContent), ['Caesarean section1 / 30', 'Appendectomy1 / 10'], 'performed out of the target');
+  assert.deepEqual(ptiles(), ['Caesarean section1 / 30', 'Appendectomy1 / 10', 'Laparotomy1 case', 'Scrotal hydrocele1 case'], 'performed out of the target, on top');
+  assert.match($('.main').textContent, /The student sees these under Progress\./);
   // change one and remove the other (an empty field is no target)
-  await click(byText('.btn', 'Change targets', tcard()), 100);
+  await click(byText('.main .btn', 'Change targets'), 100);
   assert.equal($('#t-cs').value, '30', 'the current targets are filled in');
   type($('#t-cs'), '25');
   type($('#t-appendectomy'), '');
   await click(byText('.sheet .btn', 'Save'), 700);
-  assert.deepEqual($$('.orow', tcard()).map((r) => r.textContent), ['Caesarean section1 / 25']);
-  assert.equal($('.ctab.on').textContent, 'Targets', 'after saving, the Targets tab is still open');
+  assert.deepEqual(ptiles(), ['Caesarean section1 / 25', 'Appendectomy1 case', 'Laparotomy1 case', 'Scrotal hydrocele1 case'], 'the removed target is gone');
+  assert.equal($('.ctab.on').textContent, 'Progress', 'after saving, the Progress tab is still open');
   // the student's tablet gets them with its next sync
   const targetsPulled = (await post('/api/sync', s1, { events: [], cursor: 0 })).events.filter((e) => e.type === 'target');
   assert.deepEqual(targetsPulled.map((e) => [e.procedure, e.count]), [['cs', 30], ['appendectomy', 10], ['cs', 25], ['appendectomy', 0]]);
@@ -252,7 +259,9 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   assert.deepEqual($$('details.advanced .fact-text > span').map((x) => x.textContent), ['Version', 'Your data']);
   await click(byText('details.advanced .fact', 'Your data').querySelector('.change'));
   assert.match($('.sheet').textContent, /Which students you added/, 'a supervisor reads what is stored about supervisors');
-  assert.doesNotMatch($('.sheet').textContent, /Each procedure you log/, 'and not what is stored about students');
+  assert.doesNotMatch($('.sheet').textContent, /Each case you log/, 'and not what is stored about students');
+  assert.doesNotMatch($('.sheet').textContent, /The supervisors who added you/, 'nor who can see a student\'s data');
+  assert.match($('.sheet').textContent, /Your students see your name/);
   await click(byText('.sheet .btn', 'Close'));
   const dbs = (await indexedDB.databases()).map((d) => d.name);
   assert.deepEqual(dbs.filter((x) => /SUP-ANNA|surgical-logbook/.test(x)), [], 'no local logbook database for a supervisor');

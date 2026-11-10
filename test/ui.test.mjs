@@ -96,7 +96,7 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   assert.match($('.sheet').textContent, /What is stored/);
   assert.doesNotMatch($('.sheet').textContent, /What is never stored/);
   assert.deepEqual($$('.sheet .pv-card h4').map((x) => x.textContent), ['What is stored', 'Why', 'Who can see it', 'Where it is kept', 'How long it is kept', 'Your rights'], 'one grey card per part');
-  assert.match($('.sheet').textContent, /Each procedure you log/, 'a student reads what is stored about students');
+  assert.match($('.sheet').textContent, /Each case you log/, 'a student reads what is stored about students');
   assert.doesNotMatch($('.sheet').textContent, /Which students you added/, 'and not what is stored about supervisors');
   assert.match($('.sheet').textContent, /Who can see it/);
   assert.match($('.sheet').textContent, /have your account and your data deleted/);
@@ -247,7 +247,15 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   // History has no count of unsigned entries on its tab and no message about them.
   await click(byText('.tab', 'History'));
   assert.equal($('.nav .badge'), null, 'no count on the History tab');
-  assert.equal($('.note-info'), null, 'no message about signatures at the top of History');
+  assert.equal($('.note-info:not(.fu-reminder)'), null, 'no message about signatures at the top of History');
+  // a reminder of the cases that can still get a follow-up, with a button that shows only those
+  assert.match($('.fu-reminder').textContent, /^3 cases can get a follow-up\.Show$/);
+  await click(byText('.fu-reminder .change', 'Show'));
+  assert.equal($$('.entry').length, 3);
+  assert.match($('.shown').textContent, /Showing 3 that can get a follow-up/);
+  assert.equal($('.fu-reminder'), null, 'the reminder is not shown while only those are shown');
+  await click(byText('.shown button', 'Show all'));
+  assert.equal($('.shown'), null);
   assert.match($('.entry .e-sub').textContent, /^Assisted · \d+ \w+$/, 'the row: your role and the date');
   assert.deepEqual($$('.day-head').map((x) => x.textContent), ['This week'], 'a heading for the week, above its entries');
   await click($('.entry'));
@@ -340,7 +348,7 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   // ---- the More tab: account, supervisors, then the rarely needed things (your data too) folded away under "Advanced"
   assert.deepEqual($$('section .card').map((c) => c.querySelector('h3, summary strong').textContent), ['Account', 'Your supervisors', 'Advanced']);
   assert.deepEqual($$('details.advanced h3').map((x) => x.textContent), ['Data on this device', 'About'], 'no separate "Your data" part');
-  assert.deepEqual($$('details.advanced .fact-text > span').map((x) => x.textContent), ['Entries', 'Waiting to be sent', 'Last sync', 'Version', 'Your data'],
+  assert.deepEqual($$('details.advanced .fact-text > span').map((x) => x.textContent), ['Cases', 'Waiting to be sent', 'Last sync', 'Version', 'Your data'],
     'the same rows as the account: label in bold, value under it; "Your data" is one row under About, with a button');
   assert.ok(!$('details.advanced').open, 'Advanced is folded when the tab is opened');
   assert.match(document.body.textContent, /Data on this device/);
@@ -421,7 +429,7 @@ test('logging out with unsent entries warns and offers to lose them', async () =
   await click(byText('.tab', 'More'));
   await click(byText('.btn', 'Log out'), 200);
   assert.match($('.sheet').textContent, /NOT been sent/);
-  assert.ok(byText('.btn.danger', 'Log out and lose entries'));
+  assert.ok(byText('.btn.danger', 'Log out and lose them'));
   await click(byText('.btn', 'Cancel'));
   assert.ok($('.top'), 'still logged in after cancel');
   assert.equal($$('.sheet').length, 0);
@@ -552,7 +560,7 @@ test('role and details are on one screen, and a follow-up can be added later fro
 
   // the questions come in parts, each a card with one heading; the second and third baby only after "Twins" or "Triplets"
   const visible = (sel) => $$(sel).filter((x) => !x.closest('[hidden]') && !x.hidden);
-  assert.deepEqual(visible('.sheet .qcard .qsection').map((x) => x.textContent), ['Your role', 'Mother', 'Baby', 'Operation', 'Surgical Apgar']);
+  assert.deepEqual(visible('.sheet .qcard .qsection').map((x) => x.textContent), ['Your role', 'Mother', 'Baby', 'Complications', 'Operation', 'Surgical Apgar']);
   const sapgar = byText('.sheet .qcard', 'Surgical Apgar');
   await click(sapgar.querySelector('.qsection-wrap .qtip-btn'), 50);
   assert.match(sapgar.querySelector('.qsection-wrap .qhelp').textContent, /for the mother/, 'a "?" after the heading says whose Surgical Apgar it is');
@@ -573,7 +581,7 @@ test('role and details are on one screen, and a follow-up can be added later fro
   assert.equal($('#q-gravida').closest('.qrow').nextElementSibling, $('#q-para').closest('.qrow'), 'each on its own line, one under the other');
   assert.ok(byText('.sheet .qrow', 'Number of babies').querySelector('.choices.three'), 'three short choices share one row');
   await click(byText('.choice', 'Twins'));
-  assert.deepEqual(visible('.sheet .qcard .qsection').map((x) => x.textContent), ['Your role', 'Mother', 'Baby', 'Second baby', 'Operation', 'Surgical Apgar']);
+  assert.deepEqual(visible('.sheet .qcard .qsection').map((x) => x.textContent), ['Your role', 'Mother', 'Baby', 'Second baby', 'Complications', 'Operation', 'Surgical Apgar']);
   $('#q-baby2_weight_g').value = '2100';
   await click(byText('.choice', 'Twins')); // a second tap clears it: the second baby is hidden again and not saved
   assert.ok($('#q-baby2_weight_g').closest('[hidden]'));
@@ -585,8 +593,15 @@ test('role and details are on one screen, and a follow-up can be added later fro
   await click(byText('.choice', 'Planned')); // a second tap clears it
   $('#q-duration_min').value = '5000';
   await click(byText('.sheet .btn', 'Save'));
-  assert.match($('.sheet .error').textContent, /whole number from 1 to 1440/, 'a wrong number is explained, nothing saved');
+  // the message right under the number, not at the bottom of the form (where it may be out of sight); only that one
+  const shownErrors = () => $$('.sheet .num-error').filter((x) => !x.hidden);
+  assert.equal(shownErrors().length, 1);
+  assert.equal(shownErrors()[0].closest('.qrow'), $('#q-duration_min').closest('.qrow'));
+  assert.match(shownErrors()[0].textContent, /whole number from 1 to 1440/, 'a wrong number is explained, nothing saved');
+  assert.equal($('#q-duration_min').getAttribute('aria-invalid'), 'true');
   $('#q-duration_min').value = '50';
+  $('#q-duration_min').dispatchEvent(new window.Event('input'));
+  assert.equal(shownErrors().length, 0, 'typing again takes the message away');
   await click(byText('.sheet .btn', 'Save'));
   // questions without an answer: a question on top asks first; "Go back" keeps everything as it was
   const visibleRows = $$('.sheet .qrow').filter((r) => !r.hidden && !r.closest('[hidden]') && r.querySelector('.qlabel'));
@@ -606,14 +621,14 @@ test('role and details are on one screen, and a follow-up can be added later fro
   assert.doesNotMatch(row().textContent, /Anaesthesia/, 'the row shows only the most important; the answers are in the pop-up');
   assert.match(row().querySelector('.e-sub').textContent, /^Operated with supervisor · \d+ \w+$/, 'the role and the date');
   assert.match(row().textContent, /Not signed/);
-  assert.deepEqual($$('.tag', row()).map((t) => t.textContent), ['Not signed'], 'no follow-up tag yet');
+  assert.deepEqual($$('.tag', row()).map((t) => t.textContent), ['Not signed yet'], 'no follow-up tag yet');
 
   // tapping the case opens it in a pop-up: at the top your role and Not signed, like the row in the list
   await click(row());
   assert.equal($('.sheet h3').textContent, 'Caesarean section');
   // like the row in the list: role, date and hospital in one grey line, the tags on the right
   assert.match($('.sheet-head .case-sub').textContent, /^Operated with supervisor · \d+ \w+$/);
-  assert.deepEqual($$('.sheet-head .case-top .tag').map((t) => t.textContent), ['Not signed']);
+  assert.deepEqual($$('.sheet-head .case-top .tag').map((t) => t.textContent), ['Not signed yet']);
   // then the answers, in a card per part with only what was answered; a heading only when it is not the tab's name
   assert.deepEqual($$('.sheet .case-part h4').map((x) => x.textContent), ['Operation'], 'only the parts with an answer');
   const rows = () => $$('.sheet .case-row').map((r) => [...r.children].map((c) => c.textContent).join(': '));
@@ -655,10 +670,10 @@ test('role and details are on one screen, and a follow-up can be added later fro
   assert.equal($('.sheet-head .ctab.on').textContent, 'Follow-up', 'back on the case, on its Follow-up tab');
   await click(byText('.sheet .btn', 'Add follow-up'));
   assert.deepEqual(visible('.sheet .qlabel').map((l) => l.textContent),
-    ['Outcome', 'Outcome', 'Complication at birth', 'Wound infection', 'Back to theatre', 'Referred to another hospital', 'Days in hospital after the operation']);
+    ['Outcome', 'Outcome', 'Wound infection', 'Back to theatre', 'Referred to another hospital', 'Days in hospital after the operation']);
   assert.deepEqual(visible('.sheet .qcard .qsection').map((x) => x.textContent), ['Mother', 'Baby', 'Complications', 'Hospital stay'], 'in parts named like the details; the baby too (born alive, as far as the details say)');
   await click(byText('.sheet .btn', 'Save'));
-  assert.match($('.sheet .error').textContent, /Nothing new/);
+  assert.match($('#toast').textContent, /Nothing new to save/, 'said at the bottom of the screen, where it is always seen');
   await click(byText('.choice', 'Alive')); // the mother
   await click(byText('.sheet .btn', 'Save'), 400);
   const caseFollowUp = async () => {
@@ -669,7 +684,7 @@ test('role and details are on one screen, and a follow-up can be added later fro
     return out;
   };
   assert.deepEqual(await caseFollowUp(), ['Outcome: Alive'], 'the follow-up answers are in the pop-up');
-  assert.deepEqual($$('.tag', row()).map((t) => t.textContent), ['Follow-up added', 'Not signed'], 'the row shows that it has a follow-up');
+  assert.deepEqual($$('.tag', row()).map((t) => t.textContent), ['Follow-up added', 'Not signed yet'], 'the row shows that it has a follow-up');
   assert.deepEqual(JSON.parse(stored().get('followup').payload).answers, { mother: 'alive' });
 
   // later: a wound infection. The earlier answer is shown and kept; only the new one is sent.
@@ -728,4 +743,21 @@ test('a touch on Cancel works at once, also while the pop-up is still scrolling'
   touch('touchend', proc, 100, 300);
   await wait(50);
   assert.equal($('.sheet'), null);
+});
+
+test('"A new version is ready" stays until Restart is tapped; other messages show on top of it for a moment', async () => {
+  const { toast, hideToast } = await import('../ui.js');
+  let restarted = 0;
+  toast('A new version is ready', { sub: 'Tap Restart to use it.', persist: true, action: { label: 'Restart', fn: () => { restarted += 1; } } });
+  const shown = () => ($('#toast').classList.contains('show') ? $('#toast').textContent : '');
+  assert.match(shown(), /A new version is ready.*Restart/);
+  hideToast();
+  assert.match(shown(), /A new version is ready/, 'it does not go away by itself');
+  toast('Saved', { ms: 30 });
+  assert.match(shown(), /^Saved/, 'another message shows on top of it');
+  await wait(80);
+  assert.match(shown(), /A new version is ready/, 'and then it is back');
+  await click(byText('#toast .t-act', 'Restart'), 20);
+  assert.equal(restarted, 1);
+  assert.match(shown(), /A new version is ready/, 'still there until the app has restarted');
 });

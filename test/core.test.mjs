@@ -38,7 +38,7 @@ test('logging, voiding and signing derive the right state', async () => {
   assert.deepEqual(Object.keys(m).filter((k) => /ms|offline|undo|open/.test(k)), []);
 });
 
-test('late entries are flagged and "this week" only counts the last 7 days', async () => {
+test('late entries are flagged and "this week" is Monday to Sunday, like "This week" in History', async () => {
   const today = new Date();
   const old = new Date(today); old.setDate(old.getDate() - 20);
   await core.logEntry({ ...base, procedure: 'cs', role: 'independent' });
@@ -47,6 +47,14 @@ test('late entries are flagged and "this week" only counts the last 7 days', asy
   assert.equal(core.metrics(await core.allEvents()).late_entries, 1);
   assert.equal(core.weekEntries(entries).length, 1);
   assert.equal(core.progress(entries).cs.performed, 2, 'progress counts the old entry too');
+  // Thursday 12 Nov 2026: the week began on Monday 9 Nov; Sunday 8 Nov is last week, though it is within 7 days
+  const on = (performed_on) => ({ performed_on });
+  assert.deepEqual(core.weekEntries([on('2026-11-09'), on('2026-11-12'), on('2026-11-08'), on('2026-11-06')], '2026-11-12').map((e) => e.performed_on),
+    ['2026-11-09', '2026-11-12']);
+  // How late a case was logged: the next morning is 1 day; a supervisor is told from LATE_DAYS (7) on
+  assert.equal(core.daysLate({ performed_on: '2026-11-01', entered_on: '2026-11-02' }), 1);
+  assert.equal(core.daysLate({ performed_on: '2026-11-01', entered_on: '2026-11-08' }), 7);
+  assert.equal(core.LATE_DAYS, 7);
 });
 
 test('sync bookkeeping: only events the server has not confirmed count as unsynced', async () => {
@@ -230,7 +238,8 @@ test('the procedure list: ids are valid and unique, every group and Log-tab butt
   const titles = (p, d) => cfg.followupFieldsFor(p, d).map((x) => x.title);
   assert.deepEqual(titles('cs'), ['Mother', 'Baby', 'Complications', 'Hospital stay'], 'one baby when the number was not answered');
   assert.deepEqual(titles('cs', { babies: '2' }), ['Mother', 'Baby', 'Second baby', 'Complications', 'Hospital stay']);
-  assert.deepEqual(titles('normal_delivery', { babies: '3', baby2_outcome: 'fresh_stillbirth' }), ['Mother', 'Baby', 'Third baby', 'Complications', 'Hospital stay']);
+  assert.deepEqual(titles('normal_delivery', { babies: '3', baby2_outcome: 'fresh_stillbirth' }), ['Mother', 'Baby', 'Third baby', 'Hospital stay'],
+    'the complications of a birth are asked when it is logged, not in the follow-up');
   assert.deepEqual(titles('cs', { baby_outcome: 'macerated' }), ['Mother', 'Complications', 'Hospital stay'], 'no card for a stillborn baby');
   assert.deepEqual(titles('appendectomy', { babies: '2' }), ['Patient', 'Complications', 'Hospital stay'], 'never at an operation without a birth');
   assert.deepEqual(cfg.FOLLOWUP_FIELDS.baby2_died_day.showIf, { baby2_after: ['died'] }, 'the days only after "Died"');
@@ -239,4 +248,46 @@ test('the procedure list: ids are valid and unique, every group and Log-tab butt
   assert.equal(cfg.surgicalApgar({ blood_loss_ml: 1200, sapgar_map: '3', sapgar_hr: '4' }), 7);
   assert.equal(cfg.surgicalApgar({ sapgar_map: '3', sapgar_hr: '4' }), null);
   assert.ok(cfg.HOSPITALS.includes('Masanga Hospital') && cfg.HOSPITALS.includes('Bo Government Hospital'), 'names already stored on tablets are still in the list');
+});
+
+test('the questions per procedure: small procedures, side and mesh, no sex where the procedure says it, complications at the birth', async () => {
+  const cfg = await import('../config.js');
+  const parts = (p) => Object.fromEntries(cfg.detailFieldsFor(p).map((x) => [x.title, x.ids]));
+  // an operation: the patient, the operation and the Surgical Apgar
+  assert.deepEqual(parts('appendectomy'), { Patient: ['sex', 'age_years'], Operation: ['urgency', 'anaesthesia', 'duration_min'], 'Surgical Apgar': ['sapgar_blood', 'sapgar_map', 'sapgar_hr'] });
+  // a small procedure: no operation time, no Surgical Apgar
+  assert.deepEqual(parts('dressing'), { Patient: ['sex', 'age_years'], Procedure: ['urgency', 'anaesthesia'] });
+  // side (and mesh) first under Operation, or Procedure
+  assert.deepEqual(parts('ing_hernia').Operation, ['side', 'mesh', 'urgency', 'anaesthesia', 'duration_min']);
+  assert.deepEqual(parts('strang_hernia').Operation, ['side', 'urgency', 'anaesthesia', 'duration_min']);
+  assert.deepEqual(parts('chest_tube').Procedure, ['side', 'urgency', 'anaesthesia']);
+  // the sex is given: gynaecology and obstetrics (female), circumcision, orchidectomy, hydrocele (male)
+  assert.deepEqual(parts('hysterectomy').Patient, ['age_years']);
+  assert.deepEqual(parts('induction'), { Patient: ['age_years'], Procedure: ['urgency', 'anaesthesia'] });
+  assert.deepEqual(parts('hydrocele'), { Patient: ['age_years'], Operation: ['side', 'urgency', 'anaesthesia', 'duration_min'], 'Surgical Apgar': ['sapgar_blood', 'sapgar_map', 'sapgar_hr'] });
+  // the complications at the birth: both can be answered; no shoulder dystocia at a caesarean
+  assert.deepEqual(parts('normal_delivery').Complications, ['pph', 'shoulder_dystocia']);
+  assert.deepEqual(parts('vacuum_delivery').Complications, ['pph', 'shoulder_dystocia']);
+  assert.deepEqual(parts('cs').Complications, ['pph']);
+  for (const id of [...cfg.MINOR_PROCEDURES, ...cfg.ASK_SIDE, ...cfg.ASK_MESH, ...cfg.MALE_ONLY]) assert.ok(cfg.findProcedure(id), `${id} is a procedure`);
+  // the old follow-up question is kept for old cases, marked as no longer asked
+  assert.ok(cfg.FOLLOWUP_FIELDS.mat_complication.retired);
+  for (const p of cfg.PROCEDURES) assert.ok(!cfg.followupFieldsFor(p.id).some((x) => x.ids.includes('mat_complication')), `${p.id}: not in the follow-up any more`);
+  // the follow-up is closed "after the operation", or "after the birth" for a delivery that is not an operation
+  assert.equal(cfg.followUpFrom('cs'), 'operation');
+  assert.equal(cfg.followUpFrom('normal_delivery'), 'birth');
+});
+
+test('an answer to a question that is no longer asked does not count (after "Died" was changed to "Alive")', async () => {
+  const cfg = await import('../config.js');
+  assert.deepEqual(cfg.shownAnswers(cfg.FOLLOWUP_FIELDS, { patient: 'alive', died_day: 3 }), { patient: 'alive' });
+  assert.deepEqual(cfg.shownAnswers(cfg.FOLLOWUP_FIELDS, { mother: 'alive', died_day: 3, death_cause: 'sepsis' }), { mother: 'alive' });
+  assert.deepEqual(cfg.shownAnswers(cfg.FOLLOWUP_FIELDS, { mother: 'died', died_day: 3, death_cause: 'sepsis' }), { mother: 'died', died_day: 3, death_cause: 'sepsis' });
+  assert.deepEqual(cfg.shownAnswers(cfg.FOLLOWUP_FIELDS, { baby_after: 'alive', baby_died_day: 2, wound_infection: 'no' }), { baby_after: 'alive', wound_infection: 'no' });
+  // on the tablet: the follow-ups of a case merged, the newer answer winning
+  const a = await core.logEntry({ ...base, procedure: 'laparotomy', role: 'independent' });
+  await core.addFollowUp(a.id, { patient: 'died', died_day: 3 });
+  await new Promise((r) => setTimeout(r, 5)); // a later ts
+  await core.addFollowUp(a.id, { patient: 'alive' });
+  assert.deepEqual(core.derive(await core.allEvents())[0].outcome, { patient: 'alive' });
 });

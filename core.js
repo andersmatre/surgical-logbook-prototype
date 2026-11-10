@@ -5,7 +5,7 @@
 // from the log. This is what makes later server sync conflict-free: sync just
 // means "upload events the server has not seen".
 
-import { FOLLOWUP_DAYS, answerLabel } from './config.js';
+import { FOLLOWUP_DAYS, FOLLOWUP_FIELDS, answerLabel, shownAnswers } from './config.js';
 
 const DB_VERSION = 2;
 let dbName = 'surgical-logbook';
@@ -181,7 +181,8 @@ export async function dropEvent(id) {
 // ---- derived state --------------------------------------------------------
 
 // Each live entry gets `sign` (or null), `followups` (oldest first) and `outcome`: the follow-up answers
-// merged, a newer answer to the same question replacing an older one. A void can also undo a follow-up.
+// merged, a newer answer to the same question replacing an older one, without answers to questions that would no
+// longer be asked (the days until death, after "Died" was changed to "Alive"). A void can also undo a follow-up.
 export function derive(events) {
   const voided = new Set();
   const signs = new Map();
@@ -199,7 +200,7 @@ export function derive(events) {
     .filter((e) => e.type === 'entry' && !voided.has(e.id))
     .map((e) => {
       const fu = (followups.get(e.id) || []).sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
-      return { ...e, sign: signs.get(e.id) || null, followups: fu, outcome: Object.assign({}, ...fu.map((f) => f.answers || {})) };
+      return { ...e, sign: signs.get(e.id) || null, followups: fu, outcome: shownAnswers(FOLLOWUP_FIELDS, Object.assign({}, ...fu.map((f) => f.answers || {}))) };
     })
     .sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0));
 }
@@ -242,13 +243,16 @@ export function progress(entries) {
   return out;
 }
 
-export function weekEntries(entries, now = new Date(), days = 7) {
-  const start = new Date(now);
-  start.setDate(start.getDate() - (days - 1));
-  const a = localDateISO(start);
-  const b = localDateISO(now);
-  return entries.filter((e) => e.performed_on >= a && e.performed_on <= b);
+// The entries done this week, Monday to Sunday: the same week as "This week" in History.
+export function weekEntries(entries, today = localDateISO()) {
+  const monday = weekStart(today);
+  return entries.filter((e) => e.performed_on >= monday && e.performed_on <= today);
 }
+
+// How many days after the day it was done a case was logged (0: the same day). A supervisor sees "Logged N days
+// later" from LATE_DAYS on: a case logged the next morning is normal.
+export const LATE_DAYS = 7;
+export const daysLate = (e) => (e.performed_on && e.entered_on ? daysBetween(e.performed_on, e.entered_on) : 0);
 
 // ---- sync bookkeeping ---------------------------------------------------------
 // An event is "sent" once the server has confirmed it (or once it came from the server).

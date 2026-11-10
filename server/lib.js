@@ -6,7 +6,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { procName, roleLabel, surgicalApgar, DETAIL_FIELDS, FOLLOWUP_FIELDS, FOLLOWUP_DAYS, TARGET_PROCEDURES, MAX_TARGET } from '../config.js';
+import {
+  procName, roleLabel, surgicalApgar, shownAnswers, DETAIL_FIELDS, FOLLOWUP_FIELDS, FOLLOWUP_DAYS, TARGET_PROCEDURES, MAX_TARGET,
+  MINOR_PROCEDURES, MALE_ONLY, ASK_SIDE, ASK_MESH,
+} from '../config.js';
 
 const scrypt = promisify(crypto.scrypt);
 const SCRYPT_N = 16384;
@@ -388,7 +391,8 @@ export function toCsv(header, rows, delimiter = ',') {
 // The files an administrator can download. 'entries' is "Every case" on the screen (the id stays for the API).
 export const EXPORT_KINDS = ['progress', 'procedures', 'hospitals', 'entries', 'codebook'];
 
-// The follow-up answers of every entry, merged oldest to newest like derive() in core.js does on the tablet.
+// The follow-up answers of every entry, merged oldest to newest like derive() in core.js does on the tablet, without
+// answers to questions that would no longer be asked (shownAnswers: the days until death after "Died" became "Alive").
 // Key: owner + NUL + entry id. Value: { answers, on } (on = known_on of the newest follow-up).
 function followUpOutcomes(db) {
   const rows = db.prepare(
@@ -404,6 +408,7 @@ function followUpOutcomes(db) {
     o.on = p.known_on;
     out.set(key, o);
   }
+  for (const o of out.values()) o.answers = shownAnswers(FOLLOWUP_FIELDS, o.answers);
   return out;
 }
 
@@ -456,13 +461,13 @@ export function exportCsv(db, kind, delimiter = ',', { anonymous = false, today 
     const detailIds = Object.keys(DETAIL_FIELDS);
     const followIds = Object.keys(FOLLOWUP_FIELDS);
     return toCsv(
-      [...whoHead, 'entry_id', 'performed_on', 'entered_on', 'hospital', 'procedure_id', 'procedure', 'role', 'performed', 'signed', 'signed_by', 'signed_at',
+      [...whoHead, 'entry_id', 'performed_on', 'entered_on', 'hospital', 'procedure_id', 'procedure', 'role_id', 'role', 'performed', 'signed', 'signed_by', 'signed_at',
         ...detailIds, 'surgical_apgar', 'followup_status', ...followIds.map((id) => `followup_${id}`), 'followup_on', 'followup_day'],
       rows.map((r) => {
         const d = r.details ? JSON.parse(r.details) : {};
         const o = outcomeOf(r) || { answers: {}, on: null };
         const status = followUpStatus(r.performed_on, outcomeOf(r), today);
-        return [...who(r.candidate, r.name), r.entry_id, r.performed_on, r.entered_on, r.hospital, r.procedure, procName(r.procedure), roleLabel(r.role, r.procedure),
+        return [...who(r.candidate, r.name), r.entry_id, r.performed_on, r.entered_on, r.hospital, r.procedure, procName(r.procedure), r.role, roleLabel(r.role, r.procedure),
           performed(r.role) ? 'yes' : 'no', r.signed_by ? 'yes' : 'no', supervisor(r.signed_by), r.signed_at,
           ...detailIds.map((id) => d[id]), surgicalApgar(d), status, ...followIds.map((id) => o.answers[id]), o.on,
           status === 'done' && o.on ? daysFrom(r.performed_on, o.on) : null];
@@ -547,7 +552,7 @@ function codebookRows() {
   add(all, 'name', 'The student\'s name, if an administrator has set one (the files with names).');
   add(all, 'student_code', 'Instead of candidate and name in the anonymous files: S- and 8 characters. The same student always has the same code, in every file and download.');
   add(all, 'performed', 'Surgeon, supervised or Surgeon, independent (for a delivery: delivered, supervised or alone): the student did it.');
-  add(all, 'followup_*', `The follow-up is asked up to ${FOLLOWUP_DAYS} days after the operation. done: it has answers. open: none yet, still within ${FOLLOWUP_DAYS} days. missed: none, and the ${FOLLOWUP_DAYS} days are over.`);
+  add(all, 'followup_*', `The follow-up is asked up to ${FOLLOWUP_DAYS} days after the operation (after the birth, for a delivery that is not an operation). done: it has answers. open: none yet, still within ${FOLLOWUP_DAYS} days. missed: none, and the ${FOLLOWUP_DAYS} days are over.`);
   add(all, '', 'The same operation can be logged by several students (one operating, one assisting), each with their own follow-up. Nothing links them. To count patients or outcomes, use only the cases with performed = yes.');
 
   add('progress', '', 'A row per target a supervisor has set for a student (students without targets have no rows).');
@@ -579,19 +584,25 @@ function codebookRows() {
   add(e, 'hospital', 'Where it was done, as chosen by the student.');
   add(e, 'procedure_id', 'The id of the procedure. It never changes, so use it to count or to join files.');
   add(e, 'procedure', 'The name of the procedure.');
-  add(e, 'role', 'What the student did, in words.');
+  add(e, 'role_id', 'What the student did, as a code that never changes. Use it to count.');
+  codes(e, 'role_id', [['observing', 'Observed'], ['assisting', 'Assisted'], ['supervised', 'Surgeon, supervised (delivered, supervised)'], ['independent', 'Surgeon, independent (delivered alone)']]);
+  add(e, 'role', 'What the student did, in words (the words may change; role_id does not).');
   add(e, 'signed', 'yes when a supervisor has signed it.');
   add(e, 'signed_by', 'The supervisor who signed it (a code, V- and 8 characters, in the anonymous file).');
   add(e, 'signed_at', 'When it was signed (the server\'s clock).');
+  // A question no longer asked (retired in config.js) says so: its column is only filled in older cases.
+  const retired = (f) => (!f.retired ? '' : ` ${typeof f.retired === 'string' ? f.retired : 'No longer asked (from the first test version); only in older cases.'}`);
   const question = (prefix, fields, id) => {
     const f = fields[id];
     const col = `${prefix}${id}`;
-    if (f.number) add(e, col, `${f.label}: a whole number from ${f.number.min} to ${f.number.max}. Empty: not answered.`);
+    if (f.number) add(e, col, `${f.label}: a whole number from ${f.number.min} to ${f.number.max}. Empty: not answered.${retired(f)}`);
     else {
-      add(e, col, `${f.label}. Empty: not answered (or not asked for this procedure).`);
+      add(e, col, `${f.label}. Empty: not answered (or not asked for this procedure).${retired(f)}`);
       codes(e, col, f.options);
     }
   };
+  const names = (ids) => ids.map(procName).join(', ');
+  add(e, '', `Not asked for every procedure. sex: not asked for gynaecology and obstetrics (female) or for ${names(MALE_ONLY)} (male). side: only ${names(ASK_SIDE)}. mesh: only ${names(ASK_MESH)}. Small procedures (${names(MINOR_PROCEDURES)}) ask no operation time and no Surgical Apgar.`);
   for (const id of Object.keys(DETAIL_FIELDS)) question('', DETAIL_FIELDS, id);
   add(e, 'surgical_apgar', 'Surgical Apgar score, 0 to 10, from blood loss, lowest mean arterial pressure and lowest heart rate. Empty when a part is missing.');
   add(e, 'followup_status', 'done, open or missed (see followup_* under all files).');

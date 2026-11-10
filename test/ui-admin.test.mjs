@@ -91,7 +91,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.ok(stats.some((t) => /^3\s*cases/.test(t)), 'cases stat');
   assert.ok(stats.some((t) => /^1\s*hospitals/.test(t)), 'hospitals with at least one case');
   assert.ok(!stats.some((t) => /to sign/.test(t)), 'no "to sign" on the overview');
-  assert.match($('.note.reminder').textContent, /No backup has been downloaded in the last 7 days./, 'a reminder while there is data and no backup');
+  assert.match($('.note.reminder').textContent, /No backup has been taken yet\./, 'a reminder while there is data and no backup');
   await click(byText('.note.reminder .change', 'Go to backup'), 400);
   assert.equal($('.tab.on').textContent, 'More', 'the button opens More, where the backup is');
   assert.ok(byText('.card h3', 'Backup'));
@@ -103,7 +103,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   // a row per student, like a supervisor's My students
   assert.deepEqual($$('.srow strong').map((e) => e.textContent), ['CC1001', 'CC1002']);
   const row1 = byText('.srow', 'CC1001');
-  assert.match(row1.textContent, /2 cases · last 20 Oct/);
+  assert.match(row1.textContent, /2 cases · last case 20 Oct/);
   assert.equal(row1.querySelector('.tag').textContent, '2 to sign');
   type($('.search'), 'cc 1002');
   assert.deepEqual($$('.srow strong').map((e) => e.textContent), ['CC1002'], 'the search narrows the list');
@@ -154,7 +154,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.equal(caseRows.length, 2);
   const appRow = caseRows.find((r) => /Appendectomy/.test(r.textContent));
   assert.deepEqual($$('.e-sub', appRow).map((e) => e.textContent), ['Operated with supervisor · 20 Oct', 'Masanga Hospital']);
-  assert.equal(appRow.querySelector('.tag').textContent, 'Not signed');
+  assert.equal(appRow.querySelector('.tag').textContent, 'Not signed yet');
   await click(appRow);
   assert.equal($('.sheet .case-title').textContent, 'Appendectomy');
   assert.deepEqual($$('.sheet .ctab').map((b) => b.textContent), ['Details', 'Follow-up']);
@@ -384,6 +384,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.match($('.sheet').textContent, /your own account/);
   assert.equal(byText('.sheet .change', 'New password'), undefined);
   assert.equal(byText('.sheet .change', 'Disable'), undefined);
+  assert.equal(byText('.sheet .change', 'Log out everywhere'), undefined, 'it would log you out at once: Log out is under More');
   await click(byText('.sheet .btn', 'Close'));
 
   // ---- the changes are listed under More
@@ -391,6 +392,8 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.match($('.main').textContent, /ADMIN-ANDERS reset the password of CC1002/);
   assert.match($('.main').textContent, /disabled CC1002/);
   assert.match($('.main').textContent, /ADMIN-ANDERS deleted CC2003 and its data for good/);
+  // a log: the date and time of each change, not "3 days ago"
+  assert.ok($$('.audit .audit-at').every((e) => /^\d{1,2} \w{3}( \d{4})? \d{2}:\d{2}$/.test(e.textContent)), $$('.audit .audit-at').map((e) => e.textContent).join());
   assert.doesNotMatch($('.main').textContent, new RegExp(newPw), 'no password anywhere on the page');
 
   // ---- More, then log out
@@ -408,7 +411,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.equal(changes().open, true, 'still open after a fresh answer from the server');
 
   // ---- spreadsheet downloads, on their own tab: two switches (people, file format), a row per file with a tick box,
-  // and Tick all and Download in the bar at the bottom of the screen, like a supervisor's To sign
+  // and Select all and Download in the bar at the bottom of the screen, like a supervisor's To sign
   await click(byText('.tab', 'Download data'), 300);
   assert.equal($('.main h2').textContent, 'Download data');
   const dl = $('.downloads');
@@ -418,13 +421,13 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.deepEqual($$('.dl-files .dl-row strong').map((e) => e.textContent), ['Progress per student', 'Procedures per student', 'Procedures per hospital', 'Every case', 'Codebook']);
   assert.equal($$('.dl-files input[type=checkbox]:checked').length, 0, 'nothing ticked at first');
   const dlBtn = () => byText('.bottom-bar .btn', 'ownload');
-  const allBtn = () => byText('.bottom-bar .btn', 'ick all');
+  const allBtn = () => byText('.bottom-bar .btn', 'Select ');
   assert.equal(dlBtn().textContent, 'Select files to download');
   assert.ok(dlBtn().disabled);
   const tick = (title) => byText('.dl-row', title).querySelector('input').click(); // tapping the row ticks it too (a label)
   await click(allBtn(), 50);
   assert.equal(dlBtn().textContent, 'Download 5 files');
-  assert.equal(allBtn().textContent, 'Untick all');
+  assert.equal(allBtn().textContent, 'Select none');
   await click(allBtn(), 50);
   assert.equal(dlBtn().textContent, 'Select files to download');
   // anonymous: a code instead of the candidate number, and no names
@@ -453,6 +456,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.match(saved[1].filename, /^logbook-entries-\d{4}-\d{2}-\d{2}\.csv$/);
   const csv2 = await saved[1].blob.text();
   assert.match(csv2, /^candidate,name,entry_id,performed_on,entered_on,hospital,/);
+  assert.match(csv2, /,procedure_id,procedure,role_id,role,/, 'the role as a code that never changes, and in words');
   assert.match(csv2, /,Masanga Hospital,cs,Caesarean section,/);
   assert.match(csv2, /,followup_status,/);
   assert.match(saved[2].filename, /^logbook-codebook-\d{4}-\d{2}-\d{2}\.csv$/);
@@ -463,7 +467,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.match(byText('.card', 'Recent changes').textContent, /downloaded the anonymous "Procedures per student" spreadsheet/, 'downloads are listed under Recent changes');
   assert.match(byText('.card', 'Recent changes').textContent, /downloaded the "Every case" spreadsheet/);
   assert.match($('.main').textContent, /Treat it with care\./);
-  assert.match($('.main').textContent, /Last backup\s*never/);
+  assert.match($('.main').textContent, /Last backup\s*Never/);
   // the same More as a student's: "Advanced" with About (version, server) and "Your data"
   assert.deepEqual($$('details.advanced .fact-text > span').map((x) => x.textContent), ['Version', 'Server', 'Your data']);
   await click(byText('details.advanced .fact', 'Your data').querySelector('.change'));
@@ -475,7 +479,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.equal(Buffer.from(await saved[3].blob.arrayBuffer()).subarray(0, 15).toString(), 'SQLite format 3', 'a real database file');
   assert.match($('.main').textContent, /Last backup\s*just now/);
   await click(byText('.tab', 'Overview'));
-  assert.doesNotMatch($('.main').textContent, /No backup has been downloaded/, 'the reminder is gone after a backup');
+  assert.doesNotMatch($('.main').textContent, /No backup has been taken/, 'the reminder is gone after a backup');
   await click(byText('.tab', 'More'));
   await click(byText('.btn', 'Log out'), 100);
   await click(byText('.sheet .btn.danger', 'Log out'), 500);

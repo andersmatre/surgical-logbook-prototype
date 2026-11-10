@@ -1,7 +1,10 @@
 # Logbook server + app in one container. The app is served by the same server,
 # so there is a single address and no cross-origin setup.
 # Mount a persistent volume at /data: it holds the database (all accounts and entries).
-FROM node:22-slim
+# An exact Node version, so every deploy uses the same one and a new Node never arrives by surprise (node:sqlite is
+# still experimental).
+# To update: change it here on purpose, run npm test with that Node version, deploy, and check the app.
+FROM node:22.23.4-slim
 WORKDIR /app
 COPY package.json ./
 COPY server ./server

@@ -332,7 +332,8 @@ test('supervisor: add a student, see the entries, sign them; the student receive
 
     const list = (await sup(t, supToken, 'candidates')).body.candidates;
     assert.deepEqual(list.map(({ last_received, ...c }) => c), [
-      { candidate: 'S001', name: null, mine: false, entries: 2 }, { candidate: 'S002', name: null, mine: false, entries: 0 }]);
+      { candidate: 'S001', name: null, mine: false, entries: 2, last_logged: '2026-10-20' },
+      { candidate: 'S002', name: null, mine: false, entries: 0, last_logged: null }]);
     assert.ok(list[0].last_received, 'when the tablet last sent something, like My students');
     assert.equal(list[1].last_received, null, 'never');
     assert.equal((await sup(t, supToken, 'assign', { candidate: ' s001 ' })).status, 200);
@@ -345,6 +346,9 @@ test('supervisor: add a student, see the entries, sign them; the student receive
     assert.equal(students[0].candidate, 'S001');
     assert.equal(students[0].entries, 2, 'the deleted entry is not counted');
     assert.equal(students[0].unsigned, 2);
+    assert.equal(students[0].last_logged, '2026-10-20', 'the newest day a case was logged on the tablet');
+    // when the student's tablet last sent something: the supervisor's own signatures and targets do not count
+    t.s.db.prepare("UPDATE events SET received_at = '2026-10-21T08:00:00.000Z' WHERE owner = 'S001'").run();
 
     // the supervisor sees what is needed to judge an entry, nothing else
     const view = (await sup(t, supToken, 'entries', { candidate: 'S001', cursor: 0 })).body;
@@ -363,6 +367,9 @@ test('supervisor: add a student, see the entries, sign them; the student receive
     assert.equal(again.body.signed, 0);
     assert.equal(again.body.skipped[0].reason, 'already signed');
     assert.equal((await sup(t, supToken, 'students')).body.students[0].unsigned, 0);
+    assert.equal((await sup(t, supToken, 'targets', { candidate: 'S001', targets: { cs: 5 } })).status, 200);
+    assert.equal((await sup(t, supToken, 'students')).body.students[0].last_received, '2026-10-21T08:00:00.000Z', 'signing and targets are not the student sending');
+    assert.equal((await sup(t, supToken, 'candidates')).body.candidates[0].last_received, '2026-10-21T08:00:00.000Z');
 
     // the student gets the signatures with the normal sync, including who signed
     const pulled = await t.call('/api/sync', { token: student, body: { events: [], cursor: 0 } });
@@ -852,8 +859,10 @@ test('CSV exports: counts per student, per hospital and every entry; safe for sp
     const e3 = entry({ procedure: 'appendectomy', role: 'supervised', hospital: 'Masanga Hospital' });
     const e4 = entry({ procedure: 'appendectomy', role: 'assisting', hospital: 'Masanga Hospital', performed_on: '2026-08-01', entered_on: '2026-08-01' }); // too old for a follow-up
     const gone = entry({ procedure: 'laparotomy', role: 'assisting' });
+    // first "Died" with the days and the cause, then corrected to "Alive": the days and the cause no longer count
+    const wrongFirst = { id: '77777777-0000-4000-8000-000000000000', type: 'followup', ts: '2026-10-25T10:00:00.000Z', target: e1.id, known_on: '2026-10-25', answers: { mother: 'died', died_day: 3, death_cause: 'sepsis' } };
     const followUp = { id: '77777777-0000-4000-8000-000000000001', type: 'followup', ts: new Date().toISOString(), target: e1.id, known_on: '2026-11-01', answers: { mother: 'alive' } };
-    await t.call('/api/sync', { token: a, body: { events: [e1, e2, gone, followUp, { id: '66666666-0000-4000-8000-000000000001', type: 'void', ts: new Date().toISOString(), target: gone.id }], cursor: 0 } });
+    await t.call('/api/sync', { token: a, body: { events: [e1, e2, gone, wrongFirst, followUp, { id: '66666666-0000-4000-8000-000000000001', type: 'void', ts: new Date().toISOString(), target: gone.id }], cursor: 0 } });
     await t.call('/api/sync', { token: b, body: { events: [e3, e4], cursor: 0 } });
     await sup(t, supToken, 'assign', { candidate: 'S001' });
     await sup(t, supToken, 'sign', { candidate: 'S001', ids: [e1.id] });
@@ -869,11 +878,11 @@ test('CSV exports: counts per student, per hospital and every entry; safe for sp
     };
 
     const entries = await get('entries');
-    assert.equal(entries[0], 'candidate,name,entry_id,performed_on,entered_on,hospital,procedure_id,procedure,role,performed,signed,signed_by,signed_at,'
+    assert.equal(entries[0], 'candidate,name,entry_id,performed_on,entered_on,hospital,procedure_id,procedure,role_id,role,performed,signed,signed_by,signed_at,'
       + 'sex,age_years,gravida,para,children_alive,induction,babies,'
       + 'baby_outcome,baby_presentation,baby_sex,baby_weight_g,baby_apgar1,baby_apgar5,baby2_outcome,baby2_presentation,baby2_sex,baby2_weight_g,baby2_apgar1,baby2_apgar5,'
-      + 'baby3_outcome,baby3_presentation,baby3_sex,baby3_weight_g,baby3_apgar1,baby3_apgar5,urgency,cs_reason,anaesthesia,duration_min,blood_loss_ml,'
-      + 'sapgar_blood,sapgar_map,sapgar_hr,side,mesh,cs_indication,surgical_apgar,followup_status,followup_mat_complication,followup_patient,followup_mother,followup_died_day,'
+      + 'baby3_outcome,baby3_presentation,baby3_sex,baby3_weight_g,baby3_apgar1,baby3_apgar5,pph,shoulder_dystocia,side,mesh,urgency,cs_reason,anaesthesia,duration_min,blood_loss_ml,'
+      + 'sapgar_blood,sapgar_map,sapgar_hr,cs_indication,surgical_apgar,followup_status,followup_mat_complication,followup_patient,followup_mother,followup_died_day,'
       + 'followup_death_cause,followup_wound_infection,followup_reoperation,followup_referral,followup_days_in_hospital,followup_complication,followup_baby,'
       + 'followup_baby_after,followup_baby_died_day,followup_baby2_after,followup_baby2_died_day,followup_baby3_after,followup_baby3_died_day,followup_on,followup_day');
     assert.equal(entries.length, 5, 'header and four live entries; the deleted one is left out');
@@ -881,11 +890,12 @@ test('CSV exports: counts per student, per hospital and every entry; safe for sp
     // follow-up: done (with the day it was known, and how many days after the operation), open (still within 42 days), missed
     const firstLine = entries.find((l) => l.includes(e1.id));
     assert.deepEqual([col(firstLine, 'followup_status'), col(firstLine, 'followup_mother'), col(firstLine, 'followup_on'), col(firstLine, 'followup_day')], ['done', 'alive', '2026-11-01', '12']);
+    assert.deepEqual([col(firstLine, 'followup_died_day'), col(firstLine, 'followup_death_cause')], ['', ''], 'answers to questions no longer asked are left out');
     assert.equal(col(entries.find((l) => l.includes(e3.id)), 'followup_status'), 'open', '20 days after the operation');
     assert.equal(col(entries.find((l) => l.includes(e4.id)), 'followup_status'), 'missed', 'more than 42 days, no follow-up');
     const first = entries.find((l) => l.includes(e1.id));
     assert.match(first, /^S001,"'=HYPERLINK\(""x""\)",/, 'a name starting with = cannot become a formula');
-    assert.match(first, /Masanga Hospital,cs,Caesarean section,Surgeon, independent|Masanga Hospital,cs,Caesarean section,"Surgeon, independent"/);
+    assert.match(first, /Masanga Hospital,cs,Caesarean section,independent,"Surgeon, independent"/, 'the role as a code that never changes, and in words');
     assert.match(first, /,yes,yes,SUP-ANNA,\d{4}-/, 'performed, signed, who signed');
     assert.match(entries.find((l) => l.includes(e2.id)), /,Observed,no,no,+open,+$/, 'not signed, no details, no follow-up yet: only the status');
     assert.match(entries.find((l) => l.includes(e3.id)), /^S002,"Doe, Jane",/, 'commas in a name are quoted');
@@ -929,6 +939,10 @@ test('CSV exports: counts per student, per hospital and every entry; safe for sp
     const explained = new Set(book.slice(1).map((l) => l.split(',')[1]));
     for (const c of entries[0].split(',')) assert.ok(explained.has(c), `the codebook explains ${c}`);
     assert.ok(book.includes('entries,followup_mother,,died,Died'), 'a row per code');
+    assert.ok(book.includes('entries,role_id,,supervised,"Surgeon, supervised (delivered, supervised)"'), 'a code per role');
+    assert.ok(book.some((l) => l.startsWith('entries,followup_mat_complication,') && l.includes('No longer asked')), 'a question no longer asked says so');
+    assert.ok(book.some((l) => l.startsWith('entries,cs_indication,') && l.includes('No longer asked')));
+    assert.ok(!book.some((l) => l.startsWith('entries,side,') && l.includes('No longer asked')), 'side is asked again');
     assert.ok(explained.has('student_code'));
 
     assert.equal((await adm(t, admin, 'export', { kind: 'everything' })).status, 400);

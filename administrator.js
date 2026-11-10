@@ -8,8 +8,8 @@ import { procName, findProcedure, LOG_SURGERY } from './config.js';
 import * as core from './core.js';
 import * as api from './api.js';
 import {
-  h, timeAgo, stat, cases, appShell, pageScroll, setPageScroll, keepTyping, toast, openSheet, closeSheet, saveBlob, fact, privacyFact, advancedCard,
-  caseRow, procTile, procedureProgress, filterButton, openFilterSheet,
+  h, timeAgo, fmtDateTime, stat, cases, appShell, pageScroll, setPageScroll, keepTyping, toast, openSheet, closeSheet, confirmSheet, saveBlob, fact, privacyFact, advancedCard,
+  caseRow, procTile, procedureProgress, filterButton, openFilterSheet, signTag,
 } from './ui.js';
 
 const ENDED = Symbol('session ended'); // the server ended the session; app.js shows the login screen
@@ -229,7 +229,7 @@ function studentRow(st) {
       h('span', { class: 'srow-main' },
         h('strong', {}, st.candidate),
         st.name ? h('span', { class: 'small' }, st.name) : null,
-        h('span', { class: 'muted small' }, st.last_performed_on ? `${cases(st.entries)} · last ${core.fmtDate(st.last_performed_on)}` : cases(st.entries))),
+        h('span', { class: 'muted small' }, st.last_performed_on ? `${cases(st.entries)} · last case ${core.fmtDate(st.last_performed_on)}` : 'No cases yet')),
       st.disabled ? h('span', { class: 'tag' }, 'Disabled')
         : waiting > 0 ? h('span', { class: 'tag warn' }, `${waiting} to sign`)
           : st.entries ? h('span', { class: 'tag ok' }, 'All signed') : null));
@@ -242,11 +242,11 @@ function backupReminder(s) {
   if (days <= 7 || s.totals.entries === 0) return null;
   // a row like "Show all" in History: the text on the left, a round outlined button on the right
   return h('div', { class: 'note reminder' },
-    h('span', {}, s.last_backup ? `The last backup was ${Math.floor(days)} days ago.` : 'No backup has been downloaded in the last 7 days.'),
+    h('span', {}, s.last_backup ? `The last backup was ${Math.floor(days)} days ago.` : 'No backup has been taken yet.'),
     h('button', { class: 'change', type: 'button', onclick: () => goTab('more') }, 'Go to backup'));
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => core.localDateISO(); // in file names: the day on this device, like everywhere else
 
 async function downloadFile(label, fetcher, filename) {
   try {
@@ -271,9 +271,9 @@ const FILES = [
 ];
 const FILE_NAME = Object.fromEntries(FILES.map(([kind, title]) => [kind, title]));
 
-// The Download data tab, laid out like a supervisor's To sign: a card with the two choices (people, file format), then a
-// row per file with a tick box (none ticked at first; tapping anywhere on the row ticks it), and in the bar at the
-// bottom of the screen "Tick all" and "Download N files". The backup is under More.
+// The Download data tab, laid out like a supervisor's To sign: the two choices (people, file format), then a row per
+// file with a tick box (none ticked at first; tapping anywhere on the row ticks it), and in the bar at the bottom of
+// the screen "Select all" and "Download N files". The backup is under More.
 function downloadView() {
   const anonymous = ad.people === 'anonymous';
   const dlBtn = h('button', { class: 'btn', type: 'button', onclick: () => downloadPicked(anonymous) });
@@ -289,7 +289,7 @@ function downloadView() {
     const n = ad.picked.size;
     dlBtn.textContent = n ? `Download ${n} file${n === 1 ? '' : 's'}` : 'Select files to download';
     dlBtn.disabled = n === 0;
-    allBtn.textContent = n < FILES.length ? 'Tick all' : 'Untick all';
+    allBtn.textContent = n < FILES.length ? 'Select all' : 'Select none';
   };
   const boxes = new Map();
   const rows = FILES.map(([kind, title, about]) => {
@@ -358,7 +358,7 @@ function auditList() {
   if (!ad.audit || !ad.audit.length) return h('p', { class: 'muted' }, 'Nothing yet.');
   return h('ul', { class: 'list tight' }, ad.audit.map((e) => h('li', { class: 'audit' },
     h('span', {}, h('strong', {}, e.actor), ' ', (AUDIT_TEXT[e.action] || ((x) => `${x.action} ${x.target || ''}`))(e)),
-    h('span', { class: 'muted small' }, timeAgo(e.at)))));
+    h('span', { class: 'muted small audit-at' }, fmtDateTime(e.at))))); // a log: the date and time, not "3 days ago"
 }
 
 // ---- one student ---------------------------------------------------------------------------
@@ -423,9 +423,7 @@ function detailView() {
     cases: () => (d.entries.length
       ? core.byWeek(d.entries).map((w) => [
         h('h3', { class: 'day-head' }, core.fmtWeek(w.week)),
-        h('ul', { class: 'list' }, w.entries.map((e) => caseRow(e, {
-          tags: e.sign ? h('span', { class: 'tag ok' }, 'Signed') : h('span', { class: 'tag warn' }, 'Not signed'),
-        })))])
+        h('ul', { class: 'list' }, w.entries.map((e) => caseRow(e, { tags: signTag(e) })))])
       : none),
     progress: () => procedureProgress(d.entries, d.events, { note: 'Set by a supervisor.', none: 'No targets yet. A supervisor sets them.' }),
   };
@@ -455,7 +453,7 @@ function openShowFilter() {
 }
 
 function usersView() {
-  const input = h('input', { type: 'search', class: 'search', placeholder: 'Search id or name', value: ad.query, autocomplete: 'off' });
+  const input = h('input', { type: 'search', class: 'search', placeholder: 'Search candidate number or name', value: ad.query, autocomplete: 'off' });
   const show = SHOW.find(([id]) => id === ad.filter) || SHOW[0];
   const list = h('div', {});
   // a small grey heading per kind of account, like the week headings in a student's History; in the order the server
@@ -494,7 +492,7 @@ function userRow(u) {
         h('strong', {}, u.id),
         u.name ? h('span', { class: 'small' }, u.name) : null,
         h('span', { class: 'muted small' }, meta)),
-      u.disabled ? h('span', { class: 'tag warn' }, 'Disabled') : (!u.password_set ? h('span', { class: 'tag' }, 'First login waiting') : null)));
+      u.disabled ? h('span', { class: 'tag' }, 'Disabled') : (!u.password_set ? h('span', { class: 'tag' }, 'First login waiting') : null)));
 }
 
 // Do something to an account, say so, and show the account again with fresh data.
@@ -535,8 +533,9 @@ function openUser(id) {
   const account = h('div', { class: 'facts' },
     fact('Name', u.name || 'Not set', pill(u.name ? 'Change' : 'Add', () => openRename(u), u.name ? 'Change name' : 'Add a name')),
     fact('Password', u.password_set ? 'Chosen by them' : 'The initial one, not changed yet', me ? null : pill('New password', () => confirmReset(u))),
-    fact('Last login', u.last_login_at ? timeAgo(u.last_login_at) : 'Never',
-      pill('Log out everywhere', () => act(u.id, (t) => api.adminRevoke(t, u.id), 'Logged out everywhere'))),
+    // not on your own account: it would log you out at once (Log out is under More)
+    fact('Last login', timeAgo(u.last_login_at),
+      me ? null : pill('Log out everywhere', () => act(u.id, (t) => api.adminRevoke(t, u.id), 'Logged out everywhere'))),
     fact('Status', u.disabled ? 'Disabled, cannot log in' : 'Active', me ? null : pill(u.disabled ? 'Enable' : 'Disable', () => confirmDisable(u))),
     // the student's page (from that page itself: just back to it)
     u.role === 'student'
@@ -561,7 +560,7 @@ function openUser(id) {
       'None yet. A supervisor adds students in the app, or you add a supervisor to a student here.');
   }
 
-  const tag = u.disabled ? h('span', { class: 'tag warn' }, 'Disabled') : !u.password_set ? h('span', { class: 'tag' }, 'First login waiting') : null;
+  const tag = u.disabled ? h('span', { class: 'tag' }, 'Disabled') : !u.password_set ? h('span', { class: 'tag' }, 'First login waiting') : null;
   openSheet([
     h('div', { class: 'sheet-head' },
       h('div', { class: 'case-top' },
@@ -570,7 +569,7 @@ function openUser(id) {
           h('p', { class: 'case-sub' }, [ROLE_NAME[u.role], u.name].filter(Boolean).join(' · '))),
         tag ? h('div', { class: 'e-tags' }, tag) : null)),
     h('div', { class: 'acct' },
-      me ? h('p', { class: 'note-info' }, 'This is your own account. Change your password under More. Another administrator is needed to reset or disable it.') : null,
+      me ? h('p', { class: 'note-info' }, 'This is your own account. Change your password or log out under More. Another administrator is needed to reset or disable it.') : null,
       account,
       people,
       u.disabled && !me
@@ -594,22 +593,17 @@ function openAddSupervisor(u, free) {
 
 function confirmDelete(u) {
   const what = u.role === 'student'
-    ? `Everything about ${u.id} is erased from the server: the account, all ${u.entries} entries and the signatures on them.`
+    ? `Everything about ${u.id} is erased from the server: the account, all ${cases(u.entries)} and the signatures on them.`
     : `The account ${u.id} is erased from the server. Signatures this person made stay in the students' logbooks, with the name.`;
-  openSheet([
-    h('h3', {}, `Delete ${u.id} for good?`),
-    h('p', {}, what),
-    h('p', { class: 'note' }, 'This cannot be undone. Use it when a person asks for their data to be deleted, or has left and their data is no longer needed. Backups taken earlier still contain the data.'),
-    h('div', { class: 'row' },
-      h('button', {
-        class: 'btn danger', type: 'button',
-        onclick: () => act(u.id, (t) => api.adminDelete(t, u.id), `${u.id} deleted`, { reopen: false }).then((r) => {
-          closeSheet();
-          if (r && ad.detail?.candidate === u.id) { ad.detail = null; draw(); } // the page of the account that is gone
-        }),
-      }, 'Delete for good'),
-      h('button', { class: 'btn ghost', type: 'button', onclick: () => openUser(u.id) }, 'Cancel')),
-  ]);
+  confirmSheet({
+    title: `Delete ${u.id} for good?`, text: what,
+    extra: h('p', { class: 'note' }, 'This cannot be undone. Use it when a person asks for their data to be deleted, or has left and their data is no longer needed. Backups taken earlier still contain the data.'),
+    action: 'Delete for good', danger: true, cancel: () => openUser(u.id),
+    onAction: () => act(u.id, (t) => api.adminDelete(t, u.id), `${u.id} deleted`, { reopen: false }).then((r) => {
+      closeSheet();
+      if (r && ad.detail?.candidate === u.id) { ad.detail = null; draw(); } // the page of the account that is gone
+    }),
+  });
 }
 
 // The name in a pop-up of its own, like the other pop-ups with something to save: Cancel and Save at the bottom
@@ -643,34 +637,29 @@ function openRename(u) {
 }
 
 function confirmReset(u) {
-  openSheet([
-    h('h3', {}, `New password for ${u.id}?`),
-    h('p', {}, 'They are logged out on all devices and must choose their own password at the next login. You will see the new initial password once.'),
-    h('div', { class: 'row' },
-      h('button', {
-        class: 'btn', type: 'button',
-        onclick: async () => {
-          try {
-            const r = await call((t) => api.adminReset(t, u.id));
-            if (r === ENDED) return;
-            await loadAll({ quiet: true });
-            showPasswords('New initial password', [{ id: r.id, name: u.name, password: r.password }]);
-          } catch (e) { toast('Could not reset', { sub: e.message }); closeSheet(); }
-        },
-      }, 'Reset password'),
-      h('button', { class: 'btn ghost', type: 'button', onclick: () => openUser(u.id) }, 'Cancel')),
-  ]);
+  confirmSheet({
+    title: `New password for ${u.id}?`,
+    text: 'They are logged out on all devices and must choose their own password at the next login. You will see the new initial password once.',
+    action: 'Reset password', cancel: () => openUser(u.id),
+    onAction: async () => {
+      try {
+        const r = await call((t) => api.adminReset(t, u.id));
+        if (r === ENDED) return;
+        await loadAll({ quiet: true });
+        showPasswords('New initial password', [{ id: r.id, name: u.name, password: r.password }]);
+      } catch (e) { toast('Could not reset', { sub: e.message }); closeSheet(); }
+    },
+  });
 }
 
 function confirmDisable(u) {
   if (u.disabled) { act(u.id, (t) => api.adminSetDisabled(t, u.id, false), 'Enabled'); return; }
-  openSheet([
-    h('h3', {}, `Disable ${u.id}?`),
-    h('p', {}, 'They are logged out and cannot log in. Their entries and signatures stay. You can enable the account again.'),
-    h('div', { class: 'row' },
-      h('button', { class: 'btn danger', type: 'button', onclick: () => act(u.id, (t) => api.adminSetDisabled(t, u.id, true), 'Disabled') }, 'Disable'),
-      h('button', { class: 'btn ghost', type: 'button', onclick: () => openUser(u.id) }, 'Cancel')),
-  ]);
+  confirmSheet({
+    title: `Disable ${u.id}?`,
+    text: `They are logged out and cannot log in.${{ student: ' Their cases stay.', supervisor: ' Their signatures stay.' }[u.role] || ''} You can enable the account again.`,
+    action: 'Disable', danger: true, cancel: () => openUser(u.id),
+    onAction: () => act(u.id, (t) => api.adminSetDisabled(t, u.id, true), 'Disabled'),
+  });
 }
 
 // The only time an initial password is visible. It cannot be looked up afterwards.
@@ -747,7 +736,7 @@ function addView() {
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const clean = core.normCandidate(id.value);
-      if (!core.validCandidate(clean)) { err.textContent = 'The id must be 2 to 20 letters, numbers, / _ or -.'; id.focus(); return; }
+      if (!core.validCandidate(clean)) { err.textContent = 'The candidate number must be 2 to 20 letters, numbers, / _ or -.'; id.focus(); return; }
       await create(err, async () => {
         const r = await call((t) => api.adminCreate(t, role, clean, name.value));
         if (r === ENDED) return null;
@@ -821,20 +810,17 @@ function backupCard() {
   const last = ad.stats && ad.stats.last_backup;
   return h('div', { class: 'card' }, h('h3', {}, 'Backup'),
     h('p', { class: 'muted' }, 'A complete copy of all data, in one file. If the server disk is ever lost, this file is the only way to get the data back. Keep it somewhere safe.'),
-    h('div', { class: 'facts plain' }, fact('Last backup', last ? timeAgo(last) : 'never')),
+    h('div', { class: 'facts plain' }, fact('Last backup', timeAgo(last))),
     h('button', {
       class: 'btn wide', type: 'button',
       onclick: () => downloadFile('Backup', (t) => api.adminBackup(t), `logbook-backup-${today()}.db`),
     }, 'Download backup'),
-    h('p', { class: 'muted small' }, 'The file contains all names, entries and the scrambled passwords of every account. Treat it with care.'));
+    h('p', { class: 'muted small' }, 'The file contains all names, cases and the scrambled passwords of every account. Treat it with care.'));
 }
 
 function confirmLogout() {
-  openSheet([
-    h('h3', {}, 'Log out?'),
-    h('p', {}, 'You will need your candidate number and password to log in again.'),
-    h('div', { class: 'row' },
-      h('button', { class: 'btn danger', type: 'button', onclick: ctx.onLogout }, 'Log out'),
-      h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Cancel')),
-  ]);
+  confirmSheet({
+    title: 'Log out?', text: 'You will need your candidate number and password to log in again.',
+    action: 'Log out', danger: true, onAction: ctx.onLogout,
+  });
 }

@@ -1,15 +1,16 @@
-// supervisor.js — the screens a supervisor sees: their students, the entries waiting for a
-// signature, and a list to find more students. Plain JavaScript, no build step.
+// supervisor.js — the screens a supervisor sees: their students, the cases waiting for a signature, each
+// student's progress and targets, and a list to find more students. Plain JavaScript, no build step.
 //
 // A supervisor needs internet for everything here. Nothing is stored on the tablet: the list of
-// students and their entries are fetched from the server each time, and signing is checked by the server.
+// students and their cases are fetched from the server each time, and signing is checked by the server.
 // app.js decides when to show this (the logged-in account has the role "supervisor").
 
 import { TARGET_PROCEDURES, MAX_TARGET, procName } from './config.js';
 import * as core from './core.js';
 import * as api from './api.js';
 import {
-  h, timeAgo, stat, cases, appShell, pageScroll, setPageScroll, keepTyping, toast, openSheet, closeSheet, caseRow, passwordForm, fact, privacyFact, advancedCard,
+  h, daysAgo, stat, cases, appShell, pageScroll, setPageScroll, keepTyping, toast, openSheet, closeSheet, confirmSheet, caseRow, fact, privacyFact, advancedCard,
+  procedureProgress,
 } from './ui.js';
 
 const ENDED = Symbol('session ended'); // the server ended the session; app.js shows the login screen
@@ -20,7 +21,7 @@ const sv = {
   students: null, candidates: null, query: '', myQuery: '', // query: the search on Add students; myQuery: on My students
   loading: false, error: '',
   detail: null, // { candidate, events, entries, selected:Set, loading, error }
-  detailTab: 'sign', // on a student's page: 'sign', 'signed' or 'targets'
+  detailTab: 'sign', // on a student's page: 'sign', 'signed' or 'progress'
 };
 let ctx = null; // { root, session, version, onAuthError, onLogout, openChangePassword }
 
@@ -185,7 +186,7 @@ function studentsView() {
   else if (!list.length) {
     content = h('div', { class: 'card' },
       h('h3', {}, 'No students yet'),
-      h('p', {}, 'Open "Add students" and add the candidate numbers of the students you supervise. After that you can see their entries and sign them.'),
+      h('p', {}, 'Open "Add students" and add the candidate numbers of the students you supervise. After that you can see their cases and sign them.'),
       h('button', { class: 'btn wide', onclick: () => goTab('add') }, 'Add students'));
   } else {
     // a search like the one on Add students: candidate number or name; the list narrows while typing
@@ -200,8 +201,8 @@ function studentsView() {
           h('span', { class: 'srow-main' },
             h('strong', {}, s.candidate),
             s.name ? h('span', { class: 'small' }, s.name) : null,
-            h('span', { class: 'muted small' }, `${cases(s.entries)} · last update ${timeAgo(s.last_received)}`)),
-          s.unsigned > 0 ? h('span', { class: 'tag warn' }, `${s.unsigned} to sign`) : h('span', { class: 'tag ok' }, 'all signed'))))
+            h('span', { class: 'muted small' }, lastLogged(s))),
+          s.unsigned > 0 ? h('span', { class: 'tag warn' }, `${s.unsigned} to sign`) : s.entries ? h('span', { class: 'tag ok' }, 'All signed') : null)))
         : [h('p', { class: 'muted' }, 'None of your students match. Check the candidate number or the name.')]));
     };
     input.addEventListener('input', drawList);
@@ -210,6 +211,9 @@ function studentsView() {
   }
   return h('section', {}, h('h2', {}, 'My students'), content);
 }
+
+// "12 cases · last case logged 3 days ago" (the day the student logged it on their tablet), or just "No cases yet".
+const lastLogged = (s) => (s.entries ? `${cases(s.entries)} · last case logged ${daysAgo(s.last_logged)}` : 'No cases yet');
 
 function errorBox() {
   return h('div', { class: 'card' },
@@ -228,13 +232,13 @@ function detailView() {
     class: 'back-btn', type: 'button', 'aria-label': 'Back to my students',
     onclick: () => { sv.detail = null; setPageScroll(0); loadStudents(); },
   });
-  if (d.loading) return h('section', {}, back, h('h2', {}, d.candidate), h('p', { class: 'muted' }, 'Loading entries…'));
+  if (d.loading) return h('section', {}, back, h('h2', {}, d.candidate), h('p', { class: 'muted' }, 'Loading cases…'));
   if (d.error) return h('section', {}, back, h('h2', {}, d.candidate), h('div', { class: 'card' }, h('p', { class: 'error' }, d.error), h('button', { class: 'btn', onclick: () => loadDetail(d.candidate) }, 'Try again')));
 
   const unsigned = d.entries.filter((e) => !e.sign);
   const signed = d.entries.filter((e) => e.sign);
   const signBtn = h('button', { class: 'btn', onclick: () => confirmSign(d) });
-  // "Tick all" / "Untick all" in the bar at the bottom, next to Sign: Untick all when everything is ticked
+  // "Select all" / "Select none" in the bar at the bottom, next to Sign: Select none when everything is selected
   const allBtn = h('button', {
     class: 'btn ghost', type: 'button',
     onclick: () => {
@@ -244,24 +248,25 @@ function detailView() {
     },
   });
   const updateBtn = () => {
-    signBtn.textContent = d.selected.size ? `Sign ${d.selected.size} selected` : 'Select entries to sign';
+    signBtn.textContent = d.selected.size ? `Sign ${cases(d.selected.size)}` : 'Select cases to sign';
     signBtn.disabled = d.selected.size === 0;
-    allBtn.textContent = d.selected.size < unsigned.length ? 'Tick all' : 'Untick all';
+    allBtn.textContent = d.selected.size < unsigned.length ? 'Select all' : 'Select none';
   };
 
   const boxes = new Map();
   const rows = unsigned.map((e) => {
-    const box = h('input', { type: 'checkbox', checked: d.selected.has(e.id), 'aria-label': `Sign ${procName(e.procedure)}, ${core.fmtDate(e.performed_on)}` });
+    const box = h('input', { type: 'checkbox', checked: d.selected.has(e.id), 'aria-label': `Select ${procName(e.procedure)}, ${core.fmtDate(e.performed_on)}` });
     boxes.set(e.id, box);
     box.addEventListener('change', () => { if (box.checked) d.selected.add(e.id); else d.selected.delete(e.id); updateBtn(); });
-    // logged later than the day it was done: worth a second look before signing
-    return caseRow(e, { box, tags: e.performed_on !== e.entered_on ? h('span', { class: 'tag warn' }, 'Logged late') : null });
+    // logged a week or more after the day it was done: worth a second look before signing (the next day is normal)
+    const late = core.daysLate(e);
+    return caseRow(e, { box, tags: late >= core.LATE_DAYS ? h('span', { class: 'tag warn' }, `Logged ${late} days later`) : null });
   });
   updateBtn();
 
   const none = h('p', { class: 'muted' }, 'This student has not logged anything yet.');
   const pages = {
-    // the rows; Tick all and Sign in the bar at the bottom of the screen (appShell), the list scrolls above it
+    // the rows; Select all and Sign in the bar at the bottom of the screen (appShell), the list scrolls above it
     sign: () => {
       if (!unsigned.length) return d.entries.length ? h('p', { class: 'muted' }, 'Nothing waiting for a signature.') : none;
       bottomBar = h('div', { class: 'sign-bar' }, unsigned.length > 1 ? allBtn : null, signBtn);
@@ -270,9 +275,9 @@ function detailView() {
     signed: () => (signed.length
       ? h('ul', { class: 'list' }, signed.map((e) => caseRow(e, { tags: h('span', { class: 'tag ok' }, `Signed · ${e.sign.supervisor_name || e.sign.supervisor}`) })))
       : d.entries.length ? h('p', { class: 'muted' }, 'Nothing signed yet.') : none),
-    targets: () => targetsCard(d),
+    progress: () => progressPage(d),
   };
-  // To sign, Signed and Targets: a switch like Surgery and Delivery on the student's New case tab
+  // To sign, Signed and Progress: a switch like Surgery and Delivery on the student's New case tab
   const tab = (id, label) => h('button', {
     class: sv.detailTab === id ? 'ctab on' : 'ctab', type: 'button', role: 'tab', 'aria-selected': String(sv.detailTab === id),
     onclick: () => { if (sv.detailTab !== id) { sv.detailTab = id; draw(); } },
@@ -288,25 +293,22 @@ function detailView() {
       h('button', { class: 'btn ghost danger', 'aria-label': 'Remove student', onclick: () => confirmRemove(d.candidate) }, 'Remove', h('span', { class: 'wide-only' }, ' student'))),
     h('div', { class: 'stats' }, stat(d.entries.length, 'cases'), stat(signed.length, 'signed'), stat(unsigned.length, 'to sign')),
     h('div', { class: 'ctabs log-parts', role: 'tablist', 'aria-label': 'What to show' },
-      tab('sign', 'To sign'), tab('signed', 'Signed'), tab('targets', 'Targets')),
+      tab('sign', 'To sign'), tab('signed', 'Signed'), tab('progress', 'Progress')),
     (pages[sv.detailTab] || pages.sign)());
 }
 
-// ---- targets ---------------------------------------------------------------------------
+// ---- progress and targets -------------------------------------------------------------------
 // A supervisor sets how many of each procedure a student should perform (as surgeon). The server stores them as
 // 'target' events in the student's own events, so the student sees them on Progress after the next sync.
 
-function targetsCard(d) {
-  const targets = core.targets(d.events);
-  const prog = core.progress(d.entries);
-  const ids = TARGET_PROCEDURES.map((p) => p.id).filter((id) => id in targets);
-  return h('div', { class: 'card' },
-    h('h3', {}, 'Targets'),
-    ids.length
-      ? [h('p', { class: 'muted small' }, 'The student sees these under Progress.'),
-        ids.map((id) => h('div', { class: 'orow' }, h('span', {}, procName(id)), h('span', {}, `${(prog[id] || { performed: 0 }).performed} / ${targets[id]}`)))]
-      : h('p', { class: 'muted' }, 'No targets yet. Set how many of each procedure the student should perform.'),
-    h('button', { class: 'btn ghost wide', type: 'button', onclick: () => openTargets(d) }, ids.length ? 'Change targets' : 'Set targets'));
+// The student's progress as the student sees it (procedureProgress in ui.js: the procedures with a target, then
+// those without one), with "Set targets" / "Change targets" at the top.
+function progressPage(d) {
+  const any = Object.keys(core.targets(d.events)).length > 0;
+  return [
+    h('button', { class: 'btn ghost wide set-targets', type: 'button', onclick: () => openTargets(d) }, any ? 'Change targets' : 'Set targets'),
+    procedureProgress(d.entries, d.events, { note: 'The student sees these under Progress.', none: 'No targets yet. Set how many of each procedure the student should perform.' }),
+  ];
 }
 
 // A pop-up with every procedure and a number field for each, the current targets filled in. Empty (or 0) is no
@@ -352,8 +354,10 @@ function openTargets(d) {
       toast('Could not save the targets', { sub: e.message });
     }
   };
+  const name = nameOf(d.candidate);
   openSheet([
     h('h3', {}, `Targets for ${d.candidate}`),
+    name ? h('p', { class: 'case-sub targets-name' }, name) : null,
     h('p', { class: 'muted' }, 'How many of each procedure the student should perform as surgeon. Leave empty for no target.'),
     search,
     h('div', { class: 'tlist' }, rows),
@@ -367,13 +371,11 @@ function openTargets(d) {
 function confirmSign(d) {
   const ids = [...d.selected];
   if (!ids.length) return;
-  openSheet([
-    h('h3', {}, `Sign ${ids.length} entr${ids.length > 1 ? 'ies' : 'y'}?`),
-    h('p', {}, `You confirm that you supervised these procedures for ${d.candidate}. Your name is shown to the student next to each signature. A signature cannot be undone.`),
-    h('div', { class: 'row' },
-      h('button', { class: 'btn', type: 'button', onclick: () => doSign(d, ids) }, 'Sign'),
-      h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Cancel')),
-  ]);
+  confirmSheet({
+    title: `Sign ${cases(ids.length)}?`,
+    text: `You confirm that you supervised these procedures for ${d.candidate}. Your name is shown to the student next to each signature. A signature cannot be undone.`,
+    action: 'Sign', onAction: () => doSign(d, ids),
+  });
 }
 
 async function doSign(d, ids) {
@@ -382,7 +384,7 @@ async function doSign(d, ids) {
     const r = await call((t) => api.supSign(t, d.candidate, ids));
     if (r === ENDED) return;
     const skipped = r.skipped.length ? `${r.skipped.length} skipped (already signed or deleted)` : undefined;
-    toast(`Signed ${r.signed} entr${r.signed === 1 ? 'y' : 'ies'}`, { sub: skipped });
+    toast(`Signed ${cases(r.signed)}`, { sub: skipped });
     // fetched again in the background: what was unticked stays unticked (it was left out on purpose). The list of
     // students too, for the new counts (the badge on My students); it is kept meanwhile, it has the student's name.
     loadStudents();
@@ -393,27 +395,23 @@ async function doSign(d, ids) {
 }
 
 function confirmRemove(candidate) {
-  openSheet([
-    h('h3', {}, `Remove ${candidate}?`),
-    h('p', {}, 'You will no longer see this student’s entries or be able to sign them. Signatures you already made stay. You can add the student again later.'),
-    h('div', { class: 'row' },
-      h('button', {
-        class: 'btn danger', type: 'button',
-        onclick: async () => {
-          closeSheet();
-          try {
-            const r = await call((t) => api.supUnassign(t, candidate));
-            if (r === ENDED) return;
-            sv.students = null;
-            sv.candidates = null;
-            sv.detail = null;
-            toast('Removed', { sub: candidate });
-            loadStudents();
-          } catch (e) { toast('Could not remove', { sub: e.message }); }
-        },
-      }, 'Remove'),
-      h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Cancel')),
-  ]);
+  confirmSheet({
+    title: `Remove ${candidate}?`,
+    text: 'You will no longer see this student’s cases or be able to sign them. Signatures you already made stay. You can add the student again later.',
+    action: 'Remove', danger: true,
+    onAction: async () => {
+      closeSheet();
+      try {
+        const r = await call((t) => api.supUnassign(t, candidate));
+        if (r === ENDED) return;
+        sv.students = null;
+        sv.candidates = null;
+        sv.detail = null;
+        toast('Removed', { sub: candidate });
+        loadStudents();
+      } catch (e) { toast('Could not remove', { sub: e.message }); }
+    },
+  });
 }
 
 // ---- Add students ---------------------------------------------------------------------
@@ -432,7 +430,7 @@ function addView() {
       ...(shown.length
         ? shown.map((c) => h('div', { class: 'addrow' },
           h('span', { class: 'srow-main' }, h('strong', {}, c.candidate), c.name ? h('span', { class: 'small' }, c.name) : null,
-            h('span', { class: 'muted small' }, `${cases(c.entries || 0)} · last update ${timeAgo(c.last_received)}`)),
+            h('span', { class: 'muted small' }, lastLogged(c))),
           h('button', { class: 'btn small', type: 'button', onclick: () => addStudent(c, drawList) }, 'Add')))
         : [h('p', { class: 'muted' }, q ? 'No match. Check the candidate number, or ask CapaCare to create the account.' : 'Every student is already added.')]),
       ...(all.length > shown.length ? [h('p', { class: 'muted small' }, `Showing ${shown.length} of ${all.length}. Type to narrow down.`)] : []),
@@ -473,11 +471,8 @@ function moreView() {
 }
 
 function confirmLogout() {
-  openSheet([
-    h('h3', {}, 'Log out?'),
-    h('p', {}, 'You will need your candidate number and password to log in again.'),
-    h('div', { class: 'row' },
-      h('button', { class: 'btn danger', type: 'button', onclick: ctx.onLogout }, 'Log out'),
-      h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Cancel')),
-  ]);
+  confirmSheet({
+    title: 'Log out?', text: 'You will need your candidate number and password to log in again.',
+    action: 'Log out', danger: true, onAction: ctx.onLogout,
+  });
 }

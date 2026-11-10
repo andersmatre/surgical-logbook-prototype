@@ -1,17 +1,17 @@
 // app.js — the student app, and the entry point that decides what to show.
-// Screens: login, choose-password, hospital, then Log / Progress / History / More.
+// Screens: login, choose-password, hospital, then New case / History / Progress / More.
 // A supervisor account gets the screens in supervisor.js, an administrator those in administrator.js.
 // Plain JavaScript, no build step. Shared interface pieces live in ui.js.
 
 import {
   PROCEDURE_GROUPS, PROCEDURES, ALL_PROCEDURES, LOG_SURGERY, LOG_DELIVERIES,
-  HOSPITALS, APP_VERSION, DETAIL_FIELDS, FOLLOWUP_FIELDS, FOLLOWUP_DAYS, findProcedure, procName, rolesFor, roleDone, detailFieldsFor, followupFieldsFor,
+  HOSPITALS, APP_VERSION, DETAIL_FIELDS, FOLLOWUP_FIELDS, FOLLOWUP_LIMIT, findProcedure, procName, rolesFor, roleDone, detailFieldsFor, followupFieldsFor,
 } from './config.js';
 import * as core from './core.js';
 import * as api from './api.js';
 import {
-  h, timeAgo, stat, cases, initUi, appShell, pageScroll, setPageScroll, toast, hideToast, openSheet, closeSheet, openCase, confirmOver, scrollHint, passwordForm, openPrivacy, fact, privacyFact, advancedCard,
-  procedureProgress, filterButton, openFilterSheet,
+  h, timeAgo, stat, cases, initUi, appShell, pageScroll, setPageScroll, toast, hideToast, openSheet, closeSheet, openCase, confirmOver, confirmSheet, scrollHint, passwordForm, openPrivacy, fact, privacyFact, advancedCard,
+  procedureProgress, filterButton, openFilterSheet, signTag,
 } from './ui.js';
 import { mountSupervisor } from './supervisor.js';
 import { mountAdministrator } from './administrator.js';
@@ -42,7 +42,7 @@ function writeSession(s) {
 function handleAuthError(e) {
   if (!(e instanceof api.ApiError) || e.status !== 401) return false;
   writeSession(null);
-  state.sessionNote = 'Your session has ended. Please log in again. Your entries on this device are kept.';
+  state.sessionNote = 'Your session has ended. Please log in again. Your cases on this device are kept.';
   state.tab = 'log';
   render();
   return true;
@@ -145,7 +145,7 @@ async function syncCore() {
       await core.markSent([r.id]);
       refused += 1;
     }
-    if (refused) warning = `${refused} entr${refused > 1 ? 'ies were' : 'y was'} refused by the server.`;
+    if (refused) warning = `The server refused ${refused} of your changes.`;
     if (!res.has_more && !(unsent.length === 200 && ok.size > 0)) { done = true; break; }
   }
   if (resync && done) await core.dropServerEventsExcept(seen);
@@ -157,7 +157,7 @@ async function syncCore() {
 async function doSync(manual = false) {
   if (!isStudent(state.session) || state.session.must_change || state.syncing) return;
   if (!state.online) {
-    if (manual) toast('No internet right now', { sub: 'Your entries are safe on this device and will be sent later.' });
+    if (manual) toast('No internet right now', { sub: 'Your cases are safe on this device and will be sent later.' });
     return;
   }
   state.syncing = true;
@@ -314,7 +314,7 @@ function forcedPasswordScreen() {
   });
   return h('div', { class: 'setup' },
     h('h1', {}, 'Choose your own password'),
-    h('p', { class: 'muted' }, `Welcome, ${state.session.candidate}. The password you were given is only for the first login. Choose a password that only you know, and do not share it with anyone.`),
+    h('p', { class: 'muted' }, `Welcome, ${state.session.name || state.session.candidate}. The password you were given is only for the first login. Choose a password that only you know, and do not share it with anyone.`),
     form,
     // Everyone (students, supervisors, administrators) passes this screen once: tell them what is stored.
     h('button', { class: 'btn ghost wide pv-link', type: 'button', onclick: () => openPrivacy(state.session.role) }, 'How your data is used'));
@@ -548,14 +548,13 @@ function openEntrySheet(proc) {
 
   const parts = detailFieldsFor(proc.id);
   const form = questions(DETAIL_FIELDS, parts, {});
-  const err = h('p', { class: 'error', role: 'alert' }, '');
 
-  // Save checks the answers first. If some questions have no answer, a question on top asks before saving;
-  // "Go back" shows the first one without an answer.
+  // Save checks the answers first: a number that is not allowed is shown under its question. If some questions have
+  // no answer, a question on top asks before saving; "Go back" shows the first one without an answer.
   async function save(anyway = false) {
     if (saving || !role) return;
     const v = form.values();
-    if (v.error) { err.textContent = v.error; return; }
+    if (v.error) return;
     const missing = form.missing();
     if (missing.length && !anyway) {
       confirmOver({
@@ -577,7 +576,7 @@ function openEntrySheet(proc) {
     scheduleSync();
     const p = core.progress(state.entries)[proc.id] || { performed: 0, total: 0 };
     const target = core.targets(state.events)[proc.id];
-    toast(`Saved · ${role.label}`, {
+    toast(`Saved · ${roleDone(role.id, proc.id)}`, { // worded as in History
       sub: target ? `${proc.name}: ${p.performed} of ${target} performed` : `${proc.name}: ${cases(p.total)}`,
       action: {
         label: 'Undo',
@@ -598,7 +597,6 @@ function openEntrySheet(proc) {
       h('div', { class: 'fact' }, h('span', { class: 'fact-text' }, h('span', {}, 'Date'), dateLabel), changeBtn, dateInput)),
     h('section', { class: 'qcard', role: 'group', 'aria-label': 'Your role' }, h('h4', { class: 'qsection' }, 'Your role'), roleGroup),
     form.el,
-    err,
     h('div', { class: 'sheet-foot' },
       h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Cancel'),
       saveBtn),
@@ -677,10 +675,12 @@ function helpTip(ask, text) {
 // detailFieldsFor in config.js). A part with a title is a grey card with the title on top. Big buttons for a list
 // (tap again to clear), a number field for a number; one question per line.
 // A question with `showIf` (and a part whose questions are all hidden) appears only once a matching answer is
-// chosen; hidden answers are not saved. `initial` preselects answers. values() returns { answers } or { error }.
+// chosen; hidden answers are not saved. `initial` preselects answers. values() returns { answers }, or { error } after
+// showing what is wrong in red under the number (and scrolling to it), so it is never out of sight at the bottom.
 function questions(fields, parts, initial) {
   const chosen = { ...initial };
   const numbers = {};
+  const numErrors = {};
   const rows = {};
   const titles = [];
   const ids = parts.flatMap((p) => p.ids);
@@ -702,9 +702,12 @@ function questions(fields, parts, initial) {
         type: 'number', inputmode: 'numeric', min: String(f.number.min), max: String(f.number.max), step: '1',
         class: 'num', id: `q-${id}`, value: chosen[id] != null ? String(chosen[id]) : '',
       });
+      numErrors[id] = h('p', { class: 'error num-error', role: 'alert', hidden: true });
+      numbers[id].addEventListener('input', () => { numErrors[id].hidden = true; numbers[id].removeAttribute('aria-invalid'); });
       rows[id] = h('div', { class: 'qrow qnum' },
         h('div', { class: 'qhead' }, h('label', { class: 'qlabel', for: `q-${id}` }, ask), tipBtn), tip,
-        h('div', { class: 'numrow' }, numbers[id], f.unit ? h('span', { class: 'muted' }, f.unit) : null));
+        h('div', { class: 'numrow' }, numbers[id], f.unit ? h('span', { class: 'muted' }, f.unit) : null),
+        numErrors[id]);
     } else {
       rows[id] = h('div', { class: 'qrow', role: 'group', 'aria-label': ask },
         h('div', { class: 'qhead' }, h('span', { class: 'qlabel' }, ask), tipBtn), tip,
@@ -733,7 +736,14 @@ function questions(fields, parts, initial) {
         const raw = numbers[id].value.trim();
         if (!raw) continue;
         const n = Number(raw);
-        if (!Number.isInteger(n) || n < f.number.min || n > f.number.max) return { error: `${f.label}: enter a whole number from ${f.number.min} to ${f.number.max}.` };
+        if (!Number.isInteger(n) || n < f.number.min || n > f.number.max) {
+          const error = `Type a whole number from ${f.number.min} to ${f.number.max}.`;
+          numErrors[id].textContent = error;
+          numErrors[id].hidden = false;
+          numbers[id].setAttribute('aria-invalid', 'true');
+          scrollTo(id);
+          return { error };
+        }
         answers[id] = n;
       } else if (chosen[id] != null) answers[id] = chosen[id];
     }
@@ -750,7 +760,7 @@ function questions(fields, parts, initial) {
 function progressTab() {
   const total = state.entries.length;
   const signed = state.entries.filter((e) => e.sign).length;
-  const wk = core.weekEntries(state.entries).length;
+  const wk = core.weekEntries(state.entries).length; // Monday to Sunday, like "This week" in History
   // A white tile per procedure, like the procedures on the New case tab (procedureProgress in ui.js, which an
   // administrator's page of one student shows too). Targets are set by a supervisor and come with the sync.
   return h('section', {},
@@ -762,34 +772,45 @@ function progressTab() {
 
 // ---- History tab -----------------------------------------------------------
 
+// A case that can still get a follow-up and has none yet.
+const waitsForFollowUp = (e) => core.followUpOpen(e) && !Object.keys(e.outcome || {}).length;
+
 function historyTab() {
   if (!state.entries.length) {
-    return h('section', {}, h('h2', {}, 'My history'), h('p', { class: 'muted' }, 'No entries yet. Log your first procedure on the Log tab.'));
+    return h('section', {}, h('h2', {}, 'My history'), h('p', { class: 'muted' }, 'No cases yet. Add your first case on the New case tab.'));
   }
   const f = historyFilter;
-  const shown = state.entries.filter((e) => (!f.procedure || e.procedure === f.procedure) && (!f.role || e.role === f.role));
-  const filtered = f.procedure || f.role;
+  const shown = state.entries.filter((e) => (!f.procedure || e.procedure === f.procedure) && (!f.role || e.role === f.role)
+    && (!f.followUp || waitsForFollowUp(e)));
+  const filtered = f.procedure || f.role || f.followUp;
+  // A reminder: how many cases can still get a follow-up, with a button that shows only those.
+  const open = state.entries.filter(waitsForFollowUp).length;
   return h('section', {},
     h('h2', {}, 'My history'),
     h('div', { class: 'filters' },
       filterButton('Procedure', f.procedure ? procName(f.procedure) : 'All', !!f.procedure, openProcedureFilter),
       filterButton('Role', f.role ? roleDone(f.role, f.procedure) : 'All', !!f.role, openRoleFilter)),
+    open && !f.followUp
+      ? h('div', { class: 'note-info reminder fu-reminder' },
+        h('span', {}, `${cases(open)} can get a follow-up.`),
+        h('button', { class: 'change', type: 'button', onclick: () => setHistoryFilter({ followUp: true }) }, 'Show'))
+      : null,
     filtered
       ? h('div', { class: 'shown' },
-        h('span', {}, `Showing ${shown.length} of ${state.entries.length}`),
-        h('button', { class: 'change', type: 'button', onclick: () => setHistoryFilter({ procedure: null, role: null }) }, 'Show all'))
+        h('span', {}, f.followUp ? `Showing ${shown.length} that can get a follow-up` : `Showing ${shown.length} of ${state.entries.length}`),
+        h('button', { class: 'change', type: 'button', onclick: () => setHistoryFilter({ procedure: null, role: null, followUp: false }) }, 'Show all'))
       : null,
     // A small heading per week it was done ("This week", "Last week", "2 – 8 Nov"), so a long history is easy to scan.
     shown.length
       ? core.byWeek(shown).map((w) => [
         h('h3', { class: 'day-head' }, core.fmtWeek(w.week)),
         h('ul', { class: 'list' }, w.entries.map(entryRow))])
-      : h('p', { class: 'muted' }, 'No entries match. Tap "Show all" to see everything.'));
+      : h('p', { class: 'muted' }, 'No cases match. Tap "Show all" to see everything.'));
 }
 
-// "Show only" in History: one procedure and/or one role. Kept while the app is open, so it survives a sync
-// or a visit to another tab; it is cleared when the student logs out.
-let historyFilter = { procedure: null, role: null };
+// "Show only" in History: one procedure and/or one role, or only the cases that can get a follow-up. Kept while the
+// app is open, so it survives a sync or a visit to another tab; it is cleared when the student logs out.
+let historyFilter = { procedure: null, role: null, followUp: false };
 
 function setHistoryFilter(change) {
   historyFilter = { ...historyFilter, ...change };
@@ -837,14 +858,13 @@ function entryRow(e) {
     h('div', { class: 'e-tags' },
       hasOutcome ? h('span', { class: 'tag fu' }, 'Follow-up added')
         : core.followUpOpen(e) ? null : h('span', { class: 'tag closed' }, 'Follow-up closed'), // too old to add one
-      e.sign ? h('span', { class: 'tag ok' }, 'Signed') : h('span', { class: 'tag warn' }, 'Not signed')));
+      signTag(e)));
 }
 
 // What happened to the patient afterwards, up to FOLLOWUP_DAYS after the operation. Saved as a new
 // 'followup' event; the entry itself never changes. Current answers are preselected.
 function openFollowUp(e) {
   const form = questions(FOLLOWUP_FIELDS, followupFieldsFor(e.procedure, e.details), e.outcome); // a baby card only for a baby born alive
-  const err = h('p', { class: 'error', role: 'alert' }, '');
   // The heading like the case pop-up's (openCase in ui.js): the procedure, a grey line with your role and the date, the
   // hospital on a line of its own; it stays at the top. A round arrow before it, like on other pages, goes back to the
   // case, on its Follow-up tab, where the form was opened. Then, like a new case, the questions in grey cards and Save.
@@ -858,17 +878,17 @@ function openFollowUp(e) {
           h('h3', { class: 'case-title' }, procName(e.procedure)),
           h('p', { class: 'case-sub' }, `${roleDone(e.role, e.procedure)} · ${core.fmtDate(e.performed_on)}`),
           e.hospital ? h('p', { class: 'case-sub case-hosp' }, e.hospital) : null))),
-    h('p', { class: 'muted small fu-note' }, 'Tap only what you know now. You can add more later.'),
+    h('p', { class: 'muted small fu-note' }, `Tap only what you know now. You can add more later, up to ${FOLLOWUP_LIMIT} after the case.`),
     form.el,
-    err,
     h('div', { class: 'sheet-foot' },
       h('button', {
         class: 'btn save', type: 'button',
         onclick: async () => {
           const v = form.values();
-          if (v.error) { err.textContent = v.error; return; }
+          if (v.error) return; // shown under the number
           const changed = Object.fromEntries(Object.entries(v.answers).filter(([id, a]) => e.outcome[id] !== a));
-          if (!Object.keys(changed).length) { err.textContent = 'Nothing new to save. Tap an answer, or go back with the arrow.'; return; }
+          // a message at the bottom of the screen, where it is always seen (the end of the form may be out of sight)
+          if (!Object.keys(changed).length) { toast('Nothing new to save', { sub: 'Tap an answer, or go back with the arrow.' }); return; }
           closeSheet();
           const ev = await core.addFollowUp(e.id, changed);
           await refresh();
@@ -883,13 +903,12 @@ function openFollowUp(e) {
 }
 
 function confirmDelete(e) {
-  openSheet([
-    h('h3', {}, 'Delete this case?'),
-    h('p', {}, `${procName(e.procedure)} · ${roleDone(e.role, e.procedure)} · ${core.fmtDate(e.performed_on)}`),
-    h('div', { class: 'row' },
-      h('button', { class: 'btn danger', onclick: async () => { closeSheet(); await core.voidEntry(e.id); await refresh(); scheduleSync(); toast('Case deleted'); } }, 'Delete'),
-      h('button', { class: 'btn ghost', onclick: closeSheet }, 'Cancel')),
-  ]);
+  confirmSheet({
+    title: 'Delete this case?',
+    text: `${procName(e.procedure)} · ${roleDone(e.role, e.procedure)} · ${core.fmtDate(e.performed_on)}`,
+    action: 'Delete', danger: true,
+    onAction: async () => { closeSheet(); await core.voidEntry(e.id); await refresh(); scheduleSync(); toast('Case deleted'); },
+  });
 }
 
 // ---- More tab --------------------------------------------------------------
@@ -916,7 +935,7 @@ function moreTab() {
     // The things a student rarely needs are folded away, so the first screen stays short and simple.
     advancedCard([
       ['Data on this device', [
-        fact('Entries', m.entries_active),
+        fact('Cases', m.entries_active),
         fact('Waiting to be sent', n),
         fact('Last sync', timeAgo(state.meta.last_sync_at))]],
       ['About', [fact('Version', APP_VERSION), privacyFact('student')]],
@@ -931,7 +950,7 @@ function supervisorsCard() {
       ? h('div', { class: 'facts plain' }, sups.map((s) => h('div', { class: 'fact' },
         h('span', { class: 'fact-text' }, h('strong', {}, s.name), h('span', {}, `since ${core.fmtDate(String(s.since).slice(0, 10))}`)))))
       : h('p', { class: 'muted' }, 'No supervisor has added you yet.'),
-    h('p', { class: 'muted small' }, 'These supervisors can see your entries and sign them.'));
+    h('p', { class: 'muted small' }, 'These supervisors can see your cases and sign them.'));
 }
 
 function openChangePassword() {
@@ -951,21 +970,21 @@ function openChangePassword() {
 async function openLogout() {
   let n = core.unsyncedCount(state.events, state.sent);
   if (n > 0 && state.online) {
-    toast('Sending your entries first…', { sticky: true });
+    toast('Sending your cases first…', { sticky: true });
     await doSync(false);
     hideToast();
     if (!state.session) return; // session ended while syncing
     n = core.unsyncedCount(state.events, state.sent);
   }
-  openSheet([
-    h('h3', {}, 'Log out?'),
-    n === 0
-      ? h('p', {}, 'Your entries are safe on the server. They are removed from this device when you log out. Log in again to see them.')
-      : h('p', { class: 'error' }, `${n} entr${n > 1 ? 'ies have' : 'y has'} NOT been sent to the server. If you log out now, ${n > 1 ? 'they are' : 'it is'} lost for good.${state.online ? '' : ' Connect to the internet and sync first.'}`),
-    h('div', { class: 'row' },
-      h('button', { class: 'btn danger', onclick: doLogout }, n === 0 ? 'Log out' : 'Log out and lose entries'),
-      h('button', { class: 'btn ghost', onclick: closeSheet }, 'Cancel')),
-  ]);
+  // n counts every change not yet sent (a case, a follow-up, a delete); to the student they are all "changes"
+  confirmSheet({
+    title: 'Log out?',
+    text: n === 0 ? 'Your cases are safe on the server. They are removed from this device when you log out. Log in again to see them.' : null,
+    extra: n === 0 ? null
+      : h('p', { class: 'error' }, `${n} ${n > 1 ? 'changes have' : 'change has'} NOT been sent to the server. If you log out now, ${n > 1 ? 'they are' : 'it is'} lost for good.${state.online ? '' : ' Connect to the internet and sync first.'}`),
+    action: n === 0 ? 'Log out' : 'Log out and lose them', danger: true,
+    onAction: doLogout,
+  });
 }
 
 async function doLogout() {
@@ -980,7 +999,7 @@ async function doLogout() {
   writeSession(null);
   state.sessionNote = '';
   state.tab = 'log';
-  historyFilter = { procedure: null, role: null };
+  historyFilter = { procedure: null, role: null, followUp: false };
   logPart = 'surgery';
   await refresh();
 }
@@ -991,8 +1010,15 @@ function registerSW() {
   if (!('serviceWorker' in navigator)) return;
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.register('./sw.js').catch(() => {});
+  // A new version has taken over: it is used once the page loads again. The message stays (other messages can show
+  // for a moment on top of it) until Restart is tapped; nothing that is open is lost before that.
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (hadController) toast('App updated', { sub: 'Close and reopen it to use the new version.', sticky: true });
+    if (hadController) {
+      toast('A new version is ready', {
+        sub: 'Tap Restart to use it.', persist: true,
+        action: { label: 'Restart', fn: () => window.location.reload() },
+      });
+    }
   });
 }
 

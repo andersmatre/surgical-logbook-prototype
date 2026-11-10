@@ -4,8 +4,8 @@
 
 import * as api from './api.js';
 import {
-  PRIVACY, PRIVACY_IS_PLACEHOLDER, DETAIL_FIELDS, FOLLOWUP_FIELDS, FOLLOWUP_DAYS, TARGET_PROCEDURES, procName, roleDone, roleDoneBy,
-  detailFieldsFor, followupFieldsFor, surgicalApgar, answerLabel,
+  PRIVACY, PRIVACY_IS_PLACEHOLDER, DETAIL_FIELDS, FOLLOWUP_FIELDS, FOLLOWUP_LIMIT, TARGET_PROCEDURES, procName, roleDone, roleDoneBy,
+  detailFieldsFor, followupFieldsFor, followUpFrom, surgicalApgar, answerLabel,
 } from './config.js';
 import * as core from './core.js';
 
@@ -29,13 +29,33 @@ export function h(tag, attrs, ...kids) {
   return el;
 }
 
+// How long ago, in plain words: "just now", "5 minutes ago", "3 hours ago", "12 days ago"; after a month the date
+// ("6 Nov", with the year when it is not this year). "Never" when there is no time.
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const dayMonth = (d) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(d.getFullYear() === new Date().getFullYear() ? {} : { year: 'numeric' }) });
 export const timeAgo = (iso) => {
-  if (!iso) return 'never';
-  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (!iso) return 'Never';
+  const d = new Date(iso);
+  const s = (Date.now() - d.getTime()) / 1000;
   if (s < 60) return 'just now';
-  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
-  return `${Math.floor(s / 86400)} d ago`;
+  if (s < 3600) return `${plural(Math.floor(s / 60), 'minute')} ago`;
+  if (s < 86400) return `${plural(Math.floor(s / 3600), 'hour')} ago`;
+  if (s < 31 * 86400) return `${plural(Math.floor(s / 86400), 'day')} ago`;
+  return dayMonth(d);
+};
+// The same for a day ('YYYY-MM-DD'): "today", "yesterday", "3 days ago", after a month the date.
+export const daysAgo = (day) => {
+  if (!day) return 'never';
+  const n = core.daysBetween(day, core.localDateISO());
+  if (n <= 0) return 'today';
+  if (n === 1) return 'yesterday';
+  if (n < 31) return `${n} days ago`;
+  return dayMonth(new Date(`${day}T00:00:00`));
+};
+// A date and time on the device's clock: "6 Nov 14:32" (with the year when it is not this year).
+export const fmtDateTime = (iso) => {
+  const d = new Date(iso);
+  return `${dayMonth(d)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
 export const stat = (n, label) => h('div', { class: 'stat' }, h('strong', {}, n), h('span', {}, label));
@@ -130,25 +150,37 @@ function pressOnTouch() {
   }, { passive: false });
 }
 
-export function hideToast() { toastEl.classList.remove('show'); }
+// A message that stays until it is acted on (a new version of the app: { persist: true }). Another message can
+// show on top of it for a moment; when that one goes, this one comes back.
+let persistent = null;
+
+export function hideToast() {
+  if (persistent) { if (toastEl.dataset.persist !== '1') showToast(persistent.msg, persistent.opts); return; }
+  toastEl.classList.remove('show');
+}
 
 export function toast(msg, opts = {}) {
+  if (opts.persist) persistent = { msg, opts };
+  showToast(msg, opts);
+}
+
+function showToast(msg, opts) {
   clearTimeout(toastTimer);
   // Never pass null to replaceChildren: it would be written out as the text "null".
   const kids = [h('div', { class: 't-main' }, h('strong', {}, msg), opts.sub ? h('span', {}, opts.sub) : null)];
-  if (opts.action) kids.push(h('button', { class: 't-act', onclick: () => { hideToast(); opts.action.fn(); } }, opts.action.label));
+  if (opts.action) kids.push(h('button', { class: 't-act', onclick: () => { if (!opts.persist) hideToast(); opts.action.fn(); } }, opts.action.label));
   toastEl.replaceChildren(...kids);
+  toastEl.dataset.persist = opts.persist ? '1' : '';
   toastEl.classList.add('show');
-  if (!opts.sticky) toastTimer = setTimeout(hideToast, opts.ms || 6000);
+  if (!opts.sticky && !opts.persist) toastTimer = setTimeout(hideToast, opts.ms || 6000);
 }
 
 // Opens a pop-up in the middle of the screen. { tall: true } gives it a fixed height, for a list that
 // gets shorter while you search, so the pop-up does not jump around.
 // A pop-up with buttons at the bottom (.sheet-foot, like Cancel and Save) and maybe a heading at the top
 // (.sheet-head) scrolls only what is between them (.sheet-body): the buttons and the heading never move, also
-// not when an iPhone bounces at the end of the scrolling. When that part is longer than the screen it shows a
-// fade above the buttons, and one at its top once scrolled down (scrollHint), under the
-// heading if there is one. A tall one shows them over its list.
+// not when an iPhone bounces at the end of the scrolling. The buttons always have a thin line on top; once the
+// middle part is scrolled down, a line under the heading too (scrollHint). A tall one shows them over its list.
 export function openSheet(content, { tall = false } = {}) {
   const sheet = h('div', { class: tall ? 'sheet tall' : 'sheet', role: 'dialog', 'aria-modal': 'true' }, content);
   overlay.replaceChildren(h('div', { class: 'scrim', onclick: closeSheet }), sheet);
@@ -169,19 +201,19 @@ export function openSheet(content, { tall = false } = {}) {
   } else if (tall && list) scrollHint(list, sheet);
 }
 
-// Fades for people who are not used to scrolling: the bottom edge of `scroller` fades out to white while there is
-// more further down, the top edge once it is scrolled down. Only a fade, no arrow or button; a tap goes through it
-// to what is under it. The fade at the bottom is placed in `downHost`, the one at the top in `upHost`: elements
-// with a position. If they hold the scroller (a list in a pop-up), the fades are put at the top and bottom of the
-// list; otherwise CSS places them (.scroll-hint).
+// Edge lines for people who are not used to scrolling: a thin grey line at the bottom edge of `scroller` while there
+// is more further down, and at the top edge once it is scrolled down, so the content is clearly cut off there. Only a
+// line, no arrow or button; a tap goes through it to what is under it. The line at the bottom is placed in `downHost`,
+// the one at the top in `upHost`: elements with a position. If they hold the scroller (a list in a pop-up), the lines
+// are put at the top and bottom of the list; otherwise CSS places them (.scroll-hint).
 export function scrollHint(scroller, downHost, upHost = downHost) {
-  const fade = (dir) => h('div', { class: `scroll-hint ${dir}`, hidden: true, 'aria-hidden': 'true' });
-  const down = fade('down');
-  const up = fade('up');
+  const line = (dir) => h('div', { class: `scroll-hint ${dir}`, hidden: true, 'aria-hidden': 'true' });
+  const down = line('down');
+  const up = line('up');
   downHost.append(down);
   upHost.append(up);
   const inHost = downHost.contains(scroller);
-  // only when it changes: the observer would see it. A fade that comes later fades in (.fade); the first time
+  // only when it changes: the observer would see it. A line that comes later fades in (.fade); the first time
   // (below, while the pop-up opens) it does not, so it comes together with the pop-up and not a moment after it.
   let first = true;
   const show = (el, on) => {
@@ -252,8 +284,8 @@ export function openPrivacy(role) {
 
 // ---- the More tab, the same in all three apps --------------------------------------------
 
-// A row like the hospital and date when logging: the label in bold, the value under it in plain text, and
-// anything else (a "Change" or "Read" button) on the right. Rows go in a .facts.plain box.
+// A row like the hospital and date when logging: the label small and grey, the value under it, and anything else
+// (a "Change" or "Read" button) on the right. Rows go in a .facts box (grey) or .facts.plain (in a white card).
 export const fact = (label, value, ...extra) => h('div', { class: 'fact' }, h('span', { class: 'fact-text' }, h('span', {}, label), h('strong', {}, value)), ...extra);
 
 // The "Your data" row: opens the privacy notice for this role.
@@ -343,6 +375,22 @@ export function openFilterSheet(title, options, { tall = false } = {}) {
 }
 
 // ---- cases and procedures in lists ------------------------------------------------
+
+// Signed (green), or Not signed yet (grey: waiting is normal, not a warning).
+export const signTag = (e) => (e.sign ? h('span', { class: 'tag ok' }, 'Signed') : h('span', { class: 'tag' }, 'Not signed yet'));
+
+// A pop-up that asks before doing something: the title, a line of text, and Cancel on the left and the action on
+// the right (as Cancel and Save everywhere). danger: the action in red. cancel: what Cancel does (closes by default).
+export function confirmSheet({ title, text, action, onAction, danger = false, cancel = closeSheet, extra = null }) {
+  openSheet([
+    h('h3', {}, title),
+    text ? h('p', {}, text) : null,
+    extra,
+    h('div', { class: 'row' },
+      h('button', { class: 'btn ghost', type: 'button', onclick: cancel }, 'Cancel'),
+      h('button', { class: danger ? 'btn danger' : 'btn', type: 'button', onclick: onAction }, action)),
+  ]);
+}
 
 // One case as a short row on a supervisor's or an administrator's page of one student, like the student's History: the
 // procedure, under it the role and the date, then the hospital, tags on the right. Tapping it opens the whole case in
@@ -443,8 +491,7 @@ export function openCase(e, { onDelete = null, onFollowUp = null, roleText = rol
     apgar == null ? {} : { 'Surgical Apgar': row('Score', `${apgar} of 10`) }).filter(Boolean);
   const followUp = parts(FOLLOWUP_FIELDS, followupFieldsFor(e.procedure, e.details), e.outcome, 'Follow-up').filter(Boolean);
   // Why there is no follow-up button: the time for it is over (not the signature: a signed case can get one too).
-  const limit = FOLLOWUP_DAYS % 7 === 0 ? `${FOLLOWUP_DAYS / 7} weeks` : `${FOLLOWUP_DAYS} days`;
-  const closed = canFollowUp ? null : h('p', { class: 'muted case-note' }, `Follow-up is closed: more than ${limit} after the operation.`);
+  const closed = canFollowUp ? null : h('p', { class: 'muted case-note' }, `Follow-up is closed: more than ${FOLLOWUP_LIMIT} after the ${followUpFrom(e.procedure)}.`);
 
   const caseTab = h('div', { class: 'case-tab', id: 'case-tab-details', role: 'tabpanel' },
     details.length ? details : h('p', { class: 'muted case-note' }, 'No details were filled in.'));
@@ -496,7 +543,7 @@ export function openCase(e, { onDelete = null, onFollowUp = null, roleText = rol
           e.hospital ? h('p', { class: 'case-sub case-hosp' }, e.hospital) : null), // the hospital on a line of its own, like in the rows
         h('div', { class: 'e-tags' },
           hasOutcome ? h('span', { class: 'tag fu' }, 'Follow-up added') : null,
-          e.sign ? h('span', { class: 'tag ok' }, 'Signed') : h('span', { class: 'tag warn' }, 'Not signed'))),
+          signTag(e))),
       signedBy ? h('p', { class: 'case-sub case-signed' }, signedBy) : null,
       h('div', { class: 'case-tabbar' }, tabs, del)),
     caseTab,

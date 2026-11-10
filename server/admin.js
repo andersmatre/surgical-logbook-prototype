@@ -1,12 +1,12 @@
 // Account administration. Run on the machine where the database lives.
 //
 //   node server/admin.js add S1234 [--name "Mohamed K"] [--password secret]   create a student account
-//   node server/admin.js import candidates.csv                    create many students (first column = candidate number)
+//   node server/admin.js import candidates.csv                    create many students (candidate number, then the name if known)
 //   node server/admin.js add-supervisor SUP-ANNA --name "Dr Anna K" [--password secret]
 //   node server/admin.js add-admin ADMIN-ANDERS --name "Anders" [--password secret]
 //   node server/admin.js assign SUP-ANNA S1234 [S1235 ...]        let a supervisor see and sign these students
 //   node server/admin.js unassign SUP-ANNA S1234
-//   node server/admin.js rename SUP-ANNA "Dr Anna Kamara"         change the display name of any account
+//   node server/admin.js rename SUP-ANNA "Dr Anna Kamara"         change the name of any account
 //   node server/admin.js reset S1234                              new initial password, logs the account out everywhere
 //   node server/admin.js disable S1234 | enable S1234
 //   node server/admin.js revoke S1234                             log out everywhere (e.g. lost tablet)
@@ -43,12 +43,12 @@ function usage() {
   console.error([
     'Usage:',
     '  admin.js add <candidate> [--name "Name"] [--password pw]',
-    '  admin.js import <file.csv>',
+    '  admin.js import <file.csv>   (a line per student: the candidate number, then the name if known)',
     '  admin.js add-supervisor <id> [--name "Dr X"] [--password pw]',
     '  admin.js add-admin <id> [--name "Name"] [--password pw]',
     '  admin.js assign <supervisor> <candidate> [<candidate> ...]',
     '  admin.js unassign <supervisor> <candidate>',
-    '  admin.js rename <supervisor> "<name>"',
+    '  admin.js rename <id> "<name>"',
     '  admin.js reset <id> | disable <id> | enable <id> | revoke <id>',
     '  admin.js delete <id>   (erases a disabled account and its data for good)',
     '  admin.js list',
@@ -79,11 +79,14 @@ try {
     const lines = fs.readFileSync(args[0], 'utf8').split(/[\r\n]+/).map((l) => l.trim()).filter(Boolean);
     console.log('account,initial_password');
     for (const line of lines) {
-      const c = normCandidate(line.split(/[,;\t]/)[0]);
+      // the candidate number, then the name if there is one (after a comma, a semicolon or a tab), like Add users in the app
+      const [first, ...more] = line.split(/[,;\t]/);
+      const c = normCandidate(first);
       if (c === 'CANDIDATE' || !c) continue; // header or blank
       if (!validCandidate(c)) { console.error(`skipped (invalid): ${line}`); continue; }
+      const name = more.join(' ').trim() || null;
       const pw = generatePassword();
-      try { await addUser(db, c, pw); console.log(`${c},${pw}`); }
+      try { await addUser(db, c, pw, { name }); console.log(`${c},${pw}`); }
       catch (e) { console.error(`skipped (${/UNIQUE/.test(String(e.message)) ? 'already exists' : e.message}): ${c}`); }
     }
   } else if (cmd === 'assign' && args.length >= 2) {

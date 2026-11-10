@@ -1,7 +1,7 @@
-// config.js — content, not logic. Edit procedure lists, targets and hospitals here.
-// (Supervisors are accounts on the server now, created with `admin.js add-supervisor`.)
+// config.js — content, not logic: procedures, roles, questions, hospitals and the privacy notice.
+// (Targets are set per student by a supervisor in the app; accounts are made by an administrator in the app.)
 
-export const APP_VERSION = '0.13.13';
+export const APP_VERSION = '0.14.0';
 
 // Where the logbook server lives. '' = the same address the app was loaded from
 // (when the server also serves the app). If the app is hosted elsewhere, for example
@@ -115,7 +115,7 @@ export const findProcedure = (id) => ALL_PROCEDURES.find((p) => p.id === id);
 // The caesarean is in both.
 export const LOG_SURGERY = ['cs', 'ing_hernia', 'appendectomy', 'laparotomy', 'umb_hernia', 'strang_hernia', 'amp_ak', 'hydrocele', 'cystectomy', 'ectopic'];
 export const LOG_DELIVERIES = ['normal_delivery', 'cs', 'vacuum_delivery', 'forceps_delivery', 'destructive_delivery'];
-// The same procedures, each once, in that order (also the columns of the administrator's per-student table).
+// The same procedures, each once, in that order (the first ones a supervisor sees when setting targets).
 export const PROCEDURES_TOP = [...new Set([...LOG_SURGERY, ...LOG_DELIVERIES])].map(findProcedure);
 
 // The four roles CapaCare already uses in its logbook, with its definitions in plain words.
@@ -150,11 +150,11 @@ export const MAX_TARGET = 500;
 // The questions of CapaCare's surgical and obstetric logbooks (Logbook_softcopy_2021.xlsx), as fixed lists and
 // whole numbers only. Not taken over: patient initials and address (they identify the patient), times of day
 // (the operation time in minutes is asked instead) and dates after the operation (days are asked instead).
-// Each field: `label` (in summaries), `ask` (in the form, if different), `help` (a short grey line under the
-// question, for a word that may be unclear), `options` [id, words] or `number`
+// Each field: `label` (in summaries), `ask` (in the form, if different), `help` (the explanation behind a small "?"
+// after the question, for a word that may be unclear), `options` [id, words] or `number`
 // {min, max} with an optional `unit`, and `showIf` {question: [answers]}: only asked when one of those answers
 // is chosen. Field ids and option ids are stored in entries: never rename or reuse one. To stop asking a field,
-// take it out of the lists further down; old entries keep it.
+// take it out of the lists further down and mark it `retired` (true, or a line for the codebook); old entries keep it.
 
 const YES_NO = [['yes', 'Yes'], ['no', 'No']];
 
@@ -199,7 +199,12 @@ export const DETAIL_FIELDS = {
   ...babyFields(1),
   ...babyFields(2),
   ...babyFields(3),
+  // complications at the birth (until 0.13 one question in the follow-up, mat_complication, where only one could be chosen)
+  pph: { label: 'Heavy bleeding (postpartum haemorrhage)', options: YES_NO },
+  shoulder_dystocia: { label: 'Shoulder dystocia', help: 'The baby\'s shoulder got stuck after the head was born', options: YES_NO },
   // the operation
+  side: { label: 'Side', options: [['left', 'Left'], ['right', 'Right'], ['both', 'Both']] },
+  mesh: { label: 'Mesh used', options: YES_NO },
   urgency: { label: 'Urgency', options: [['elective', 'Planned'], ['emergency', 'Emergency']] },
   cs_reason: { label: 'Main reason', options: [['abnormal_presentation', 'Abnormal position'], ['prolonged_labour', 'Prolonged labour'], ['cord_prolapse', 'Cord prolapse'], ['uterine_rupture', 'Uterine rupture'], ['preeclampsia', 'Pre-eclampsia'], ['fetal_infection', 'Fetal infection'], ['placenta', 'Placenta problem'], ['previous_cs', 'Previous caesarean'], ['bicornuate', 'Bicornuate uterus'], ['other', 'Other']] },
   anaesthesia: { label: 'Anaesthesia', options: [['none', 'None'], ['local', 'Local'], ['ketamine', 'Ketamine'], ['spinal', 'Spinal or epidural'], ['general', 'General'], ['local_ketamine', 'Local + ketamine'], ['spinal_ketamine', 'Spinal + ketamine'], ['spinal_local', 'Spinal + local'], ['other', 'Other']] },
@@ -209,16 +214,15 @@ export const DETAIL_FIELDS = {
   sapgar_blood: { label: 'Surgical Apgar, blood loss', ask: 'Blood loss', options: [['3', '100 ml or less'], ['2', '101–600 ml'], ['1', '601–1000 ml'], ['0', 'More than 1000 ml']] },
   sapgar_map: { label: 'Surgical Apgar, lowest MAP', ask: 'Lowest blood pressure (MAP)', options: [['0', 'Under 40'], ['1', '40–54'], ['2', '55–69'], ['3', '70 or more']] },
   sapgar_hr: { label: 'Surgical Apgar, lowest heart rate', ask: 'Lowest heart rate (BPM)', options: [['4', '55 or less'], ['3', '56–65'], ['2', '66–75'], ['1', '76–85'], ['0', 'More than 85']] },
-  // From the first, invented list: no longer asked, kept so old entries still show them.
-  side: { label: 'Side', options: [['left', 'Left'], ['right', 'Right'], ['both', 'Both']] },
-  mesh: { label: 'Mesh used', options: [['yes', 'Yes'], ['no', 'No']] },
-  cs_indication: { label: 'Main reason', options: [['obstructed', 'Obstructed labour'], ['previous_cs', 'Previous caesarean'], ['fetal_distress', 'Fetal distress'], ['malpresentation', 'Breech or other position'], ['bleeding', 'Bleeding'], ['eclampsia', 'Eclampsia'], ['other', 'Other']] },
+  // From the first, invented list: no longer asked, kept so old entries still show it.
+  cs_indication: { label: 'Main reason', retired: true, options: [['obstructed', 'Obstructed labour'], ['previous_cs', 'Previous caesarean'], ['fetal_distress', 'Fetal distress'], ['malpresentation', 'Breech or other position'], ['bleeding', 'Bleeding'], ['eclampsia', 'Eclampsia'], ['other', 'Other']] },
 };
 
 // Added later, from the History tab, as a follow-up on the entry (the entry itself never changes).
 // A newer follow-up replaces older answers to the same question.
 export const FOLLOWUP_FIELDS = {
-  mat_complication: { label: 'Complication at birth', options: [['none', 'None'], ['pph', 'Heavy bleeding (PPH)'], ['shoulder_dystocia', 'Shoulder dystocia']] },
+  // asked in the follow-up until 0.13; since 0.14 asked when logging the birth (pph and shoulder_dystocia), where both can be answered
+  mat_complication: { label: 'Complication at birth', retired: 'No longer asked: until version 0.13 in the follow-up; since 0.14 in the details as pph and shoulder_dystocia.', options: [['none', 'None'], ['pph', 'Heavy bleeding (postpartum haemorrhage)'], ['shoulder_dystocia', 'Shoulder dystocia']] },
   patient: { label: 'Patient', ask: 'Outcome', options: [['alive', 'Alive'], ['died', 'Died'], ['unknown', 'Not known']] },
   mother: { label: 'Mother', ask: 'Outcome', options: [['alive', 'Alive'], ['died', 'Died'], ['unknown', 'Not known']] },
   died_day: { label: 'Died on day', ask: 'Days from operation until death', unit: 'days', number: { min: 0, max: 365 }, showIf: { patient: ['died'], mother: ['died'] } },
@@ -228,8 +232,8 @@ export const FOLLOWUP_FIELDS = {
   referral: { label: 'Referred', ask: 'Referred to another hospital', options: YES_NO },
   days_in_hospital: { label: 'Days in hospital', ask: 'Days in hospital after the operation', unit: 'days', number: { min: 0, max: 365 } },
   // From the first, invented list: no longer asked, kept so old entries still show them.
-  complication: { label: 'Complication', options: [['none', 'None'], ['wound_infection', 'Wound infection'], ['wound_breakdown', 'Wound opened up'], ['bleeding', 'Bleeding'], ['reoperation', 'Back to theatre'], ['other', 'Other']] },
-  baby: { label: 'Baby', options: [['alive', 'Alive'], ['stillbirth', 'Stillborn'], ['died', 'Died after birth'], ['unknown', 'Not known']] },
+  complication: { label: 'Complication', retired: true, options: [['none', 'None'], ['wound_infection', 'Wound infection'], ['wound_breakdown', 'Wound opened up'], ['bleeding', 'Bleeding'], ['reoperation', 'Back to theatre'], ['other', 'Other']] },
+  baby: { label: 'Baby', retired: true, options: [['alive', 'Alive'], ['stillbirth', 'Stillborn'], ['died', 'Died after birth'], ['unknown', 'Not known']] },
   // Each baby born alive: how it went afterwards (a stillbirth is already in the details, "Outcome at birth").
   ...babyFollowUpFields(1),
   ...babyFollowUpFields(2),
@@ -238,6 +242,8 @@ export const FOLLOWUP_FIELDS = {
 
 // How long after the operation a follow-up can be added from the History tab (6 weeks).
 export const FOLLOWUP_DAYS = 42;
+// The same in words, for the screens: "6 weeks".
+export const FOLLOWUP_LIMIT = FOLLOWUP_DAYS % 7 === 0 ? `${FOLLOWUP_DAYS / 7} weeks` : `${FOLLOWUP_DAYS} days`;
 
 // Which questions are asked, in parts with a heading. An operation asks the surgical logbook's questions, a
 // delivery the obstetric logbook's. A delivery that is also an operation (caesarean, vacuum, destructive) asks
@@ -256,22 +262,49 @@ const DETAILS_OPERATION = [
   { title: 'Operation', ids: ['urgency', 'anaesthesia', 'duration_min'] },
   { title: 'Surgical Apgar', ids: ['sapgar_blood', 'sapgar_map', 'sapgar_hr'] }, // one patient: nothing to explain
 ];
+// A small procedure (MINOR_PROCEDURES): no operation time and no Surgical Apgar.
+const DETAILS_MINOR = [
+  { title: 'Patient', ids: ['sex', 'age_years'] },
+  { title: 'Procedure', ids: ['urgency', 'anaesthesia'] },
+];
 const DETAILS_BIRTH = [
   { title: 'Mother', ids: ['age_years', 'gravida', 'para', 'children_alive', 'induction', 'blood_loss_ml'] },
   ...BABIES,
+  { title: 'Complications', ids: ['pph', 'shoulder_dystocia'] },
 ];
 const DETAILS_BIRTH_OPERATION = [
   { title: 'Mother', ids: ['age_years', 'gravida', 'para', 'children_alive', 'induction'] },
   ...BABIES,
+  { title: 'Complications', ids: ['pph', 'shoulder_dystocia'] },
   { title: 'Operation', ids: ['urgency', 'anaesthesia', 'duration_min'] },
   { title: 'Surgical Apgar', note: SAPGAR_NOTE_MOTHER, ids: ['blood_loss_ml', 'sapgar_map', 'sapgar_hr'] },
 ];
+// A caesarean: its main reason, and no shoulder dystocia (the baby is not born through the birth canal).
 const DETAILS_BY_PROCEDURE = {
-  cs: DETAILS_BIRTH_OPERATION.map((s) => (s.title === 'Operation' ? { ...s, ids: ['urgency', 'cs_reason', 'anaesthesia', 'duration_min'] } : s)),
+  cs: DETAILS_BIRTH_OPERATION.map((s) => (s.title === 'Operation' ? { ...s, ids: ['urgency', 'cs_reason', 'anaesthesia', 'duration_min'] }
+    : s.title === 'Complications' ? { ...s, ids: ['pph'] } : s)),
 };
-// The follow-up questions in parts, named and worded like the details (Patient or Mother, then short labels, a "?" where
-// a word needs explaining): each a grey card with its heading in the follow-up form and in the case pop-up's Follow-up
-// tab. At a delivery that is not an operation the questions count from the birth instead of the operation (ask).
+
+// Small procedures, often outside the operating theatre: they ask only about the patient, the urgency and the
+// anaesthesia (DETAILS_MINOR). To be confirmed by CapaCare (PROJECT.md, section 14).
+export const MINOR_PROCEDURES = [
+  'dressing', 'wound_suturing', 'abscess', 'foreign_body', 'chest_tube', 'urethral_cath', 'suprapubic_puncture', 'urethral_dilation',
+  'pop_cast', 'traction_skin', 'traction_skeletal', 'joint_reduction',
+  'induction', 'placenta', 'mva', 'dnc', 'uterine_tamponade',
+];
+// Asked first under Operation (or Procedure) for these: which side, and whether a mesh was used.
+export const ASK_SIDE = ['ing_hernia', 'fem_hernia', 'strang_hernia', 'hydrocele', 'orchidectomy', 'amp_ak', 'amp_bk', 'amp_foot', 'amp_toe', 'amp_hand', 'amp_finger', 'chest_tube'];
+export const ASK_MESH = ['ing_hernia', 'fem_hernia'];
+// The patient's sex is not asked where the procedure says it: every gynaecology and obstetrics procedure (female), and these (male).
+export const MALE_ONLY = ['circumcision', 'orchidectomy', 'hydrocele'];
+const sexGiven = (procedure) => {
+  const p = findProcedure(procedure);
+  return !!p && (p.group === 'obgyn' || MALE_ONLY.includes(procedure));
+};
+
+// The follow-up questions in parts, named and worded like the details (Patient or Mother, then short labels): each a
+// grey card with its heading in the follow-up form and in the case pop-up's Follow-up tab. At a delivery that is not
+// an operation the questions count from the birth instead of the operation (ask).
 const FOLLOWUP_OPERATION = [
   { title: 'Patient', ids: ['patient', 'died_day'] },
   { title: 'Complications', ids: ['wound_infection', 'reoperation'] },
@@ -281,16 +314,16 @@ const FOLLOWUP_OPERATION = [
 const FU_BABIES = [1, 2, 3].map((n) => ({
   title: ['Baby', 'Second baby', 'Third baby'][n - 1], baby: n, ids: n === 1 ? ['baby_after', 'baby_died_day'] : [`baby${n}_after`, `baby${n}_died_day`],
 }));
+// (The complications at the birth itself are asked when logging it: Complications in the details.)
 const FOLLOWUP_BIRTH = [
   { title: 'Mother', ids: ['mother', 'died_day', 'death_cause'], ask: { died_day: 'Days from birth until death' } },
   ...FU_BABIES,
-  { title: 'Complications', ids: ['mat_complication'] },
   { title: 'Hospital stay', ids: ['referral', 'days_in_hospital'], ask: { days_in_hospital: 'Days in hospital after the birth' } },
 ];
 const FOLLOWUP_BIRTH_OPERATION = [
   { title: 'Mother', ids: ['mother', 'died_day', 'death_cause'] },
   ...FU_BABIES,
-  { title: 'Complications', ids: ['mat_complication', 'wound_infection', 'reoperation'] },
+  { title: 'Complications', ids: ['wound_infection', 'reoperation'] },
   { title: 'Hospital stay', ids: ['referral', 'days_in_hospital'] },
 ];
 
@@ -374,15 +407,29 @@ export const PRIVACY = {
     ['What is stored', [
       'Your candidate number and name.',
       'Your password, scrambled so that nobody can read it, not even CapaCare.',
-      { for: 'student', text: 'Each procedure you log.' },
-      { for: 'supervisor', text: 'Which students you added, and which entries you signed.' },
+      { for: 'student', text: 'Each case you log: the procedure, your role, the date, the hospital and your answers to the questions.' },
+      { for: 'student', text: 'What happened to the patient afterwards (the follow-up), when you add it.' },
+      { for: 'student', text: 'Which supervisors added you, what they signed and the targets they set for you.' },
+      { for: 'supervisor', text: 'Which students you added, which cases you signed and the targets you set.' },
+      { for: 'admin', text: 'What you change on accounts and which files you download (the list of recent changes).' },
     ]],
     ['Why', [
-      'So you can keep your logbook, your supervisor can sign it, and CapaCare can follow the training programme.',
+      { for: 'student', text: 'So you can keep your logbook, your supervisor can sign it, and CapaCare can follow the training programme.' },
+      { for: 'supervisor', text: 'So students can keep their logbook, you can sign it, and CapaCare can follow the training programme.' },
+      { for: 'admin', text: 'So students can keep their logbook, supervisors can sign it, and CapaCare can follow the training programme.' },
       'Your data is only used for research if an ethics committee has approved it and you have agreed.',
     ]],
-    ['Who can see it', ['You.', 'The supervisors who added you.', 'CapaCare administrators.']],
-    ['Where it is kept', ['On your own device, and on a server in Stockholm, Sweden, run by the company Fly.io.']],
+    ['Who can see it', [
+      'You.',
+      { for: 'student', text: 'The supervisors who added you.' },
+      { for: 'supervisor', text: 'Your students see your name next to your signatures and targets.' },
+      'CapaCare administrators.',
+    ]],
+    ['Where it is kept', [
+      { for: 'student', text: 'On your own device, and on a server in Stockholm, Sweden, run by the company Fly.io.' },
+      { for: 'supervisor', text: 'On a server in Stockholm, Sweden, run by the company Fly.io. Nothing is kept on your device except that you are logged in.' },
+      { for: 'admin', text: 'On a server in Stockholm, Sweden, run by the company Fly.io. Nothing is kept on your device except that you are logged in, and the files you download.' },
+    ]],
   ],
 };
 
@@ -405,10 +452,21 @@ function kind(procedure) {
   const p = findProcedure(procedure);
   return { birth: !!(p && p.delivery), operation: !p || !!p.group };
 }
+// The follow-up counts from the operation, or from the birth at a delivery that is not an operation.
+export const followUpFrom = (procedure) => (kind(procedure).operation ? 'operation' : 'birth');
 export function detailFieldsFor(procedure) {
-  if (DETAILS_BY_PROCEDURE[procedure]) return DETAILS_BY_PROCEDURE[procedure];
   const k = kind(procedure);
-  return k.birth ? (k.operation ? DETAILS_BIRTH_OPERATION : DETAILS_BIRTH) : DETAILS_OPERATION;
+  const parts = DETAILS_BY_PROCEDURE[procedure]
+    || (k.birth ? (k.operation ? DETAILS_BIRTH_OPERATION : DETAILS_BIRTH) : MINOR_PROCEDURES.includes(procedure) ? DETAILS_MINOR : DETAILS_OPERATION);
+  // side and mesh first under Operation (or Procedure); no sex where the procedure says it
+  const extra = [ASK_SIDE.includes(procedure) ? 'side' : null, ASK_MESH.includes(procedure) ? 'mesh' : null].filter(Boolean);
+  const noSex = sexGiven(procedure);
+  return parts
+    .map((p) => ({
+      ...p,
+      ids: [...(p.title === 'Operation' || p.title === 'Procedure' ? extra : []), ...p.ids.filter((id) => !(noSex && id === 'sex'))],
+    }))
+    .filter((p) => p.ids.length);
 }
 // details: what was logged with the case. A baby's card is only there for a baby that was born (by the number of
 // babies; one when not answered) and not stillborn ("Outcome at birth"; asked when that was not answered).
@@ -422,6 +480,20 @@ export function followupFieldsFor(procedure, details = {}) {
     return outcome == null || outcome === 'alive';
   };
   return parts.filter((p) => !p.baby || (p.baby <= babies && bornAlive(p.baby)));
+}
+// The answers without those to a question that would not be asked now (showIf): after "Died" was changed to "Alive"
+// in a later follow-up, the days until death of the first one no longer count. Hidden answers are never saved, but
+// the follow-ups of a case are merged, so an older answer can stay behind.
+export function shownAnswers(fields, answers) {
+  const out = { ...(answers || {}) };
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const id of Object.keys(out)) {
+      const c = fields[id] && fields[id].showIf;
+      if (c && !Object.entries(c).some(([q, ok]) => ok.includes(out[q]))) { delete out[id]; changed = true; }
+    }
+  }
+  return out;
 }
 // Surgical Apgar (0–10) from an entry's details, or null when a part is missing. The blood loss can also come
 // from the blood loss in ml (asked instead at a delivery that is an operation).

@@ -50,17 +50,11 @@ Open `http://localhost:8080`. The server serves the app itself, exactly as a ren
 
 **Without Docker:** `npm run local` starts the server with the settings in `local.env`; create the first administrator with `npm run admin -- add-admin ADMIN-ANDERS --name "Anders"`.
 
-**With the app on GitHub Pages and the server on your computer:** start the server as above, then open
-
-```
-https://andersmatre.github.io/surgical-logbook-prototype/?api=http://localhost:8080
-```
-
-once. The app remembers the address (the login screen says "Test mode"); `?api=` with nothing after it switches it off. Only `localhost` addresses are accepted. This works only on the computer that runs the server. The server must allow the Pages address (`ALLOWED_ORIGIN`, already set in `docker-compose.yml` and `local.env`). Chrome may ask for permission to connect to devices on your local network; allow it. If it does not work, use `http://localhost:8080` directly. This combination (app on one address, server on another) is **not** how the rented setup works, so use it only to try the Pages publishing.
+**Test mode (`?api=`), for developers:** the app can be told to talk to a server on your computer instead of the one it was loaded from. Open it once with `?api=http://localhost:8080` at the end of its address; it remembers it, and the login screen says "Test mode" (`?api=` with nothing after it switches it off). Only `localhost` addresses are accepted, so a link can never send someone's password elsewhere. The server must allow the address the app was loaded from (`ALLOWED_ORIGIN`). Normally you do not need it: open `http://localhost:8080` directly.
 
 **What is different from a rented server:** no HTTPS and no public address. A tablet on the same Wi-Fi cannot install the app from `http://<your-computer>:8080`, because installing and offline mode need HTTPS. Testing on a real tablet therefore needs the real server (or a tunnel, for a short demo with test data).
 
-**Tested in a real browser:** with the app and the server on two different local addresses, in Chromium: login, own password, logging, sync, opening the app offline after a reload, and syncing when the connection returns. Not tested: GitHub Pages itself talking to localhost, Safari or Firefox, a real tablet.
+**Tested in a real browser:** with the app and the server on two different local addresses, in Chromium: login, own password, logging, sync, opening the app offline after a reload, and syncing when the connection returns. Not tested: Safari or Firefox, a real tablet.
 
 ## Decide first
 
@@ -130,7 +124,7 @@ Needs a **domain name** pointing at the server (Caddy uses it to get the HTTPS c
 
    ```
    git clone https://github.com/andersmatre/surgical-logbook-prototype.git /opt/logbook
-   cd /opt/logbook && git checkout login-v0.2     # or the branch you deploy from
+   cd /opt/logbook && git checkout main     # or the branch you deploy from
    docker build -t logbook .
    docker run -d --name logbook --restart unless-stopped \
      -p 127.0.0.1:8080:8080 -v logbook-data:/data logbook
@@ -203,12 +197,6 @@ The app downloads a plain database file, the same as the command line makes.
 What happens next, by itself: each backup file has its own database id, and the tablets notice the change at their next sync. They send the students' entries, follow-ups and deletes again (also those made after the backup) and fetch everything from the start. Tell the supervisors to check their students: signatures and targets made after the backup are lost and must be done again, and so are accounts created after it.
 
 Practice this once on a test deployment so you know it works before you need it. On Fly, check how to reach the volume while the app is stopped (for example a temporary machine with the volume attached); `fly ssh console` does not work on a stopped machine. This has not been tried yet.
-
-## Moving off GitHub Pages
-
-Version 0.1 (no login) is on GitHub Pages from the `main` branch. Version 0.3 needs the server and is served *by* the server, so students install it from the server's address, not from Pages. Leave `main` alone until the server is live and tested, then either switch Pages off or leave it as an offline demo of v0.1.
-
-If you ever want the app on Pages and only the API on the server: set `API_BASE` in `config.js` to the server address and start the server with `ALLOWED_ORIGIN=https://<user>.github.io SERVE_STATIC=0`. It is not recommended: two addresses mean two things to keep in step.
 
 ## Data protection reminders
 

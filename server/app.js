@@ -9,8 +9,8 @@
 //   POST /api/sync       (auth) { events, cursor } -> { accepted, rejected, events, cursor, has_more, supervisors, db_id }
 //
 // Supervisors (every call checks that the student is assigned to the caller):
-//   POST /api/sup/students    -> { students: [{ candidate, entries, unsigned, since, last_received }] }
-//   POST /api/sup/candidates  -> { candidates: [{ candidate, name, mine, entries, last_received }] } (to find students to add)
+//   POST /api/sup/students    -> { students: [{ candidate, name, entries, unsigned, since, last_received, last_logged }] }
+//   POST /api/sup/candidates  -> { candidates: [{ candidate, name, mine, entries, last_received, last_logged }] } (to find students to add)
 //   POST /api/sup/assign      { candidate }
 //   POST /api/sup/unassign    { candidate }
 //   POST /api/sup/entries     { candidate, cursor } -> { events, cursor, has_more }
@@ -19,7 +19,7 @@
 //
 // Administrators (accounts, overviews; they cannot sign and have no logbook):
 //   POST /api/admin/users       -> { users: [...] }
-//   POST /api/admin/stats       -> { totals, procedures, students }
+//   POST /api/admin/stats       -> { totals, procedures, hospitals, students, last_backup }
 //   POST /api/admin/audit       -> { log: [...] }
 //   POST /api/admin/create      { role, id, name? } -> { id, password }     (password is shown once)
 //   POST /api/admin/create_many { people: [{id, name?}] } -> { created: [{id, password}], skipped: [{id, reason}] }   (students)
@@ -49,6 +49,8 @@ const SESSION_MS = 365 * 24 * 3600 * 1000; // sliding: long, because tablets are
 const MAX_BODY = 1024 * 1024;
 const MAX_EVENTS_PER_SYNC = 200;
 const PAGE = 500;
+// The event types a student's tablet sends (the server itself makes 'sign' and 'target'), for SQL: IN (...)
+const STUDENT_TYPES = "'entry', 'followup', 'void'";
 
 // Only these files are ever served; the database and server code are not reachable.
 const STATIC = {
@@ -272,12 +274,15 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
       const a = requireSupervisor(req);
       const live = `e.owner = s.student AND e.type = 'entry'
         AND NOT EXISTS (SELECT 1 FROM events v WHERE v.owner = e.owner AND v.type = 'void' AND v.target = e.id)`;
+      // last_received: when the student's tablet last sent something (not the signatures and targets made on the
+      // server); last_logged: the newest day a (not deleted) case was logged on the tablet
       const students = db.prepare(
         `SELECT s.student AS candidate, u.display_name AS name, s.created_at AS since,
            (SELECT COUNT(*) FROM events e WHERE ${live}) AS entries,
            (SELECT COUNT(*) FROM events e WHERE ${live}
               AND NOT EXISTS (SELECT 1 FROM events g WHERE g.owner = e.owner AND g.type = 'sign' AND g.target = e.id)) AS unsigned,
-           (SELECT MAX(received_at) FROM events e WHERE e.owner = s.student) AS last_received
+           (SELECT MAX(received_at) FROM events e WHERE e.owner = s.student AND e.type IN (${STUDENT_TYPES})) AS last_received,
+           (SELECT MAX(json_extract(e.payload, '$.entered_on')) FROM events e WHERE ${live}) AS last_logged
          FROM assignments s JOIN users u ON u.candidate = s.student
          WHERE s.supervisor = ? AND u.disabled = 0
          ORDER BY unsigned DESC, s.student`,
@@ -287,14 +292,16 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
 
     if (route === 'POST /api/sup/candidates') {
       const a = requireSupervisor(req);
-      // with how many cases and when the tablet last sent something, like My students, to tell students apart
+      // with how many cases and when the last was logged, like My students, to tell students apart
+      const live = `e.owner = u.candidate AND e.type = 'entry'
+        AND NOT EXISTS (SELECT 1 FROM events v WHERE v.owner = e.owner AND v.type = 'void' AND v.target = e.id)`;
       const candidates = db.prepare(
         `SELECT u.candidate, u.display_name AS name, EXISTS (SELECT 1 FROM assignments x WHERE x.supervisor = ? AND x.student = u.candidate) AS mine,
-           (SELECT COUNT(*) FROM events e WHERE e.owner = u.candidate AND e.type = 'entry'
-              AND NOT EXISTS (SELECT 1 FROM events v WHERE v.owner = e.owner AND v.type = 'void' AND v.target = e.id)) AS entries,
-           (SELECT MAX(received_at) FROM events e WHERE e.owner = u.candidate) AS last_received
+           (SELECT COUNT(*) FROM events e WHERE ${live}) AS entries,
+           (SELECT MAX(received_at) FROM events e WHERE e.owner = u.candidate AND e.type IN (${STUDENT_TYPES})) AS last_received,
+           (SELECT MAX(json_extract(e.payload, '$.entered_on')) FROM events e WHERE ${live}) AS last_logged
          FROM users u WHERE u.role = 'student' AND u.disabled = 0 ORDER BY u.candidate`,
-      ).all(a.candidate).map((r) => ({ candidate: r.candidate, name: r.name, mine: !!r.mine, entries: r.entries, last_received: r.last_received }));
+      ).all(a.candidate).map((r) => ({ candidate: r.candidate, name: r.name, mine: !!r.mine, entries: r.entries, last_received: r.last_received, last_logged: r.last_logged }));
       return send(res, 200, { candidates });
     }
 
@@ -327,8 +334,8 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
       const a = requireSupervisor(req);
       const body = await readJson(req);
       const student = assignedStudent(a, body);
-      if (!Array.isArray(body.ids) || !body.ids.length) throw new HttpError(400, 'no_ids', 'Choose at least one entry to sign.');
-      if (body.ids.length > MAX_EVENTS_PER_SYNC) throw new HttpError(413, 'too_many_events', `At most ${MAX_EVENTS_PER_SYNC} entries per request.`);
+      if (!Array.isArray(body.ids) || !body.ids.length) throw new HttpError(400, 'no_ids', 'Choose at least one case to sign.');
+      if (body.ids.length > MAX_EVENTS_PER_SYNC) throw new HttpError(413, 'too_many_events', `At most ${MAX_EVENTS_PER_SYNC} cases at a time.`);
       const r = signEntries(db, { id: a.candidate, name: a.name }, student, body.ids, new Date(now()).toISOString());
       return send(res, 200, { signed: r.signed.length, signed_ids: r.signed, skipped: r.skipped });
     }
@@ -464,7 +471,7 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
 
       if (action === 'entries') {
         const t = accountOf(body.candidate);
-        if (t.role !== 'student') throw new HttpError(400, 'not_a_student', 'Only students have entries.');
+        if (t.role !== 'student') throw new HttpError(400, 'not_a_student', 'Only students have cases.');
         return send(res, 200, eventsPage(t.candidate, cursorOf(body), supervisorView));
       }
     }
