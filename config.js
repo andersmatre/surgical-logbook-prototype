@@ -1,7 +1,7 @@
 // config.js — content, not logic: procedures, roles, questions, hospitals and the privacy notice.
 // (Targets are set per student by a supervisor in the app; accounts are made by an administrator in the app.)
 
-export const APP_VERSION = '0.14.2';
+export const APP_VERSION = '0.17.13';
 
 // Where the logbook server lives. '' = the same address the app was loaded from
 // (when the server also serves the app). If the app is hosted elsewhere, for example
@@ -169,8 +169,9 @@ function babyFields(n) {
     [`${p}presentation`]: { label: `${who}, position`, ask: 'Position', options: [['cephalic', 'Head first'], ['breech', 'Breech'], ['transverse', 'Transverse']], showIf },
     [`${p}sex`]: { label: `${who}, sex`, ask: 'Sex', options: [['male', 'Male'], ['female', 'Female']], showIf },
     [`${p}weight_g`]: { label: `${who}, weight`, ask: 'Weight', unit: 'grams', number: { min: 500, max: 6000 }, showIf },
-    [`${p}apgar1`]: { label: `${who}, Apgar 1 min`, ask: 'Apgar at 1 min', unit: 'of 10', number: { min: 0, max: 10 }, showIf },
-    [`${p}apgar5`]: { label: `${who}, Apgar 5 min`, ask: 'Apgar at 5 min', unit: 'of 10', number: { min: 0, max: 10 }, showIf },
+    // buttons: a row of buttons 0 to 10 instead of a number field (one tap, faster); still stored as a number
+    [`${p}apgar1`]: { label: `${who}, Apgar 1 min`, ask: 'Apgar at 1 min', unit: 'of 10', number: { min: 0, max: 10 }, buttons: true, showIf },
+    [`${p}apgar5`]: { label: `${who}, Apgar 5 min`, ask: 'Apgar at 5 min', unit: 'of 10', number: { min: 0, max: 10 }, buttons: true, showIf },
   };
 }
 const babyIds = (n) => Object.keys(babyFields(n));
@@ -240,11 +241,6 @@ export const FOLLOWUP_FIELDS = {
   ...babyFollowUpFields(2),
   ...babyFollowUpFields(3),
 };
-
-// How long after the operation a follow-up can be added from the History tab (6 weeks).
-export const FOLLOWUP_DAYS = 42;
-// The same in words, for the screens: "6 weeks".
-export const FOLLOWUP_LIMIT = FOLLOWUP_DAYS % 7 === 0 ? `${FOLLOWUP_DAYS / 7} weeks` : `${FOLLOWUP_DAYS} days`;
 
 // Which questions are asked, in parts with a heading. An operation asks the surgical logbook's questions, a
 // delivery the obstetric logbook's. A delivery that is also an operation (caesarean, vacuum, destructive) asks
@@ -453,8 +449,6 @@ function kind(procedure) {
   const p = findProcedure(procedure);
   return { birth: !!(p && p.delivery), operation: !p || !!p.group };
 }
-// The follow-up counts from the operation, or from the birth at a delivery that is not an operation.
-export const followUpFrom = (procedure) => (kind(procedure).operation ? 'operation' : 'birth');
 export function detailFieldsFor(procedure) {
   const k = kind(procedure);
   const parts = DETAILS_BY_PROCEDURE[procedure]
@@ -493,6 +487,23 @@ export function shownAnswers(fields, answers) {
       const c = fields[id] && fields[id].showIf;
       if (c && !Object.entries(c).some(([q, ok]) => ok.includes(out[q]))) { delete out[id]; changed = true; }
     }
+  }
+  return out;
+}
+// The log of a case's follow-ups: what each one changed, oldest first. A follow-up can be added at any time and only
+// holds the answers that changed, but one that changes nothing (the same answers again, for example from a second
+// tablet) is left out, so "Last updated" only moves when something really changed. Each item: { id, ts, on (the day
+// it was known), first (the first one that changed anything), changes: [{ id, from, to }] } (from: the answer shown
+// before it, undefined when there was none). Used on the tablet (the case pop-up) and on the server (the spreadsheet).
+export function followUpLog(followups) {
+  const merged = {};
+  const out = [];
+  for (const f of followups || []) {
+    const before = shownAnswers(FOLLOWUP_FIELDS, merged);
+    const answers = f.answers || {};
+    Object.assign(merged, answers);
+    const changes = Object.keys(answers).filter((id) => before[id] !== answers[id]).map((id) => ({ id, from: before[id], to: answers[id] }));
+    if (changes.length) out.push({ id: f.id, ts: f.ts, on: f.known_on, first: !out.length, changes });
   }
   return out;
 }

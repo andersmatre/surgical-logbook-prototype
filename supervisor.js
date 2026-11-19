@@ -10,7 +10,7 @@ import * as core from './core.js';
 import * as api from './api.js';
 import {
   h, daysAgo, stat, cases, appShell, pageScroll, setPageScroll, keepTyping, toast, openSheet, closeSheet, confirmSheet, caseRow, fact, privacyFact, advancedCard,
-  procedureProgress, segSwitch, showPanel, closePanel,
+  procedureProgress, segSwitch, showPanel, closePanel, headedCard,
 } from './ui.js';
 
 const ENDED = Symbol('session ended'); // the server ended the session; app.js shows the login screen
@@ -424,16 +424,16 @@ function confirmRemove(candidate) {
 }
 
 // ---- Manage students ---------------------------------------------------------------------
-// One page, no heading and no tabs of its own (the open tab at the top is its name), in two parts under small grey
-// headings like the weeks in History: "Your students" (the same list as My students, usually short, with Remove on
+// One page, no heading and no tabs of its own (the open tab at the top is its name), in two parts, each a white card
+// with its heading inside (headedCard): "Your students" (the same list as My students, usually short, with Remove on
 // each row, which asks first), then "Add students" (every student not yet yours, with a search and Add on each row).
 // Both lists are fetched when the tab is opened.
 
 function manageView() {
   if (sv.error) return h('section', {}, errorBox());
   return h('section', { class: 'manage' },
-    h('h3', { class: 'day-head' }, 'Your students'), removePart(),
-    h('h3', { class: 'day-head' }, 'Add students'), addPart());
+    headedCard('Your students', removePart()),
+    headedCard('Add students', addPart()));
 }
 
 // Your students, a row each like on Add students, with Remove on the right, filled red (it asks first).
@@ -493,7 +493,7 @@ async function addStudent(c, drawList) {
 // Laid out like the student's More (fact, advancedCard in ui.js).
 function moreView() {
   return h('section', { class: 'more-tab' },
-    h('div', { class: 'card' }, h('h3', {}, 'Account'),
+    h('div', { class: 'card' }, h('h3', { class: 'card-head' }, 'Account'), // the heading inside, like every part of a page
       h('div', { class: 'facts plain' },
         fact('Candidate number', ctx.session.candidate),
         fact('Name shown to students', ctx.session.name || ctx.session.candidate)),

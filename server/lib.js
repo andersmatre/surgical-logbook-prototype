@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import {
-  procName, roleLabel, surgicalApgar, shownAnswers, DETAIL_FIELDS, FOLLOWUP_FIELDS, FOLLOWUP_DAYS, TARGET_PROCEDURES, MAX_TARGET,
+  procName, roleLabel, surgicalApgar, shownAnswers, followUpLog, DETAIL_FIELDS, FOLLOWUP_FIELDS, TARGET_PROCEDURES, MAX_TARGET,
   MINOR_PROCEDURES, MALE_ONLY, ASK_SIDE, ASK_MESH,
 } from '../config.js';
 
@@ -388,38 +388,42 @@ export function toCsv(header, rows, delimiter = ',') {
   return `\uFEFF${[header, ...rows].map((r) => r.map((c) => csvCell(c, d)).join(d)).join('\r\n')}\r\n`;
 }
 
-// The files an administrator can download. 'entries' is "Every case" on the screen (the id stays for the API).
-export const EXPORT_KINDS = ['progress', 'procedures', 'hospitals', 'entries', 'codebook'];
+// The files an administrator can download. 'entries' is "Every case" on the screen (the id stays for the API),
+// 'followups' is "Follow-up changes".
+export const EXPORT_KINDS = ['progress', 'procedures', 'hospitals', 'entries', 'followups', 'codebook'];
 
 // The follow-up answers of every entry, merged oldest to newest like derive() in core.js does on the tablet, without
 // answers to questions that would no longer be asked (shownAnswers: the days until death after "Died" became "Alive").
-// Key: owner + NUL + entry id. Value: { answers, on } (on = known_on of the newest follow-up).
+// Key: owner + NUL + entry id. Value: { answers, on, log } (log: followUpLog in config.js, what each follow-up changed,
+// the same as "View history" in the app; on = known_on of the newest follow-up that changed something, so a follow-up
+// that only repeated the answers does not make it look newer).
 function followUpOutcomes(db) {
   const rows = db.prepare(
     `SELECT e.owner, e.target, e.payload FROM events e WHERE e.type = 'followup' AND ${NOT_VOIDED}
      ORDER BY json_extract(e.payload, '$.ts'), e.seq`,
   ).all();
-  const out = new Map();
+  const lists = new Map();
   for (const r of rows) {
-    const p = JSON.parse(r.payload);
     const key = `${r.owner}\u0000${r.target}`;
-    const o = out.get(key) || { answers: {}, on: null };
-    Object.assign(o.answers, p.answers);
-    o.on = p.known_on;
-    out.set(key, o);
+    if (!lists.has(key)) lists.set(key, []);
+    lists.get(key).push(JSON.parse(r.payload));
   }
-  for (const o of out.values()) o.answers = shownAnswers(FOLLOWUP_FIELDS, o.answers);
+  const out = new Map();
+  for (const [key, list] of lists) {
+    const log = followUpLog(list);
+    out.set(key, {
+      answers: shownAnswers(FOLLOWUP_FIELDS, Object.assign({}, ...list.map((p) => p.answers))),
+      on: log.length ? log[log.length - 1].on : null,
+      log,
+    });
+  }
   return out;
 }
 
 const daysFrom = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
 
-// Where a case's follow-up stands, as on the tablet (followUpOpen in core.js): 'done' (it has answers), 'open'
-// (none yet, still within FOLLOWUP_DAYS of the operation) or 'missed' (none, and the time is over).
-function followUpStatus(performedOn, outcome, today) {
-  if (outcome && Object.keys(outcome.answers).length) return 'done';
-  return daysFrom(performedOn, today) <= FOLLOWUP_DAYS ? 'open' : 'missed';
-}
+// Where a case's follow-up stands: 'done' (it has answers) or 'open' (none yet; one can be added at any time).
+const followUpStatus = (outcome) => (outcome && Object.keys(outcome.answers).length ? 'done' : 'open');
 
 // In the anonymous files a person is a code instead of a candidate number and name: S- for a student, V- for a
 // supervisor, then 8 characters made from the id with a secret key kept in the database (settings). The same person
@@ -430,9 +434,8 @@ function pseudonym(db) {
   return (prefix, id) => (id ? `${prefix}-${crypto.createHmac('sha256', key).update(id).digest('hex').slice(0, 8).toUpperCase()}` : id);
 }
 
-// options: anonymous (codes instead of candidate numbers and names; supervisors too), today ('YYYY-MM-DD', for
-// whether a follow-up is still open).
-export function exportCsv(db, kind, delimiter = ',', { anonymous = false, today = new Date().toISOString().slice(0, 10) } = {}) {
+// options: anonymous (codes instead of candidate numbers and names; supervisors too).
+export function exportCsv(db, kind, delimiter = ',', { anonymous = false } = {}) {
   if (kind === 'codebook') return toCsv(['file', 'column', 'meaning', 'code', 'code_meaning'], codebookRows(), delimiter);
   const code = anonymous ? pseudonym(db) : null;
   // who a row is about: the candidate number and name, or one code
@@ -466,7 +469,7 @@ export function exportCsv(db, kind, delimiter = ',', { anonymous = false, today 
       rows.map((r) => {
         const d = r.details ? JSON.parse(r.details) : {};
         const o = outcomeOf(r) || { answers: {}, on: null };
-        const status = followUpStatus(r.performed_on, outcomeOf(r), today);
+        const status = followUpStatus(outcomeOf(r));
         return [...who(r.candidate, r.name), r.entry_id, r.performed_on, r.entered_on, r.hospital, r.procedure, procName(r.procedure), r.role, roleLabel(r.role, r.procedure),
           performed(r.role) ? 'yes' : 'no', r.signed_by ? 'yes' : 'no', supervisor(r.signed_by), r.signed_at,
           ...detailIds.map((id) => d[id]), surgicalApgar(d), status, ...followIds.map((id) => o.answers[id]), o.on,
@@ -476,27 +479,45 @@ export function exportCsv(db, kind, delimiter = ',', { anonymous = false, today 
     );
   }
 
+  if (kind === 'followups') {
+    // "Follow-up changes": a row per answer a follow-up added or changed, the same as "View history" in the app
+    // (followUpLog), so the history is not lost when only the newest answer is in Every case. Only cases that are
+    // not deleted, and no undone follow-up; a save that changed nothing has no rows. change_no counts the saves that
+    // changed something, per case (1 is the first); its rows have the same changed_at. from and to are the stored
+    // codes, like the followup_ columns of Every case; from is empty when there was no answer before.
+    return toCsv(
+      [...whoHead, 'entry_id', 'performed_on', 'procedure_id', 'procedure', 'role_id', 'performed', 'change_no', 'first',
+        'changed_at', 'known_on', 'followup_day', 'question', 'question_label', 'from', 'to'],
+      rows.flatMap((r) => (outcomeOf(r)?.log || []).flatMap((l, i) => l.changes.map((c) => [
+        ...who(r.candidate, r.name), r.entry_id, r.performed_on, r.procedure, procName(r.procedure), r.role, performed(r.role) ? 'yes' : 'no',
+        i + 1, l.first ? 'yes' : 'no', l.ts, l.on, l.on ? daysFrom(r.performed_on, l.on) : null,
+        c.id, FOLLOWUP_FIELDS[c.id] ? FOLLOWUP_FIELDS[c.id].label : null, c.from, c.to,
+      ]))),
+      delimiter,
+    );
+  }
+
   if (kind === 'progress') return progressCsv(db, rows, { whoHead, who, supervisor }, delimiter);
 
-  // Counts per (group, procedure): by student, or by hospital. With the follow-ups: done, still open, missed.
+  // Counts per (group, procedure): by student, or by hospital. With the follow-ups: done, and open (none yet).
   const byHospital = kind === 'hospitals';
   const groups = new Map();
   for (const r of rows) {
     const g = byHospital ? (r.hospital || '(not recorded)') : r.candidate;
     const key = `${g}\u0000${r.procedure}`;
     const x = groups.get(key) || {
-      g, name: r.name, procedure: r.procedure, observing: 0, assisting: 0, supervised: 0, independent: 0, signed: 0, done: 0, open: 0, missed: 0, people: new Set(),
+      g, name: r.name, procedure: r.procedure, observing: 0, assisting: 0, supervised: 0, independent: 0, signed: 0, done: 0, open: 0, people: new Set(),
     };
     x[r.role] += 1;
     if (r.signed_by) x.signed += 1;
-    x[followUpStatus(r.performed_on, outcomeOf(r), today)] += 1;
+    x[followUpStatus(outcomeOf(r))] += 1;
     x.people.add(r.candidate);
     groups.set(key, x);
   }
   const list = [...groups.values()].sort((a, b) => String(a.g).localeCompare(String(b.g)) || String(a.procedure).localeCompare(String(b.procedure)));
   const counts = (x) => [x.observing, x.assisting, x.supervised, x.independent, x.supervised + x.independent, x.observing + x.assisting + x.supervised + x.independent, x.signed,
-    x.done, x.open, x.missed];
-  const countHead = ['observing', 'assisting', 'surgeon_supervised', 'surgeon_independent', 'performed', 'total', 'signed', 'followup_done', 'followup_open', 'followup_missed'];
+    x.done, x.open];
+  const countHead = ['observing', 'assisting', 'surgeon_supervised', 'surgeon_independent', 'performed', 'total', 'signed', 'followup_done', 'followup_open'];
   if (!byHospital && anonymous) list.sort((a, b) => code('S', a.g).localeCompare(code('S', b.g)) || String(a.procedure).localeCompare(String(b.procedure))); // not in candidate order
   return byHospital
     ? toCsv(['hospital', 'procedure_id', 'procedure', ...countHead, 'students'], list.map((x) => [x.g, x.procedure, procName(x.procedure), ...counts(x), x.people.size]), delimiter)
@@ -552,7 +573,7 @@ function codebookRows() {
   add(all, 'name', 'The student\'s name, if an administrator has set one (the files with names).');
   add(all, 'student_code', 'Instead of candidate and name in the anonymous files: S- and 8 characters. The same student always has the same code, in every file and download.');
   add(all, 'performed', 'Surgeon, supervised or Surgeon, independent (for a delivery: delivered, supervised or alone): the student did it.');
-  add(all, 'followup_*', `The follow-up is asked up to ${FOLLOWUP_DAYS} days after the operation (after the birth, for a delivery that is not an operation). done: it has answers. open: none yet, still within ${FOLLOWUP_DAYS} days. missed: none, and the ${FOLLOWUP_DAYS} days are over.`);
+  add(all, 'followup_*', 'The follow-up can be added and changed at any time after the case (no time limit since version 0.15.0). done: it has answers. open: none yet. How late the newest answer came is in followup_day (Every case).');
   add(all, '', 'The same operation can be logged by several students (one operating, one assisting), each with their own follow-up. Nothing links them. To count patients or outcomes, use only the cases with performed = yes.');
 
   add('progress', '', 'A row per target a supervisor has set for a student (students without targets have no rows).');
@@ -572,7 +593,7 @@ function codebookRows() {
     add(file, 'performed', 'surgeon_supervised + surgeon_independent.');
     add(file, 'total', 'All cases.');
     add(file, 'signed', 'How many a supervisor has signed.');
-    add(file, 'followup_done / followup_open / followup_missed', 'How many cases have a follow-up, can still get one, or missed it (see followup_*).');
+    add(file, 'followup_done / followup_open', 'How many cases have a follow-up, and how many have none yet (see followup_*).');
     if (file === 'hospitals') add(file, 'students', 'How many students logged it there.');
   }
 
@@ -605,10 +626,24 @@ function codebookRows() {
   add(e, '', `Not asked for every procedure. sex: not asked for gynaecology and obstetrics (female) or for ${names(MALE_ONLY)} (male). side: only ${names(ASK_SIDE)}. mesh: only ${names(ASK_MESH)}. Small procedures (${names(MINOR_PROCEDURES)}) ask no operation time and no Surgical Apgar.`);
   for (const id of Object.keys(DETAIL_FIELDS)) question('', DETAIL_FIELDS, id);
   add(e, 'surgical_apgar', 'Surgical Apgar score, 0 to 10, from blood loss, lowest mean arterial pressure and lowest heart rate. Empty when a part is missing.');
-  add(e, 'followup_status', 'done, open or missed (see followup_* under all files).');
+  add(e, 'followup_status', 'done or open (see followup_* under all files).');
   for (const id of Object.keys(FOLLOWUP_FIELDS)) question('followup_', FOLLOWUP_FIELDS, id);
-  add(e, 'followup_on', 'The day the newest follow-up answer was known. A later answer to the same question replaces an earlier one.');
-  add(e, 'followup_day', 'How many days after the operation that was.');
+  add(e, 'followup_on', 'The day the follow-up was last changed (a save that changed nothing does not count). A later answer to the same question replaces an earlier one; every change is kept and shown in the app under "View history".');
+  add(e, 'followup_day', 'How many days after the operation that was. There is no time limit, so a high number means the answers came late. Every earlier answer is in Follow-up changes.');
+
+  const f = 'followups';
+  add(f, '', 'Follow-up changes: a row per follow-up answer that was added or changed, oldest first per case, the same as "View history" in the app. Every case has only the newest answers; this file has how they came about. Join the two files on entry_id. A save that changed nothing has no rows; an undone follow-up and a deleted case are left out.');
+  add(f, 'entry_id', 'The case (the same id as in Every case).');
+  for (const c of ['performed_on', 'procedure_id', 'procedure', 'role_id']) add(f, c, 'The case, as in Every case.');
+  add(f, 'change_no', 'Which save of this case\'s follow-up it was: 1 for the first, 2 for the next save that changed something, and so on. The rows of one save have the same change_no and changed_at.');
+  add(f, 'first', 'yes for the first save (the follow-up was added), no for a later change.');
+  add(f, 'changed_at', 'When it was saved, date and time from the tablet\'s clock (UTC).');
+  add(f, 'known_on', 'The day it was saved on the tablet (the day the student says it was known).');
+  add(f, 'followup_day', 'How many days after the operation (the birth, for a delivery that is not an operation) known_on was.');
+  add(f, 'question', 'The question, as the id in the followup_ columns of Every case (followup_ + question). Its codes are explained there.');
+  add(f, 'question_label', 'The question in words (the words may change; question does not).');
+  add(f, 'from', 'The answer before this change, as a code. Empty: there was none (or it was no longer shown, like the days until death after "Died" was changed to "Alive").');
+  add(f, 'to', 'The answer after this change, as a code.');
   return out;
 }
 

@@ -5,13 +5,13 @@
 
 import {
   PROCEDURE_GROUPS, PROCEDURES, ALL_PROCEDURES, LOG_SURGERY, LOG_DELIVERIES,
-  HOSPITALS, APP_VERSION, DETAIL_FIELDS, FOLLOWUP_FIELDS, FOLLOWUP_LIMIT, findProcedure, procName, rolesFor, roleDone, detailFieldsFor, followupFieldsFor,
+  HOSPITALS, APP_VERSION, DETAIL_FIELDS, FOLLOWUP_FIELDS, findProcedure, procName, rolesFor, roleDone, detailFieldsFor, followupFieldsFor,
 } from './config.js';
 import * as core from './core.js';
 import * as api from './api.js';
 import {
   h, timeAgo, stat, cases, initUi, appShell, pageScroll, setPageScroll, toast, hideToast, openSheet, closeSheet, closeAllSheets, openCase, confirmOver, confirmSheet, scrollHint, passwordForm, openPrivacy, fact, privacyFact, advancedCard,
-  procedureProgress, filterButton, openFilterSheet, signTag, popMenu, closePanel,
+  procedureProgress, filterButton, openFilterSheet, signTag, popMenu, closePanel, headedCard, cardHead,
 } from './ui.js';
 import { mountSupervisor } from './supervisor.js';
 import { mountAdministrator } from './administrator.js';
@@ -367,11 +367,9 @@ function logTab() {
   const operations = LOG_SURGERY.filter((id) => !LOG_DELIVERIES.includes(id));
   return h('section', {},
     // no heading: the open tab at the top (New case) is the page's name
-    h('h3', { class: 'log-head' }, 'Operations'),
-    list(operations),
+    headedCard('Operations', list(operations)),
     h('button', { class: 'btn ghost wide log-more', type: 'button', onclick: openMoreProcedures }, 'Not in the list? Find another operation'),
-    h('h3', { class: 'log-head' }, 'Deliveries'),
-    list(LOG_DELIVERIES));
+    headedCard('Deliveries', list(LOG_DELIVERIES)));
 }
 
 // Every operation, under its group (as in CapaCare's logbook). The search looks at the names of the
@@ -574,16 +572,17 @@ function openEntrySheet(proc, { over = false } = {}) {
     h('div', { class: 'sheet-foot' },
       h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Cancel'),
       saveBtn),
-  ], { over });
+  ], { over, cls: 'on-bg' }); // grey like the pages, with white cards (the hospital and date, your role, each part)
 }
 
 // A set of big buttons where one can be chosen. `options` are [value, label, hint?]. Tapping the chosen one
 // again clears it, unless the answer is required. A chosen button is filled with the main colour.
 // The buttons are in a grid, two per row; three short ones (like One, Twins, Triplets) share one row.
-function choices(options, initial, onChange, { required = false, wide = false, column = false } = {}) {
+// scale: a row of small number buttons (an Apgar score, 0 to 10) on one line.
+function choices(options, initial, onChange, { required = false, wide = false, column = false, scale = false } = {}) {
   let chosen = initial;
   const three = !wide && options.length === 3 && options.every(([, label]) => label.length <= 9);
-  const wrap = h('div', { class: 'choices' + (wide ? ' wide' : three ? ' three' : '') + (column ? ' column' : '') });
+  const wrap = h('div', { class: 'choices' + (scale ? ' scale' : wide ? ' wide' : three ? ' three' : '') + (column ? ' column' : '') });
   const paint = () => {
     for (const b of wrap.children) {
       const on = b.dataset.value === chosen;
@@ -671,7 +670,14 @@ function questions(fields, parts, initial) {
     const ask = (part.ask && part.ask[id]) || f.ask || f.label;
     const help = part.help && id in part.help ? part.help[id] : f.help;
     const [tipBtn, tip] = help ? helpTip(ask, help) : [null, null];
-    if (f.number) {
+    if (f.number && f.buttons) {
+      // a small whole number (an Apgar score): a button per number on one line, one tap; stored as a number
+      const opts = [];
+      for (let n = f.number.min; n <= f.number.max; n += 1) opts.push([String(n), String(n)]);
+      rows[id] = h('div', { class: 'qrow', role: 'group', 'aria-label': ask },
+        h('div', { class: 'qhead' }, h('span', { class: 'qlabel' }, ask), tipBtn), tip,
+        choices(opts, chosen[id] != null ? String(chosen[id]) : null, (v) => { chosen[id] = v == null ? undefined : Number(v); update(); }, { scale: true }));
+    } else if (f.number) {
       numbers[id] = h('input', {
         type: 'number', inputmode: 'numeric', min: String(f.number.min), max: String(f.number.max), step: '1',
         class: 'num', id: `q-${id}`, value: chosen[id] != null ? String(chosen[id]) : '',
@@ -706,7 +712,7 @@ function questions(fields, parts, initial) {
     const answers = {};
     for (const id of ids.filter(shown)) {
       const f = fields[id];
-      if (f.number) {
+      if (f.number && !f.buttons) {
         const raw = numbers[id].value.trim();
         if (!raw) continue;
         const n = Number(raw);
@@ -724,7 +730,7 @@ function questions(fields, parts, initial) {
     return { answers };
   };
   // The questions on screen that have no answer, in order.
-  const missing = () => ids.filter(shown).filter((id) => (fields[id].number ? !numbers[id].value.trim() : chosen[id] == null));
+  const missing = () => ids.filter(shown).filter((id) => (fields[id].number && !fields[id].buttons ? !numbers[id].value.trim() : chosen[id] == null));
   const scrollTo = (id) => rows[id].scrollIntoView?.({ behavior: 'smooth', block: 'center' });
   return { el, values, missing, scrollTo };
 }
@@ -740,42 +746,26 @@ function progressTab() {
   return h('section', {},
     h('div', { class: 'stats' },
       stat(total, 'cases'), stat(signed, 'signed'), stat(wk, 'this week')),
-    procedureProgress(state.entries, state.events, { note: 'Set by your supervisor.', none: 'No targets yet. Your supervisor sets them.' }));
+    procedureProgress(state.entries, state.events, { note: 'Set by your supervisor', none: 'No targets yet. Your supervisor sets them.' }));
 }
 
 // ---- History tab -----------------------------------------------------------
-
-// A case that can still get a follow-up and has none yet.
-const waitsForFollowUp = (e) => core.followUpOpen(e) && !Object.keys(e.outcome || {}).length;
 
 function historyTab() {
   if (!state.entries.length) {
     return h('section', {}, h('p', { class: 'muted' }, 'No cases yet. Add your first case on the New case tab.'));
   }
   const f = historyFilter;
-  const shown = state.entries.filter((e) => (!f.procedure || e.procedure === f.procedure) && (!f.role || e.role === f.role)
-    && (!f.followUp || waitsForFollowUp(e)));
-  const filtered = f.procedure || f.role || f.followUp;
-  // At the top, an on/off switch that shows only the cases that can still get a follow-up (with how many), built like
-  // "Anonymous" on an administrator's Download data: the whole row is the switch, the words small and grey with Yes or
-  // No under them. Not there while no case can get one (unless it is on).
-  const open = state.entries.filter(waitsForFollowUp).length;
-  const fuToggle = open || f.followUp
-    ? h('div', { class: 'card toggle-card' }, h('button', {
-      class: 'toggle-row fu-toggle', type: 'button', role: 'switch', 'aria-checked': String(f.followUp),
-      onclick: () => setHistoryFilter({ followUp: !f.followUp }),
-    }, h('span', { class: 'fact-text' }, h('span', {}, `Only cases that can get a follow-up (${open})`), h('strong', {}, f.followUp ? 'Yes' : 'No')),
-    h('span', { class: 'toggle', 'aria-hidden': 'true' })))
-    : null;
+  const shown = state.entries.filter((e) => (!f.procedure || e.procedure === f.procedure) && (!f.role || e.role === f.role));
+  const filtered = f.procedure || f.role;
   return h('section', {},
-    fuToggle,
     h('div', { class: 'filters' },
       filterButton('Procedure', f.procedure ? procName(f.procedure) : 'All', !!f.procedure, openProcedureFilter),
       filterButton('Role', f.role ? roleDone(f.role, f.procedure) : 'All', !!f.role, openRoleFilter)),
     filtered
       ? h('div', { class: 'shown' },
         h('span', {}, `Showing ${shown.length} of ${state.entries.length}`),
-        h('button', { class: 'change', type: 'button', onclick: () => setHistoryFilter({ procedure: null, role: null, followUp: false }) }, 'Show all'))
+        h('button', { class: 'change', type: 'button', onclick: () => setHistoryFilter({ procedure: null, role: null }) }, 'Show all'))
       : null,
     // A small heading per week it was done ("This week", "Last week", "2 – 8 Nov"), so a long history is easy to scan.
     shown.length
@@ -785,9 +775,9 @@ function historyTab() {
       : h('p', { class: 'muted' }, 'No cases match. Tap "Show all" to see everything.'));
 }
 
-// "Show only" in History: one procedure and/or one role, or only the cases that can get a follow-up. Kept while the
-// app is open, so it survives a sync or a visit to another tab; it is cleared when the student logs out.
-let historyFilter = { procedure: null, role: null, followUp: false };
+// "Show only" in History: one procedure and/or one role. Kept while the app is open, so it survives a sync or a
+// visit to another tab; it is cleared when the student logs out.
+let historyFilter = { procedure: null, role: null };
 
 function setHistoryFilter(change) {
   historyFilter = { ...historyFilter, ...change };
@@ -833,18 +823,17 @@ function entryRow(e) {
       h('strong', {}, procName(e.procedure)),
       h('span', { class: 'e-sub' }, `${roleDone(e.role, e.procedure)} · ${core.fmtDate(e.performed_on)}`)),
     h('div', { class: 'e-tags' },
-      hasOutcome ? h('span', { class: 'tag fu' }, 'Follow-up added')
-        : core.followUpOpen(e) ? null : h('span', { class: 'tag closed' }, 'Follow-up closed'), // too old to add one
+      hasOutcome ? h('span', { class: 'tag fu' }, 'Follow-up added') : null,
       signTag(e)));
 }
 
-// What happened to the patient afterwards, up to FOLLOWUP_DAYS after the operation. Saved as a new
-// 'followup' event; the entry itself never changes. Current answers are preselected.
+// What happened to the patient afterwards, at any time after the case. Saved as a new 'followup' event holding only
+// the answers that changed; the entry itself never changes. Current answers are preselected.
 function openFollowUp(e) {
   const form = questions(FOLLOWUP_FIELDS, followupFieldsFor(e.procedure, e.details), e.outcome); // a baby card only for a baby born alive
   // The heading like the case pop-up's (openCase in ui.js): the procedure, a grey line with your role and the date, the
   // hospital on a line of its own; it stays at the top. A round arrow before it, like on other pages, goes back to the
-  // case, on its Follow-up tab, where the form was opened. Then, like a new case, the questions in grey cards and Save.
+  // case, on its Follow-up tab, where the form was opened. Then, like a new case, the questions in white cards on grey, and Save.
   const back = h('button', {
     class: 'back-btn', type: 'button', 'aria-label': 'Back to the case', onclick: () => openCase(e, { ...caseActions, tab: 'followup' }),
   });
@@ -855,7 +844,7 @@ function openFollowUp(e) {
           h('h3', { class: 'case-title' }, procName(e.procedure)),
           h('p', { class: 'case-sub' }, `${roleDone(e.role, e.procedure)} · ${core.fmtDate(e.performed_on)}`),
           e.hospital ? h('p', { class: 'case-sub case-hosp' }, e.hospital) : null))),
-    h('p', { class: 'muted small fu-note' }, `Tap only what you know now. You can add more later, up to ${FOLLOWUP_LIMIT} after the case.`),
+    h('p', { class: 'muted small fu-note' }, 'Tap only what you know now. You can add more later.'),
     form.el,
     h('div', { class: 'sheet-foot' },
       h('button', {
@@ -875,7 +864,7 @@ function openFollowUp(e) {
           });
         },
       }, 'Save')),
-  ]);
+  ], { cls: 'on-bg' }); // grey like the pages and the new case pop-up, with white cards
 }
 
 function confirmDelete(e) {
@@ -897,8 +886,9 @@ function moreTab() {
   // text. "Change" opens the same hospital menu as when logging.
   const hosp = hospitalPicker(() => refresh());
 
+  // Each card with its heading inside, at the top (.card-head), like every part of a page.
   return h('section', { class: 'more-tab' },
-    h('div', { class: 'card' }, h('h3', {}, 'Account'),
+    h('div', { class: 'card' }, h('h3', { class: 'card-head' }, 'Account'),
       h('div', { class: 'facts plain' },
         fact('Candidate number', state.profile.student),
         state.session.name ? fact('Name', state.session.name) : null,
@@ -919,13 +909,13 @@ function moreTab() {
 
 function supervisorsCard() {
   const sups = state.meta.supervisors || [];
-  return h('div', { class: 'card' }, h('h3', {}, 'Your supervisors'),
+  // who can see the cases: a grey note on the right of the heading, like "Set by your supervisor" on Progress
+  return h('div', { class: 'card' }, cardHead('Your supervisors', 'These supervisors can see your cases and sign them'),
     sups.length
       // the name first and plain, "since …" small and grey under it (a fact row the other way round: the name matters)
       ? h('div', { class: 'facts plain' }, sups.map((s) => h('div', { class: 'fact' },
         h('span', { class: 'fact-text' }, h('strong', {}, s.name), h('span', {}, `since ${core.fmtDate(String(s.since).slice(0, 10))}`)))))
-      : h('p', { class: 'muted' }, 'No supervisor has added you yet.'),
-    h('p', { class: 'muted small' }, 'These supervisors can see your cases and sign them.'));
+      : h('p', { class: 'muted' }, 'No supervisor has added you yet.'));
 }
 
 function openChangePassword() {
@@ -974,7 +964,7 @@ async function doLogout() {
   writeSession(null);
   state.sessionNote = '';
   state.tab = 'log';
-  historyFilter = { procedure: null, role: null, followUp: false };
+  historyFilter = { procedure: null, role: null };
   await refresh();
 }
 

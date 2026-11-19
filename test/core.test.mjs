@@ -177,8 +177,7 @@ test('details are stored with the entry; follow-ups are added on top, newest ans
   assert.equal(core.answersText(FOLLOWUP_FIELDS, ea.outcome), 'Mother: Alive · Baby: Died after birth');
   assert.equal(core.answersText(DETAIL_FIELDS, undefined), '');
 
-  assert.equal(core.followUpOpen({ performed_on: '2026-09-17' }, '2026-10-29'), true, '42 days: still open');
-  assert.equal(core.followUpOpen({ performed_on: '2026-09-16' }, '2026-10-29'), false, '43 days: closed');
+  assert.equal(core.followUpOpen, undefined, 'a follow-up has no time limit any more (since 0.15.0)');
 
   const m = core.metrics(events);
   assert.equal(m.entries_with_details, 1);
@@ -273,9 +272,7 @@ test('the questions per procedure: small procedures, side and mesh, no sex where
   // the old follow-up question is kept for old cases, marked as no longer asked
   assert.ok(cfg.FOLLOWUP_FIELDS.mat_complication.retired);
   for (const p of cfg.PROCEDURES) assert.ok(!cfg.followupFieldsFor(p.id).some((x) => x.ids.includes('mat_complication')), `${p.id}: not in the follow-up any more`);
-  // the follow-up is closed "after the operation", or "after the birth" for a delivery that is not an operation
-  assert.equal(cfg.followUpFrom('cs'), 'operation');
-  assert.equal(cfg.followUpFrom('normal_delivery'), 'birth');
+  assert.equal(cfg.FOLLOWUP_DAYS, undefined, 'no time limit for a follow-up');
 });
 
 test('an answer to a question that is no longer asked does not count (after "Died" was changed to "Alive")', async () => {
@@ -290,4 +287,33 @@ test('an answer to a question that is no longer asked does not count (after "Die
   await new Promise((r) => setTimeout(r, 5)); // a later ts
   await core.addFollowUp(a.id, { patient: 'alive' });
   assert.deepEqual(core.derive(await core.allEvents())[0].outcome, { patient: 'alive' });
+});
+
+test('the follow-up log: what each follow-up changed, without the ones that changed nothing; no time limit', async () => {
+  const cfg = await import('../config.js');
+  const fu = (id, ts, answers) => ({ id, type: 'followup', ts, known_on: ts.slice(0, 10), answers });
+  const log = cfg.followUpLog([
+    fu('f1', '2026-10-01T10:00:00.000Z', { patient: 'alive', wound_infection: 'no' }),
+    fu('f2', '2026-10-03T10:00:00.000Z', { wound_infection: 'no' }), // the same answer again (a second tablet): no change
+    fu('f3', '2026-10-09T10:00:00.000Z', { patient: 'died', died_day: 8 }),
+  ]);
+  assert.deepEqual(log.map((l) => [l.id, l.on, l.first]), [['f1', '2026-10-01', true], ['f3', '2026-10-09', false]], 'f2 changed nothing, so it is not in the log');
+  assert.deepEqual(log[0].changes, [{ id: 'patient', from: undefined, to: 'alive' }, { id: 'wound_infection', from: undefined, to: 'no' }]);
+  assert.deepEqual(log[1].changes, [{ id: 'patient', from: 'alive', to: 'died' }, { id: 'died_day', from: undefined, to: 8 }]);
+  // "Died" back to "Alive" and then "Died" again: the days until death were hidden in between, so they count as new
+  const back = cfg.followUpLog([
+    fu('a', '2026-10-01T10:00:00.000Z', { patient: 'died', died_day: 3 }),
+    fu('b', '2026-10-02T10:00:00.000Z', { patient: 'alive' }),
+    fu('c', '2026-10-05T10:00:00.000Z', { patient: 'died', died_day: 3 }),
+  ]);
+  assert.deepEqual(back[2].changes, [{ id: 'patient', from: 'alive', to: 'died' }, { id: 'died_day', from: undefined, to: 3 }]);
+  assert.deepEqual(cfg.followUpLog([]), []);
+  assert.deepEqual(cfg.followUpLog(undefined), []);
+
+  // a case from a year ago can still get a follow-up on the tablet
+  const old = await core.logEntry({ ...base, procedure: 'laparotomy', role: 'independent', performed_on: '2025-01-15' });
+  await core.addFollowUp(old.id, { patient: 'alive' });
+  const e = core.derive(await core.allEvents()).find((x) => x.id === old.id);
+  assert.deepEqual(e.outcome, { patient: 'alive' });
+  assert.equal(cfg.followUpLog(e.followups).length, 1);
 });

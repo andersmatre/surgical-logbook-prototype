@@ -4,8 +4,8 @@
 
 import * as api from './api.js';
 import {
-  PRIVACY, PRIVACY_IS_PLACEHOLDER, DETAIL_FIELDS, FOLLOWUP_FIELDS, FOLLOWUP_LIMIT, TARGET_PROCEDURES, procName, roleDone, roleDoneBy,
-  detailFieldsFor, followupFieldsFor, followUpFrom, surgicalApgar, answerLabel,
+  PRIVACY, PRIVACY_IS_PLACEHOLDER, DETAIL_FIELDS, FOLLOWUP_FIELDS, TARGET_PROCEDURES, procName, roleDone, roleDoneBy,
+  detailFieldsFor, followupFieldsFor, followUpLog, surgicalApgar, answerLabel,
 } from './config.js';
 import * as core from './core.js';
 
@@ -546,6 +546,26 @@ const targetOrder = (ids) => {
   return [...ids].sort((a, b) => (pos.get(a) ?? 1e9) - (pos.get(b) ?? 1e9));
 };
 
+// A part of a page: one white card with its heading at the top, inside it, in the main colour (.card-head). Every
+// part's heading in the app looks like this (since 0.17.4), like "Your role" and "Mother" in the new case pop-up: New
+// case (Operations, Deliveries), Progress, Manage students, an administrator's lists, Files. The rows (a .list,
+// .prows.group or .proc-list) fill the card from edge to edge under it, with a thin line between them. The weeks in
+// History are not parts but dividers of one list: they keep their small grey heading above the card (.day-head).
+// title can be { title, note }: a short grey note on the right of the heading, on the same line ("Set by your
+// supervisor." on Progress); on a narrow screen it goes under it.
+export function headedCard(title, ...body) {
+  const head = typeof title === 'object' && title ? cardHead(title.title, title.note) : cardHead(title);
+  return h('section', { class: 'card headed' }, head, body);
+}
+
+// The heading of a card (.card-head), with an optional short grey note on the right on the same line (no full stop:
+// "Set by your supervisor", "These supervisors can see your cases and sign them"); on a narrow screen it goes under.
+export function cardHead(title, note = null) {
+  return note
+    ? h('div', { class: 'card-head-row' }, h('h3', { class: 'card-head' }, title), h('span', { class: 'muted small card-head-note' }, note))
+    : h('h3', { class: 'card-head' }, title);
+}
+
 // One student's procedures, as on the student's Progress: "Procedures with a target" (a row each: performed out of
 // the target, a bar, observed and assisted), then "Procedures without a target" that have at least one case, the most
 // cases first. Each heading's rows are one white card (.prows.group). note: the line under the first heading; none:
@@ -561,13 +581,12 @@ export function procedureProgress(entries, events, { note, none }) {
     return procTile(procName(id), `${p.performed} / ${targets[id]}`, `Observed ${p.observing} · Assisted ${p.assisting}`, { done: p.performed, of: targets[id] });
   };
   return [
-    h('h3', { class: 'prog-title' }, 'Procedures with a target'),
-    withTarget.length
-      ? [h('p', { class: 'muted small prog-note' }, note), h('div', { class: 'prows group' }, targetOrder(withTarget).map(targetTile))]
-      : h('p', { class: 'muted small prog-note' }, none),
+    withTarget.length // "Set by your supervisor" on the right of the heading; "No targets yet" under it, as the card's content
+      ? headedCard({ title: 'Procedures with a target', note }, h('div', { class: 'prows group' }, targetOrder(withTarget).map(targetTile)))
+      : headedCard('Procedures with a target', h('p', { class: 'muted small prog-note' }, none)),
     others.length
-      ? [h('h3', { class: 'prog-title' }, 'Procedures without a target'),
-        h('div', { class: 'prows group' }, others.map(([id, p]) => procTile(procName(id), cases(p.total), `Observed ${p.observing} · Assisted ${p.assisting} · Performed ${p.performed}`, null, 'mid')))] // 'mid': "3 cases" on the right, in the middle of the row's height, like on the administrator's Overview
+      ? headedCard('Procedures without a target',
+        h('div', { class: 'prows group' }, others.map(([id, p]) => procTile(procName(id), cases(p.total), `Observed ${p.observing} · Assisted ${p.assisting} · Performed ${p.performed}`, null, 'mid')))) // 'mid': "3 cases" on the right, in the middle of the row's height, like on the administrator's Overview
       : null,
   ];
 }
@@ -602,21 +621,36 @@ export function openCase(e, { onDelete = null, onFollowUp = null, roleText = rol
   };
   const apgar = surgicalApgar(e.details);
   const late = e.performed_on !== e.entered_on;
-  const canFollowUp = core.followUpOpen(e);
   const hasOutcome = Object.keys(e.outcome || {}).length > 0;
   const details = parts(DETAIL_FIELDS, detailFieldsFor(e.procedure), e.details, 'Details',
     apgar == null ? {} : { 'Surgical Apgar': row('Score', `${apgar} of 10`) }).filter(Boolean);
   const followUp = parts(FOLLOWUP_FIELDS, followupFieldsFor(e.procedure, e.details), e.outcome, 'Follow-up').filter(Boolean);
-  // Why there is no follow-up button: the time for it is over (not the signature: a signed case can get one too).
-  const closed = canFollowUp ? null : h('p', { class: 'muted case-note' }, `Follow-up is closed: more than ${FOLLOWUP_LIMIT} after the ${followUpFrom(e.procedure)}.`);
+  // A follow-up can be added at any time, so the tab says when it was last changed ("Added 5 Nov" when it has not
+  // been changed since), and "View history", small and quiet, folds open the log of changes under it, newest first.
+  let refit = () => {}; // set once the pop-up is open (keepFitting): puts it back in its place after a size change
+  const fuLog = followUpLog(e.followups);
+  const last = fuLog[fuLog.length - 1];
+  const history = fuLog.length > 1 ? followUpHistory(fuLog) : null;
+  const histBtn = history ? h('button', {
+    class: 'link fu-hist-btn', type: 'button', 'aria-expanded': 'false',
+    onclick: () => {
+      history.hidden = !history.hidden;
+      histBtn.setAttribute('aria-expanded', String(!history.hidden));
+      histBtn.textContent = history.hidden ? 'View history' : 'Hide history';
+      refit(); // grows or shrinks around its home (keepFitting)
+      if (!history.hidden) history.scrollIntoView?.({ block: 'nearest' }); // the log in view, under the answers
+    },
+  }, 'View history') : null;
+  const updated = last ? h('p', { class: 'muted small fu-updated' },
+    h('span', {}, `${fuLog.length > 1 ? 'Last updated' : 'Added'} ${core.fmtDate(last.on || String(last.ts).slice(0, 10))}`), histBtn) : null;
 
   const caseTab = h('div', { class: 'case-tab', id: 'case-tab-details', role: 'tabpanel' },
     details.length ? details : h('p', { class: 'muted case-note' }, 'No details were filled in.'));
   const followTab = h('div', { class: 'case-tab', id: 'case-tab-followup', role: 'tabpanel', hidden: true },
-    followUp.length ? followUp : null,
-    followUp.length && !closed ? null : closed || h('p', { class: 'muted case-note' }, 'No follow-up yet.'));
-  // Add or update the follow-up: only on the Follow-up tab, next to Close (bigger, like Save elsewhere)
-  const followBtn = canFollowUp && onFollowUp
+    followUp.length ? followUp : h('p', { class: 'muted case-note' }, 'No follow-up yet.'),
+    updated, history);
+  // Add or update the follow-up: only on the Follow-up tab, next to Close (bigger, like Save elsewhere). Any time.
+  const followBtn = onFollowUp
     ? h('button', { class: 'btn save', type: 'button', hidden: true, onclick: () => onFollowUp(e) }, hasOutcome ? 'Update follow-up' : 'Add follow-up')
     : null;
   const tab = (id, label) => h('button', {
@@ -629,8 +663,6 @@ export function openCase(e, { onDelete = null, onFollowUp = null, roleText = rol
     class: 'link danger case-del', type: 'button', onclick: () => onDelete(e),
   }, 'Delete this case'));
   const show = (id) => {
-    const sheet = caseTab.closest('.sheet');
-    const top = sheet ? sheet.getBoundingClientRect().top : null;
     const from = lineAt(tabs.querySelector('.ctab.on')); // the blue line slides from there, like on the other tabs
     for (const b of tabs.querySelectorAll('.ctab')) {
       b.classList.toggle('on', b.dataset.tab === id);
@@ -640,7 +672,7 @@ export function openCase(e, { onDelete = null, onFollowUp = null, roleText = rol
     followTab.hidden = id !== 'followup';
     if (followBtn) followBtn.hidden = id !== 'followup';
     if (caseTab.parentNode) caseTab.parentNode.scrollTop = 0; // the other tab starts at its top
-    if (sheet) keepTop(sheet, top);
+    refit(); // back to its home in the middle when it fits (keepFitting)
     if (from) slideLine(tabs, from, tabs.querySelector('.ctab.on'));
   };
   show(firstTab === 'followup' ? 'followup' : 'details');
@@ -673,13 +705,46 @@ export function openCase(e, { onDelete = null, onFollowUp = null, roleText = rol
       h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Close'),
       followBtn),
   ], { cls: 'on-bg' }); // a pop-up to read: grey like the pages, the answers in white cards
+  refit = keepFitting(caseTab.closest('.sheet'));
 }
 
-// When the case pop-up changes tab it fits its new content, but its top edge stays where it was, so the heading and
-// the tabs do not jump; only the bottom moves. It only moves up when a taller tab needs the room.
-function keepTop(sheet, top) {
-  const h = sheet.offsetHeight;
-  const t = Math.max(16, Math.min(top, window.innerHeight - 16 - h)); // 16: the space around a pop-up (#overlay)
-  sheet.style.alignSelf = 'flex-start';
-  sheet.style.marginTop = `${t - 16}px`;
+// The log of a case's follow-ups (followUpLog in config.js), newest first: a white card per change with the day and
+// time it was saved ("Changed 12 Nov 14:05", the first one "Added"), a row per answer it changed, the earlier answer
+// first ("Alive → Died"). Hidden until "View history" is tapped.
+function followUpHistory(log) {
+  const said = (id, v) => (v == null ? '' : answerLabel(FOLLOWUP_FIELDS, id, v));
+  return h('div', { class: 'fu-history', hidden: true },
+    [...log].reverse().map((l) => h('section', { class: 'case-part' },
+      h('h4', {}, `${l.first ? 'Added' : 'Changed'} ${fmtDateTime(l.ts)}`),
+      l.changes.map((c) => h('div', { class: 'case-row' },
+        h('span', {}, FOLLOWUP_FIELDS[c.id] ? FOLLOWUP_FIELDS[c.id].label : c.id),
+        h('span', {}, c.from == null ? said(c.id, c.to) : `${said(c.id, c.from)} → ${said(c.id, c.to)}`))))));
+}
+
+// Where the case pop-up sits when its size changes (another tab, "View history" opening or closing, the tablet turned).
+// It has a home: where it opened, in the middle of the screen for the height it opened with. It always goes back
+// there when it fits, so after "View history" and "Hide history" it is exactly where it was. Its top edge stays at
+// home while it grows or shrinks, so the heading and the tabs do not jump; only when it would run off the bottom does
+// it move up, just enough to stay whole on the screen (16 px from the edge, like #overlay), and back down when it
+// shrinks again. A ResizeObserver on the pop-up and the overlay (the size of the screen) runs this before the screen is
+// drawn, so it is never seen off the screen; it stops when the pop-up is closed. Returns the function, so a change
+// can also refit at once (and browsers without ResizeObserver still refit on a tab or "View history").
+function keepFitting(sheet) {
+  if (!sheet) return () => {};
+  const opened = sheet.offsetHeight; // its height when it opened: home is the middle for that height
+  const fit = () => {
+    if (!sheet.isConnected) return;
+    const h = sheet.offsetHeight;
+    const home = Math.max(16, (window.innerHeight - opened) / 2);
+    const t = Math.max(16, Math.min(home, window.innerHeight - 16 - h));
+    sheet.style.alignSelf = 'flex-start';
+    sheet.style.marginTop = `${Math.round(t - 16)}px`;
+  };
+  fit();
+  if (typeof ResizeObserver === 'function') {
+    const watch = new ResizeObserver(() => { if (sheet.isConnected) fit(); else watch.disconnect(); });
+    watch.observe(sheet);
+    watch.observe(overlay);
+  }
+  return fit;
 }

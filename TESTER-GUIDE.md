@@ -22,7 +22,7 @@ Please try these in order. Do not ask anyone for help. If you get stuck, note wh
 3. Make a mistake on purpose and undo it.
 4. Switch on airplane mode. Log two procedures. Switch airplane mode off. Watch the top right: while cases wait it shows "Offline" or "N to sync"; after a short time the button disappears, which means everything is sent.
 5. Open "Progress" and look at your numbers.
-6. Add a follow-up to one of your operations: what happened to the patient afterwards. Open "History", tap the case, tap "Follow-up", then "Add follow-up". (At the top of History, a switch shows only the cases that can still get a follow-up.)
+6. Add a follow-up to one of your operations: what happened to the patient afterwards. Open "History", tap the case, tap "Follow-up", then "Add follow-up". It can be added or changed at any time. Change one answer later: the case then says "Last updated", and "View history" shows what changed and when.
 7. Ask your supervisor to add your candidate number in their app and sign your cases. Your cases must be synced first (no sync button is shown at the top right). When your supervisor has signed, switch to another app and back (or turn the screen off and on): the signatures appear in the History tab, and your supervisor's name appears under More, "Your supervisors".
 
 ## Use it for real for one to two weeks
@@ -76,7 +76,7 @@ You need internet. You never need a command line for this.
 5. **Someone leaves:** tap the person, **Disable**. Their cases stay. To erase a person who asks for it: disable first, then "Delete account and data for good".
 6. **Lost or stolen tablet:** tap the person, **Log out everywhere**.
 7. **Backup, at least once a week:** **More**, **Download backup**. Keep the file somewhere safe that is not the server, and do not send it by WhatsApp or e-mail. The Overview reminds you when a week has passed.
-8. **Spreadsheets:** **Download data**. Leave **Anonymous** on (codes instead of names) unless you really need the names, tick the files and tap **Download**. The **Codebook** explains every column.
+8. **Spreadsheets:** **Download data**. Leave **Anonymous** on (codes instead of names) unless you really need the names, tick the files and tap **Download**. The **Codebook** explains every column. **Every case** has the newest follow-up answers; **Follow-up changes** has every change to them, with when (join the two on entry_id).
 9. Tell us:
    - What was confusing or slow?
    - What do you need to do that the app does not let you do?

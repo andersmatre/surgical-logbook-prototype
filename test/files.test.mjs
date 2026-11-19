@@ -68,6 +68,29 @@ test('no grey line above Cancel and Save in a pop-up', () => {
   assert.doesNotMatch(/\n\.sheet-foot \{[^}]*\}/.exec(read('style.css'))[0], /border/, 'the fade under the arrow already shows where the content ends');
 });
 
+test('pressing a procedure on New case does not colour the line between the rows', () => {
+  const css = read('style.css');
+  const pressed = [...css.matchAll(/(?:^|\n)([^\n{}]*\.proc:active[^{]*)\{([^}]*)\}/g)];
+  assert.ok(pressed.length, 'a pressed procedure still turns light blue');
+  for (const [, , body] of pressed) assert.doesNotMatch(body, /border/, 'the line above a row is its border-top; on a touch screen it turned blue while scrolling');
+});
+
+test('"View history" is quiet like "Delete this case": no underline, no box, only the colour changes', () => {
+  const css = read('style.css');
+  const rule = (sel) => { const i = css.indexOf(`${sel} {`); assert.ok(i >= 0, sel); return css.slice(i, css.indexOf('}', i)); };
+  assert.match(rule('\n.fu-hist-btn'), /text-decoration: none/);
+  assert.match(rule('.link.fu-hist-btn:hover'), /background: none/, 'no light-blue box under the mouse');
+  assert.match(rule('.link.fu-hist-btn:active'), /color: var\(--main-dark\)/);
+  assert.doesNotMatch(rule('.link.fu-hist-btn:active'), /background/);
+});
+
+test('the filters at the top of History look like controls, not like the white case cards under them', () => {
+  const css = read('style.css');
+  const filter = /\n\.filter \{([^}]*)\}/.exec(css)[1];
+  assert.match(filter, /border: var\(--outline\) solid var\(--main\)/, 'a blue outline like the other outlined buttons, not the grey line of a case card');
+  assert.match(filter, /min-height: (4[4-9]|[5-9]\d)px/, 'still a big touch target');
+});
+
 test('the page does not jump sideways when a scrollbar appears', () => {
   assert.match(/\n\.shell > \.main \{[^}]*\}/.exec(read('style.css'))[0], /scrollbar-gutter: stable both-edges/,
     'the room for the scrollbar is always kept, on both sides so the page stays in the middle under the header');

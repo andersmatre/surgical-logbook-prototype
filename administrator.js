@@ -9,7 +9,7 @@ import * as core from './core.js';
 import * as api from './api.js';
 import {
   h, timeAgo, fmtDateTime, stat, cases, appShell, pageScroll, setPageScroll, keepTyping, toast, openSheet, closeSheet, confirmSheet, saveBlob, fact, privacyFact, advancedCard,
-  caseRow, procTile, procedureProgress, filterButton, openFilterSheet, signTag, segSwitch, popMenu, showPanel, closePanel,
+  caseRow, procTile, procedureProgress, filterButton, openFilterSheet, signTag, segSwitch, popMenu, showPanel, closePanel, headedCard,
 } from './ui.js';
 
 const ENDED = Symbol('session ended'); // the server ended the session; app.js shows the login screen
@@ -222,7 +222,7 @@ function searchable({ key, placeholder, items, matches, item, noMatch, caps = fa
     const shown = items.filter((x) => matches(x, input.value));
     const content = !sections ? shown.map(item)
       : sections.map(([title, belongs]) => [title, shown.filter(belongs)]).filter(([, xs]) => xs.length)
-        .flatMap(([title, xs]) => [h('h3', { class: 'day-head' }, title), h('div', { class: 'prows group' }, xs.map(item))]);
+        .map(([title, xs]) => headedCard(title, h('div', { class: 'prows group' }, xs.map(item))));
     list.replaceChildren(...(shown.length ? content : [h('p', { class: 'muted' }, noMatch)]));
   };
   input.addEventListener('input', drawList);
@@ -275,6 +275,7 @@ const FILES = [
   ['procedures', 'Procedures per student', 'How many of each procedure, in each role, signed, and with a follow-up.'],
   ['hospitals', 'Procedures per hospital', 'The same, per hospital. Never has names in it.'],
   ['entries', 'Every case', 'A row per case, with every answer and the follow-up.'],
+  ['followups', 'Follow-up changes', 'A row per follow-up answer that was added or changed, and when.'],
   ['codebook', 'Codebook', 'What each column and each code in the other files means.'],
 ];
 const FILE_NAME = Object.fromEntries(FILES.map(([kind, title]) => [kind, title]));
@@ -312,8 +313,7 @@ function downloadView() {
   return h('section', { class: 'more-tab' }, // no heading: the open tab at the top (Download data) is the page's name
     // the two choices in one white card, like the rows under More: Anonymous on or off, and the file format
     h('div', { class: 'card downloads' }, h('div', { class: 'facts plain' }, anonymousRow(), formatRow())),
-    h('h3', { class: 'day-head' }, 'Files'),
-    h('ul', { class: 'list dl-files' }, rows));
+    headedCard('Files', h('ul', { class: 'list dl-files' }, rows)));
 }
 
 // "Anonymous" on or off: the whole row is one switch (a big touch target). Its text like the File format row under it
@@ -503,11 +503,11 @@ function usersView() {
   const input = h('input', { type: 'search', class: 'search', placeholder: 'Search candidate number or name', value: ad.query, autocomplete: 'off' });
   const show = SHOW.find(([id]) => id === ad.filter) || SHOW[0];
   const list = h('div', {});
-  // a small grey heading per kind of account, like the week headings in a student's History; in the order the server
-  // sends them (administrators, supervisors, students)
+  // a white card per kind of account with its heading inside (headedCard); in the order the server sends them
+  // (administrators, supervisors, students)
   const HEAD = { admin: 'Administrators', supervisor: 'Supervisors', student: 'Students' };
   const groups = (rows) => Object.keys(HEAD).map((role) => rows.filter((u) => u.role === role)).filter((g) => g.length)
-    .map((g) => [h('h3', { class: 'day-head' }, HEAD[g[0].role]), h('ul', { class: 'list' }, g.map(userRow))]);
+    .map((g) => headedCard(HEAD[g[0].role], h('ul', { class: 'list' }, g.map(userRow))));
   // while one kind is chosen, as in History: "Showing N of M" and "Show all" (back to Everyone; the search stays)
   const count = h('span', {});
   const shown = ad.filter === 'all' ? null : h('div', { class: 'shown' }, count,
@@ -805,7 +805,7 @@ function addView() {
     h('div', { class: 'detail-head' }, back, h('div', { class: 'detail-title' }, h('h2', {}, 'Add users'))),
     switcher('addRole', [['student', 'Students'], ['supervisor', 'Supervisor'], ['admin', 'Administrator']], 'Kind of account'),
     h('div', { class: 'card' },
-      h('h3', {}, title),
+      h('h3', { class: 'card-head' }, title),
       h('p', { class: 'muted small card-note' }, `Each new account gets an initial password that works once. ${role === 'student' ? 'Each student' : 'They'} choose${role === 'student' ? 's' : ''} their own at the first login.`),
       form));
 }
@@ -839,7 +839,7 @@ async function create(err, run) {
 // Laid out like the student's More (fact, advancedCard in ui.js).
 function moreView() {
   return h('section', { class: 'more-tab' },
-    h('div', { class: 'card' }, h('h3', {}, 'Account'),
+    h('div', { class: 'card' }, h('h3', { class: 'card-head' }, 'Account'), // the heading inside, like every part of a page
       h('div', { class: 'facts plain' },
         fact('Candidate number', ctx.session.candidate),
         fact('Name', ctx.session.name || ctx.session.candidate)),
@@ -856,7 +856,7 @@ function moreView() {
 
 function backupCard() {
   const last = ad.stats && ad.stats.last_backup;
-  return h('div', { class: 'card' }, h('h3', {}, 'Backup'),
+  return h('div', { class: 'card' }, h('h3', { class: 'card-head' }, 'Backup'),
     h('p', { class: 'muted' }, 'A complete copy of all data, in one file. If the server disk is ever lost, this file is the only way to get the data back. Keep it somewhere safe.'),
     h('div', { class: 'facts plain' }, fact('Last backup', timeAgo(last))),
     h('button', {

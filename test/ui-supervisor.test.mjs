@@ -90,7 +90,7 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   // ---- Manage students: one page, "Your students" (none yet) then "Add students"; search, add one, the other is still offered
   assert.deepEqual($$('.nav .tab').map((b) => b.textContent), ['My students', 'Manage students', 'More']);
   await click(byText('.tab', 'Manage students'));
-  assert.deepEqual($$('.manage > .day-head').map((x) => x.textContent), ['Your students', 'Add students'], 'two parts, no tabs');
+  assert.deepEqual($$('.manage > .card.headed > .card-head').map((x) => x.textContent), ['Your students', 'Add students'], 'two parts, each a card with its heading inside, no tabs');
   assert.equal($('.main h2'), null, 'no heading: the open tab at the top is the name of the page');
   assert.match($('.manage').textContent, /None yet. Add them below./);
   assert.deepEqual($$('.add-list .addrow strong').map((e) => e.textContent), ['CC1001', 'CC1002']);
@@ -224,7 +224,7 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   await click(byText('.ctab', 'Progress'), 50);
   assert.match($('#panel').textContent, /No targets yet/);
   const ptiles = () => $$('#panel .ptile').map((t) => t.querySelector('.prow-top').textContent);
-  assert.deepEqual($$('#panel .prog-title').map((x) => x.textContent), ['Procedures with a target', 'Procedures without a target']);
+  assert.deepEqual($$('#panel .card-head').map((x) => x.textContent), ['Procedures with a target', 'Procedures without a target']);
   assert.deepEqual(ptiles(), ['Appendectomy1 case', 'Caesarean section1 case', 'Laparotomy1 case', 'Scrotal hydrocele1 case'], 'every procedure with a case, like the student sees it');
   await click(byText('#panel .btn', 'Set targets'), 100);
   assert.match($('.sheet h3').textContent, /Targets for CC1001/);
@@ -286,7 +286,7 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   await click(byText('.tab', 'More'));
   assert.match($('.main').textContent, /SUP-ANNA/);
   // the same More as a student's: Account rows, then "Advanced" with About and "Your data"
-  assert.deepEqual($$('.more-tab .card').map((c) => c.querySelector('h3, summary strong').textContent), ['Account', 'Advanced']);
+  assert.deepEqual($$('.more-tab > .card > .card-head, .more-tab summary strong').map((x) => x.textContent), ['Account', 'Advanced']);
   assert.equal($('details.advanced summary .muted').textContent, 'About', 'the line under "Advanced" says what is inside');
   assert.deepEqual($$('details.advanced .fact-text > span').map((x) => x.textContent), ['Version', 'Your data']);
   await click(byText('details.advanced .fact', 'Your data').querySelector('.change'));

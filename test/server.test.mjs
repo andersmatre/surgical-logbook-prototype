@@ -846,7 +846,7 @@ test('students can have a name; an administrator creates, changes and sees it; s
 });
 
 test('CSV exports: counts per student, per hospital and every entry; safe for spreadsheets; administrators only', async () => {
-  const t = await start({ now: () => Date.parse('2026-11-09T12:00:00Z') }); // a fixed day: whether a follow-up is open or missed
+  const t = await start({ now: () => Date.parse('2026-11-09T12:00:00Z') }); // a fixed day: the file names
   try {
     const admin = await adminReady(t);
     const a = await ready(t, 'S001', 'initial-pw-1', 'second-pw-22');
@@ -857,12 +857,14 @@ test('CSV exports: counts per student, per hospital and every entry; safe for sp
     const e1 = entry({ procedure: 'cs', role: 'independent', hospital: 'Masanga Hospital' });
     const e2 = entry({ procedure: 'cs', role: 'observing', hospital: 'Bo Government Hospital' });
     const e3 = entry({ procedure: 'appendectomy', role: 'supervised', hospital: 'Masanga Hospital' });
-    const e4 = entry({ procedure: 'appendectomy', role: 'assisting', hospital: 'Masanga Hospital', performed_on: '2026-08-01', entered_on: '2026-08-01' }); // too old for a follow-up
+    const e4 = entry({ procedure: 'appendectomy', role: 'assisting', hospital: 'Masanga Hospital', performed_on: '2026-08-01', entered_on: '2026-08-01' }); // old: still open, there is no time limit
     const gone = entry({ procedure: 'laparotomy', role: 'assisting' });
     // first "Died" with the days and the cause, then corrected to "Alive": the days and the cause no longer count
     const wrongFirst = { id: '77777777-0000-4000-8000-000000000000', type: 'followup', ts: '2026-10-25T10:00:00.000Z', target: e1.id, known_on: '2026-10-25', answers: { mother: 'died', died_day: 3, death_cause: 'sepsis' } };
     const followUp = { id: '77777777-0000-4000-8000-000000000001', type: 'followup', ts: new Date().toISOString(), target: e1.id, known_on: '2026-11-01', answers: { mother: 'alive' } };
-    await t.call('/api/sync', { token: a, body: { events: [e1, e2, gone, wrongFirst, followUp, { id: '66666666-0000-4000-8000-000000000001', type: 'void', ts: new Date().toISOString(), target: gone.id }], cursor: 0 } });
+    // the same answer again later (a second tablet): it changes nothing, so followup_on stays the day of the real change
+    const repeat = { id: '77777777-0000-4000-8000-000000000002', type: 'followup', ts: new Date(Date.now() + 1000).toISOString(), target: e1.id, known_on: '2026-11-05', answers: { mother: 'alive' } };
+    await t.call('/api/sync', { token: a, body: { events: [e1, e2, gone, wrongFirst, followUp, repeat, { id: '66666666-0000-4000-8000-000000000001', type: 'void', ts: new Date().toISOString(), target: gone.id }], cursor: 0 } });
     await t.call('/api/sync', { token: b, body: { events: [e3, e4], cursor: 0 } });
     await sup(t, supToken, 'assign', { candidate: 'S001' });
     await sup(t, supToken, 'sign', { candidate: 'S001', ids: [e1.id] });
@@ -887,12 +889,12 @@ test('CSV exports: counts per student, per hospital and every entry; safe for sp
       + 'followup_baby_after,followup_baby_died_day,followup_baby2_after,followup_baby2_died_day,followup_baby3_after,followup_baby3_died_day,followup_on,followup_day');
     assert.equal(entries.length, 5, 'header and four live entries; the deleted one is left out');
     const col = (line, name) => line.split(',').at(entries[0].split(',').indexOf(name) - entries[0].split(',').length); // from the end: names and roles may hold commas
-    // follow-up: done (with the day it was known, and how many days after the operation), open (still within 42 days), missed
+    // follow-up: done (with the day it was last changed, and how many days after the operation), or open (none yet, at any age)
     const firstLine = entries.find((l) => l.includes(e1.id));
     assert.deepEqual([col(firstLine, 'followup_status'), col(firstLine, 'followup_mother'), col(firstLine, 'followup_on'), col(firstLine, 'followup_day')], ['done', 'alive', '2026-11-01', '12']);
     assert.deepEqual([col(firstLine, 'followup_died_day'), col(firstLine, 'followup_death_cause')], ['', ''], 'answers to questions no longer asked are left out');
-    assert.equal(col(entries.find((l) => l.includes(e3.id)), 'followup_status'), 'open', '20 days after the operation');
-    assert.equal(col(entries.find((l) => l.includes(e4.id)), 'followup_status'), 'missed', 'more than 42 days, no follow-up');
+    assert.equal(col(entries.find((l) => l.includes(e3.id)), 'followup_status'), 'open');
+    assert.equal(col(entries.find((l) => l.includes(e4.id)), 'followup_status'), 'open', 'more than 6 weeks old: still open, never "missed"');
     const first = entries.find((l) => l.includes(e1.id));
     assert.match(first, /^S001,"'=HYPERLINK\(""x""\)",/, 'a name starting with = cannot become a formula');
     assert.match(first, /Masanga Hospital,cs,Caesarean section,independent,"Surgeon, independent"/, 'the role as a code that never changes, and in words');
@@ -900,16 +902,31 @@ test('CSV exports: counts per student, per hospital and every entry; safe for sp
     assert.match(entries.find((l) => l.includes(e2.id)), /,Observed,no,no,+open,+$/, 'not signed, no details, no follow-up yet: only the status');
     assert.match(entries.find((l) => l.includes(e3.id)), /^S002,"Doe, Jane",/, 'commas in a name are quoted');
 
+    // ---- follow-up changes: a row per answer added or changed, the same as "View history"; the repeat has no rows
+    const fus = await get('followups');
+    assert.equal(fus[0], 'candidate,name,entry_id,performed_on,procedure_id,procedure,role_id,performed,change_no,first,changed_at,known_on,followup_day,question,question_label,from,to');
+    const head = fus[0].split(',');
+    const pick = (line) => { const c = line.split(','); return ['change_no', 'first', 'known_on', 'followup_day', 'question', 'from', 'to'].map((n) => c[head.indexOf(n)]); };
+    assert.deepEqual(fus.slice(1).map(pick), [
+      ['1', 'yes', '2026-10-25', '5', 'mother', '', 'died'],
+      ['1', 'yes', '2026-10-25', '5', 'died_day', '', '3'],
+      ['1', 'yes', '2026-10-25', '5', 'death_cause', '', 'sepsis'],
+      ['2', 'no', '2026-11-01', '12', 'mother', 'died', 'alive'],
+    ], 'oldest first; the save that only repeated "Alive" is not there');
+    assert.ok(fus.slice(1).every((l) => l.includes(e1.id) && l.includes(',cs,Caesarean section,independent,yes,')), 'the case, as in Every case');
+    assert.match(fus[1], /,2026-10-25T10:00:00\.000Z,/, 'when it was saved');
+    assert.match(fus[1], /^S001,/);
+
     const procs = await get('procedures');
-    assert.equal(procs[0], 'candidate,name,procedure_id,procedure,observing,assisting,surgeon_supervised,surgeon_independent,performed,total,signed,followup_done,followup_open,followup_missed');
-    assert.ok(procs.includes("S001,\"'=HYPERLINK(\"\"x\"\")\",cs,Caesarean section,1,0,0,1,1,2,1,1,1,0"), procs.join('\n'));
-    assert.ok(procs.includes('S002,"Doe, Jane",appendectomy,Appendectomy,0,1,1,0,1,2,0,0,1,1'), procs.join('\n'));
+    assert.equal(procs[0], 'candidate,name,procedure_id,procedure,observing,assisting,surgeon_supervised,surgeon_independent,performed,total,signed,followup_done,followup_open');
+    assert.ok(procs.includes("S001,\"'=HYPERLINK(\"\"x\"\")\",cs,Caesarean section,1,0,0,1,1,2,1,1,1"), procs.join('\n'));
+    assert.ok(procs.includes('S002,"Doe, Jane",appendectomy,Appendectomy,0,1,1,0,1,2,0,0,2'), procs.join('\n'));
     assert.equal(procs.length, 3, 'header, S001 caesarean, S002 appendectomy');
 
     const hosp = await get('hospitals', ';');
-    assert.equal(hosp[0], 'hospital;procedure_id;procedure;observing;assisting;surgeon_supervised;surgeon_independent;performed;total;signed;followup_done;followup_open;followup_missed;students');
-    assert.ok(hosp.includes('Masanga Hospital;appendectomy;Appendectomy;0;1;1;0;1;2;0;0;1;1;1'), hosp.join('\n'));
-    assert.ok(hosp.includes('Bo Government Hospital;cs;Caesarean section;1;0;0;0;0;1;0;0;1;0;1'));
+    assert.equal(hosp[0], 'hospital;procedure_id;procedure;observing;assisting;surgeon_supervised;surgeon_independent;performed;total;signed;followup_done;followup_open;students');
+    assert.ok(hosp.includes('Masanga Hospital;appendectomy;Appendectomy;0;1;1;0;1;2;0;0;2;1'), hosp.join('\n'));
+    assert.ok(hosp.includes('Bo Government Hospital;cs;Caesarean section;1;0;0;0;0;1;0;0;1;1'));
 
     // ---- progress per student: the targets in force (the newest per procedure; 0 removes one), performed and the share
     assert.equal((await sup(t, supToken, 'targets', { candidate: 'S001', targets: { cs: 4, appendectomy: 2 } })).status, 200);
@@ -921,7 +938,7 @@ test('CSV exports: counts per student, per hospital and every entry; safe for sp
     // ---- anonymous: a code instead of each candidate number and name (supervisors too), the same in every file and download
     const anonEntries = await get('entries', ',', true);
     assert.match(anonEntries[0], /^student_code,entry_id,/);
-    const all = (await Promise.all(['entries', 'procedures', 'progress'].map((k) => get(k, ',', true)))).flat().join('\n');
+    const all = (await Promise.all(['entries', 'procedures', 'progress', 'followups'].map((k) => get(k, ',', true)))).flat().join('\n');
     for (const secret of ['S001', 'S002', 'HYPERLINK', 'Doe', 'SUP-ANNA']) assert.ok(!all.includes(secret), `${secret} is not in the anonymous files`);
     const codeOf = (line) => line.split(',')[0];
     const s1 = codeOf(anonEntries.find((l) => l.includes(e1.id)));
@@ -929,6 +946,7 @@ test('CSV exports: counts per student, per hospital and every entry; safe for sp
     assert.notEqual(s1, codeOf(anonEntries.find((l) => l.includes(e3.id))), 'two students, two codes');
     assert.match(anonEntries.find((l) => l.includes(e1.id)), /,yes,yes,V-[0-9A-F]{8},/, 'the supervisor who signed is a code too');
     assert.equal(codeOf((await get('progress', ',', true))[1]), s1, 'the same code in another file');
+    assert.equal(codeOf((await get('followups', ',', true))[1]), s1, 'and in Follow-up changes');
     assert.equal(codeOf((await get('entries', ',', true)).find((l) => l.includes(e1.id))), s1, 'and in a later download');
     const anonHosp = await get('hospitals', ';', true);
     assert.deepEqual(anonHosp, hosp, 'the hospital file has no people in it: the same either way');
@@ -938,6 +956,8 @@ test('CSV exports: counts per student, per hospital and every entry; safe for sp
     assert.equal(book[0], 'file,column,meaning,code,code_meaning');
     const explained = new Set(book.slice(1).map((l) => l.split(',')[1]));
     for (const c of entries[0].split(',')) assert.ok(explained.has(c), `the codebook explains ${c}`);
+    const inFile = (file) => new Set(book.slice(1).filter((l) => l.startsWith(`${file},`) || l.startsWith('all files,')).map((l) => l.split(',')[1]));
+    for (const c of fus[0].split(',')) assert.ok(inFile('followups').has(c), `the codebook explains ${c} of Follow-up changes`);
     assert.ok(book.includes('entries,followup_mother,,died,Died'), 'a row per code');
     assert.ok(book.includes('entries,role_id,,supervised,"Surgeon, supervised (delivered, supervised)"'), 'a code per role');
     assert.ok(book.some((l) => l.startsWith('entries,followup_mat_complication,') && l.includes('No longer asked')), 'a question no longer asked says so');

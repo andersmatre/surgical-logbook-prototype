@@ -5,7 +5,7 @@
 // from the log. This is what makes later server sync conflict-free: sync just
 // means "upload events the server has not seen".
 
-import { FOLLOWUP_DAYS, FOLLOWUP_FIELDS, answerLabel, shownAnswers } from './config.js';
+import { FOLLOWUP_FIELDS, answerLabel, shownAnswers } from './config.js';
 
 const DB_VERSION = 2;
 let dbName = 'surgical-logbook';
@@ -154,8 +154,9 @@ export async function logEntry(f) {
   });
 }
 
-// What became of the patient, added later (FOLLOWUP_FIELDS in config.js). A new event on top of the entry,
-// never a change to it. `known_on` is the day the student learnt it.
+// What became of the patient, added later (FOLLOWUP_FIELDS in config.js), at any time after the case. A new event on
+// top of the entry, never a change to it; a later one changes the answers it holds. `known_on` is the day the
+// student learnt it. Together the follow-ups are the log of changes (followUpLog in config.js).
 export async function addFollowUp(targetId, answers) {
   const now = new Date();
   return addEvent({ id: newId(), type: 'followup', ts: now.toISOString(), target: targetId, known_on: localDateISO(now), answers });
@@ -207,9 +208,6 @@ export function derive(events) {
 
 // Whole days from one date ('YYYY-MM-DD') to another.
 export const daysBetween = (from, to) => Math.round((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / 86400000);
-
-// A follow-up can be added up to FOLLOWUP_DAYS after the operation.
-export const followUpOpen = (entry, today = localDateISO()) => daysBetween(entry.performed_on, today) <= FOLLOWUP_DAYS;
 
 // Answers as one line of text, in the order of the fields: 'Anaesthesia: Spinal · Operation time: 45 minutes'.
 export function answersText(fields, answers) {

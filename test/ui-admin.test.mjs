@@ -94,7 +94,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.match($('.note.reminder').textContent, /No backup has been taken yet\./, 'a reminder while there is data and no backup');
   await click(byText('.note.reminder .change', 'Go to backup'), 400);
   assert.equal($('.tab.on').textContent, 'More', 'the button opens More, where the backup is');
-  assert.ok(byText('.card h3', 'Backup'));
+  assert.ok(byText('.more-tab .card-head', 'Backup'));
   await click(byText('.tab', 'Overview'), 400);
   assert.deepEqual($$('.log-parts .ctab').map((b) => b.textContent), ['Students', 'Procedures', 'Hospitals']);
   assert.doesNotMatch($('.main').textContent, /created the student account/, 'recent changes are under More');
@@ -125,7 +125,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.equal(csTile.querySelector('.proc-count').textContent, 'Observed 0 · Assisted 0 · Performed 2 · 2 students');
   // a search on Procedures and Hospitals too, kept per tab
   // under small headings like the two lists of a new case: a caesarean is under both
-  assert.deepEqual($$('.main .day-head').map((x) => [x.textContent, [...x.nextElementSibling.querySelectorAll('.ptile strong')].map((e) => e.textContent)]),
+  assert.deepEqual($$('.main .card-head').map((x) => [x.textContent, [...x.parentNode.querySelectorAll('.ptile strong')].map((e) => e.textContent)]),
     [['Surgeries', ['Caesarean section', 'Appendectomy']], ['Deliveries', ['Caesarean section']]]);
   type($('.search'), 'APPEND');
   assert.deepEqual($$('.ptile strong').map((e) => e.textContent), ['Appendectomy'], 'the search narrows the tiles, any case');
@@ -193,7 +193,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.ok(byText('.users-head .btn', 'Add users'), '"Add users" stays at the top');
   assert.equal($$('.srow').length, 4);
   // a small heading per kind of account, like the week headings in History, each over its own rows
-  const heads = () => $$('.main h3.day-head').map((e) => [e.textContent, e.nextElementSibling.querySelectorAll('.srow').length]);
+  const heads = () => $$('.main .card.headed > .card-head').map((e) => [e.textContent, e.parentNode.querySelectorAll('.srow').length]);
   assert.deepEqual(heads(), [['Administrators', 1], ['Supervisors', 1], ['Students', 2]]);
   type($('.search'), 'anna');
   assert.deepEqual($$('.srow strong').map((e) => e.textContent), ['SUP-ANNA']);
@@ -255,7 +255,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   // the kind of account in the same switch as elsewhere; the form in a card with a heading, like those under More
   assert.deepEqual($$('.log-parts .ctab').map((b) => b.textContent), ['Students', 'Supervisor', 'Administrator']);
   assert.equal($('.log-parts .ctab.on').textContent, 'Students');
-  assert.equal($('.add-tab .card h3').textContent, 'New students');
+  assert.equal($('.add-tab .card .card-head').textContent, 'New students');
   assert.match($('.add-tab .field-hint').textContent, /One student per line/);
   type($('#ids'), 'cc2001 Mohamed  Kamara\nCC2002, CC2003\nCC1001');
   await submit($('.setup-form'), 800);
@@ -276,7 +276,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
 
   // ---- add a supervisor
   await click(byText('.log-parts .ctab', 'Supervisor'));
-  assert.equal($('.add-tab .card h3').textContent, 'New supervisor');
+  assert.equal($('.add-tab .card .card-head').textContent, 'New supervisor');
   assert.equal($('label[for=newname]').textContent, 'Name');
   assert.equal($('label[for=newname]').nextElementSibling.textContent, 'Students see it next to a signature.', 'the hint in grey under the label');
   type($('#newid'), 'sup-ben');
@@ -412,7 +412,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
 
   // ---- More, then log out
   assert.match($('.main').textContent, /ADMIN-ANDERS/);
-  assert.deepEqual($$('.more-tab .card').map((c) => c.querySelector('h3, summary strong').textContent), ['Account', 'Backup', 'Advanced']);
+  assert.deepEqual($$('.more-tab > .card > .card-head, .more-tab summary strong').map((x) => x.textContent), ['Account', 'Backup', 'Advanced']);
   // Recent changes is under Advanced, after About: shut at first, and it stays open when the tab is drawn again
   const changes = () => $('details.advanced');
   assert.equal(changes().querySelector('summary .muted').textContent, 'About and recent changes');
@@ -445,7 +445,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.deepEqual($$('.row-btn', formatMenu).map((b) => [b.textContent, b.classList.contains('on')]), [['Excel', true], ['Other programs', false]]);
   await click($('.hpick-x', formatMenu), 50);
   assert.ok(formatMenu.hidden, 'and × closes it');
-  assert.deepEqual($$('.dl-files .dl-row strong').map((e) => e.textContent), ['Progress per student', 'Procedures per student', 'Procedures per hospital', 'Every case', 'Codebook']);
+  assert.deepEqual($$('.dl-files .dl-row strong').map((e) => e.textContent), ['Progress per student', 'Procedures per student', 'Procedures per hospital', 'Every case', 'Follow-up changes', 'Codebook']);
   assert.equal($$('.dl-files input[type=checkbox]:checked').length, 0, 'nothing ticked at first');
   const dlBtn = () => byText('.bottom-bar .btn', 'ownload');
   const allBtn = () => byText('.bottom-bar .btn', 'Select ');
@@ -453,7 +453,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.ok(dlBtn().disabled);
   const tick = (title) => byText('.dl-row', title).querySelector('input').click(); // tapping the row ticks it too (a label)
   await click(allBtn(), 50);
-  assert.equal(dlBtn().textContent, 'Download 5 files');
+  assert.equal(dlBtn().textContent, 'Download 6 files');
   assert.equal(allBtn().textContent, 'Select none');
   await click(allBtn(), 50);
   assert.equal(dlBtn().textContent, 'Select files to download');
@@ -467,7 +467,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   const csv1 = await saved[0].blob.text(); // text() drops the byte order mark; the file itself keeps it
   assert.deepEqual([...Buffer.from(await saved[0].blob.arrayBuffer()).subarray(0, 3)], [0xef, 0xbb, 0xbf]);
   assert.match(csv1, /^student_code;procedure_id;procedure;/);
-  assert.match(csv1, /\nS-[0-9A-F]{8};cs;Caesarean section;0;0;1;0;1;1;0;0;(1;0|0;1)\r?\n/, 'counts, then follow-ups done, open, missed (open or missed depends on today)');
+  assert.match(csv1, /\nS-[0-9A-F]{8};cs;Caesarean section;0;0;1;0;1;1;0;0;1\r?\n/, 'counts, then follow-ups done and open');
   assert.doesNotMatch(csv1, /CC1001|CC1002/);
   // with names, in the other format
   await click(anon);

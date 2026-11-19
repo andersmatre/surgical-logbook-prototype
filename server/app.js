@@ -24,7 +24,7 @@
 //   POST /api/admin/create      { role, id, name? } -> { id, password }     (password is shown once)
 //   POST /api/admin/create_many { people: [{id, name?}] } -> { created: [{id, password}], skipped: [{id, reason}] }   (students)
 //   POST /api/admin/rename      { id, name }
-//   POST /api/admin/export      { kind: progress|procedures|hospitals|entries|codebook, delimiter, anonymous } -> CSV file
+//   POST /api/admin/export      { kind: progress|procedures|hospitals|entries|followups|codebook, delimiter, anonymous } -> CSV file
 //   POST /api/admin/backup      -> a copy of the database file
 //   POST /api/admin/reset | disable | enable | revoke   { id }              (not on your own account, except revoke)
 //   POST /api/admin/delete      { id } -> { ok, events, assignments }       (erases a disabled account and its data; not your own)
@@ -418,7 +418,7 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
         const anonymous = body.anonymous === true && kind !== 'codebook' && kind !== 'hospitals';
         const today = new Date(now()).toISOString().slice(0, 10);
         logAudit(db, a.candidate, 'export', null, anonymous ? `${kind} (anonymous)` : kind, new Date(now()));
-        return sendFile(res, 'text/csv; charset=utf-8', `logbook-${kind}${anonymous ? '-anonymous' : ''}-${today}.csv`, exportCsv(db, kind, delimiter, { anonymous, today }));
+        return sendFile(res, 'text/csv; charset=utf-8', `logbook-${kind}${anonymous ? '-anonymous' : ''}-${today}.csv`, exportCsv(db, kind, delimiter, { anonymous }));
       }
 
       if (action === 'backup') {
