@@ -99,12 +99,12 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.deepEqual($$('.log-parts .ctab').map((b) => b.textContent), ['Students', 'Procedures', 'Hospitals']);
   assert.doesNotMatch($('.main').textContent, /created the student account/, 'recent changes are under More');
   assert.equal($('.log-parts .ctab.on').textContent, 'Students');
-  // the white button of the switch is its own element, under the open tab, so it can slide to another one
-  const thumb = () => $('.log-parts .seg-thumb');
-  assert.equal(thumb().style.getPropertyValue('--i'), '0');
-  assert.equal($('.log-parts').style.getPropertyValue('--n'), '3');
+  // tabs like Details and Follow-up in a case: the tapped one is open, and nothing is left over from the slide (the
+  // simulated browser cannot animate, so only the end is checked here)
   await click(byText('.log-parts .ctab', 'Hospitals'), 100);
-  assert.equal(thumb().style.getPropertyValue('--i'), '2', 'under the tab that was tapped');
+  assert.equal($('.log-parts .ctab.on').textContent, 'Hospitals');
+  assert.equal($('.log-parts .tab-line'), null);
+  assert.ok(!$('.log-parts').classList.contains('sliding'));
   await click(byText('.log-parts .ctab', 'Students'), 100);
   assert.equal($('.tbl'), null, 'no wide tables any more');
   // a row per student, like a supervisor's My students
@@ -189,7 +189,8 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   // ---- Manage users: the list of every account, and (behind "Add users") the page to add users
   assert.deepEqual($$('.nav .tab').map((b) => b.textContent), ['Overview', 'Manage users', 'Download data', 'More'], 'four tabs at the top');
   await click(byText('.tab', 'Manage users'));
-  assert.equal($('.detail-title h2').textContent, 'Manage users');
+  assert.equal($('.main h2'), null, 'no heading: the open tab at the top is the name of the page');
+  assert.ok(byText('.users-head .btn', 'Add users'), '"Add users" stays at the top');
   assert.equal($$('.srow').length, 4);
   // a small heading per kind of account, like the week headings in History, each over its own rows
   const heads = () => $$('.main h3.day-head').map((e) => [e.textContent, e.nextElementSibling.querySelectorAll('.srow').length]);
@@ -296,7 +297,7 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
 
   // ---- the arrow goes back to the list; the new student has the name that was typed
   await click($('.back-btn'), 400);
-  assert.equal($('.detail-title h2').textContent, 'Manage users');
+  assert.ok(byText('.users-head .btn', 'Add users'), 'back on the list');
   assert.ok(byText('.srow', 'Mohamed Kamara'), 'the name is in the list');
   type($('.search'), 'mohamed');
   assert.deepEqual($$('.srow strong').map((e) => e.textContent), ['CC2001'], 'search finds a name');
@@ -426,7 +427,8 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   // ---- spreadsheet downloads, on their own tab: Anonymous on or off and the file format in one card, a row per file
   // with a tick box, and Select all and Download in the bar at the bottom of the screen, like a supervisor's To sign
   await click(byText('.tab', 'Download data'), 300);
-  assert.equal($('.main h2').textContent, 'Download data');
+  assert.equal($('.tab.on').textContent, 'Download data');
+  assert.equal($('.main h2'), null, 'no heading: the open tab at the top is the name of the page');
   const dl = $('.downloads');
   assert.equal($('select', dl), null, 'no drop-down list');
   assert.equal($('.ctab', dl), null, 'no switch');

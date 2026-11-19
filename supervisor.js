@@ -18,7 +18,7 @@ const ENDED = Symbol('session ended'); // the server ended the session; app.js s
 // Everything this screen remembers while it is open. Replaced on every new login.
 const sv = {
   token: null, tab: 'students',
-  students: null, candidates: null, query: '', myQuery: '', // query: the search on Add students; myQuery: on My students
+  students: null, candidates: null, query: '', myQuery: '', // query: the search on Manage students, Add; myQuery: on My students
   loading: false, error: '',
   detail: null, // { candidate, events, entries, selected:Set, loading, error }
   detailTab: 'sign', // on a student's page: 'sign', 'signed' or 'progress'
@@ -71,7 +71,7 @@ function header() {
 
 function nav() {
   const waiting = (sv.students || []).reduce((n, s) => n + s.unsigned, 0);
-  const tabs = [['students', 'My students'], ['add', 'Add students'], ['more', 'More']];
+  const tabs = [['students', 'My students'], ['manage', 'Manage students'], ['more', 'More']];
   return h('nav', { class: 'nav' }, tabs.map(([id, label]) =>
     // a student's page is part of My students, so that tab stays chosen there; tapping it goes back to the list
     h('button', { class: 'tab' + (sv.tab === id ? ' on' : ''), onclick: () => goTab(id) },
@@ -79,7 +79,7 @@ function nav() {
 }
 
 function body() {
-  if (sv.tab === 'add') return addView();
+  if (sv.tab === 'manage') return manageView();
   if (sv.tab === 'more') return moreView();
   return studentsView();
 }
@@ -90,7 +90,7 @@ function goTab(id) {
   setPageScroll(0);
   // fetched again every time, so the list is never old; what was there stays on show until the answer comes
   if (id === 'students') loadStudents();
-  if (id === 'add') loadCandidates();
+  if (id === 'manage') { loadCandidates(); loadStudents(); } // Add students and Remove students
   draw();
 }
 
@@ -99,7 +99,7 @@ function goTab(id) {
 // meanwhile show up by themselves. Not while a pop-up is open: that would change what it is about.
 function refreshCurrent() {
   if (sv.detail) loadDetail(sv.detail.candidate, { quiet: true });
-  else if (sv.tab === 'add') loadCandidates();
+  else if (sv.tab === 'manage') { loadCandidates(); loadStudents(); }
   else if (sv.tab === 'students') loadStudents();
 }
 
@@ -195,10 +195,10 @@ function studentsView() {
   else if (!list.length) {
     content = h('div', { class: 'card' },
       h('h3', {}, 'No students yet'),
-      h('p', {}, 'Open "Add students" and add the candidate numbers of the students you supervise. After that you can see their cases and sign them.'),
-      h('button', { class: 'btn wide', onclick: () => goTab('add') }, 'Add students'));
+      h('p', {}, 'Open "Manage students" and add the candidate numbers of the students you supervise. After that you can see their cases and sign them.'),
+      h('button', { class: 'btn wide', onclick: () => goTab('manage') }, 'Add students'));
   } else {
-    // a search like the one on Add students: candidate number or name; the list narrows while typing
+    // a search like the one on Manage students: candidate number or name; the list narrows while typing
     const input = h('input', { type: 'search', placeholder: 'Search candidate number or name', class: 'search', value: sv.myQuery, autocapitalize: 'characters', autocomplete: 'off' });
     const ul = h('ul', { class: 'list' });
     const drawList = () => {
@@ -218,7 +218,7 @@ function studentsView() {
     drawList();
     content = [input, ul];
   }
-  return h('section', {}, h('h2', {}, 'My students'), content);
+  return h('section', {}, content); // no heading: the open tab at the top (My students) is the page's name
 }
 
 // "12 cases · last case logged 3 days ago" (the day the student logged it on their tablet), or just "No cases yet".
@@ -233,20 +233,17 @@ function errorBox() {
 // ---- one student ----------------------------------------------------------------------
 
 // A student opens in a big pop-up over My students (showPanel in ui.js), laid out like the case pop-up: at the top,
-// staying there, the candidate number with the name under it, Remove (red, it asks first) and ×, and under them the
-// three tabs; then the numbers and the tab's cases, which scroll; on To sign, Select all and Sign at the bottom.
-// Each case is a short row (caseRow in ui.js, shared with an administrator's student); tapping it opens the whole
-// case on top, only to read. Returns { head, body, foot } for showPanel.
+// staying there, the candidate number with the name under it, and under them the three tabs; then the numbers and the
+// tab's cases, which scroll; at the bottom Close, and on To sign also Sign. (Removing a student is under Manage
+// students.) Each case is a short row (caseRow in ui.js, shared with an administrator's student); tapping it opens
+// the whole case on top, only to read. Returns { head, body, action } for showPanel.
 function detailView() {
   const d = sv.detail;
   const name = nameOf(d.candidate);
   const who = name || d.candidate; // first on the grey line of a case pop-up: whose case it is
-  // "Remove student", just "Remove" on a narrow phone so the name has room
-  const remove = h('button', { class: 'btn ghost danger', type: 'button', 'aria-label': 'Remove student', onclick: () => confirmRemove(d.candidate) }, 'Remove', h('span', { class: 'wide-only' }, ' student'));
   const head = (tabs) => h('div', { class: 'sheet-head' },
     h('div', { class: 'case-top' },
-      h('div', { class: 'case-top-text' }, h('h3', { class: 'case-title' }, d.candidate), name ? h('p', { class: 'case-sub' }, name) : null),
-      remove),
+      h('div', { class: 'case-top-text' }, h('h3', { class: 'case-title' }, d.candidate), name ? h('p', { class: 'case-sub' }, name) : null)),
     tabs);
   if (d.loading) return { head: head(null), body: h('p', { class: 'muted' }, 'Loading cases…') };
   if (d.error) return { head: head(null), body: h('div', { class: 'card' }, h('p', { class: 'error' }, d.error), h('button', { class: 'btn', onclick: () => loadDetail(d.candidate) }, 'Try again')) };
@@ -299,7 +296,7 @@ function detailView() {
     progress: () => progressPage(d),
   };
 
-  // To sign, Signed and Progress: a switch whose white button slides to the tab that is tapped (segSwitch in ui.js)
+  // To sign, Signed and Progress: tabs whose blue line slides to the tab that is tapped (segSwitch in ui.js)
   const tabs = segSwitch('What to show about the student', [['sign', 'To sign'], ['signed', 'Signed'], ['progress', 'Progress']], sv.detailTab, (id) => { sv.detailTab = id; panelTop = true; draw(); });
   const body = [
     h('div', { class: 'stats' }, stat(d.entries.length, 'cases'), stat(signed.length, 'signed'), stat(unsigned.length, 'to sign')),
@@ -354,8 +351,8 @@ function openTargets(d) {
       }
       if (n !== (now[id] || 0)) changes[id] = n;
     }
-    if (!Object.keys(changes).length) { err.textContent = 'Nothing changed. Type a number, or Cancel.'; return; }
-    closeSheet();
+    closeSheet(); // also with nothing changed: Save then just closes, back to the student
+    if (!Object.keys(changes).length) return;
     try {
       const r = await call((t) => api.supTargets(t, d.candidate, changes));
       if (r === ENDED) return;
@@ -416,19 +413,45 @@ function confirmRemove(candidate) {
         const r = await call((t) => api.supUnassign(t, candidate));
         if (r === ENDED) return;
         sv.students = null;
-        sv.candidates = null;
         sv.detail = null;
-        toast('Removed', { sub: candidate });
+        toast('Removed', { sub: `${candidate} is no longer one of your students.` });
+        // the lists fetched again: Manage students (on show) and My students (the count on its tab)
+        loadCandidates();
         loadStudents();
       } catch (e) { toast('Could not remove', { sub: e.message }); }
     },
   });
 }
 
-// ---- Add students ---------------------------------------------------------------------
+// ---- Manage students ---------------------------------------------------------------------
+// One page, no heading and no tabs of its own (the open tab at the top is its name), in two parts under small grey
+// headings like the weeks in History: "Your students" (the same list as My students, usually short, with Remove on
+// each row, which asks first), then "Add students" (every student not yet yours, with a search and Add on each row).
+// Both lists are fetched when the tab is opened.
 
-function addView() {
-  const list = h('div', { class: 'list' }); // the same list and rows as My students, with Add on the right
+function manageView() {
+  if (sv.error) return h('section', {}, errorBox());
+  return h('section', { class: 'manage' },
+    h('h3', { class: 'day-head' }, 'Your students'), removePart(),
+    h('h3', { class: 'day-head' }, 'Add students'), addPart());
+}
+
+// Your students, a row each like on Add students, with Remove on the right, filled red (it asks first).
+function removePart() {
+  if (sv.students === null) return h('p', { class: 'muted' }, 'Loading…');
+  const mine = sv.students;
+  if (!mine.length) return h('p', { class: 'muted' }, 'None yet. Add them below.');
+  return [
+    h('div', { class: 'list mine-list' }, mine.map((c) => h('div', { class: 'addrow' },
+      h('span', { class: 'srow-main' }, h('strong', {}, c.candidate), c.name ? h('span', { class: 'small' }, c.name) : null,
+        h('span', { class: 'muted small' }, lastLogged(c))),
+      // filled red, as Add is filled blue
+      h('button', { class: 'btn small danger', type: 'button', 'aria-label': `Remove ${c.candidate}`, onclick: () => confirmRemove(c.candidate) }, 'Remove')))),
+  ];
+}
+
+function addPart() {
+  const list = h('div', { class: 'list add-list' }); // the same list and rows as My students, with Add on the right
   const more = h('p', { class: 'muted small', hidden: true }); // "Showing 40 of 120", under the card
   const input = h('input', { type: 'search', placeholder: 'Search candidate number or name', class: 'search', value: sv.query, autocapitalize: 'characters', autocomplete: 'off' });
   const drawList = () => {
@@ -451,9 +474,7 @@ function addView() {
   };
   input.addEventListener('input', drawList);
   drawList();
-  return h('section', {},
-    h('h2', {}, 'Add students'),
-    input, list, more);
+  return [input, list, more];
 }
 
 async function addStudent(c, drawList) {
@@ -461,7 +482,7 @@ async function addStudent(c, drawList) {
     const r = await call((t) => api.supAssign(t, c.candidate));
     if (r === ENDED) return;
     c.mine = true;
-    sv.students = null; // reload the list next time it is shown
+    loadStudents(); // fetched again in the background: My students and Remove students get the new student
     toast('Added', { sub: `${c.candidate} is now one of your students.` });
     drawList();
   } catch (e) { toast('Could not add', { sub: e.message }); }
@@ -472,7 +493,6 @@ async function addStudent(c, drawList) {
 // Laid out like the student's More (fact, advancedCard in ui.js).
 function moreView() {
   return h('section', { class: 'more-tab' },
-    h('h2', {}, 'More'),
     h('div', { class: 'card' }, h('h3', {}, 'Account'),
       h('div', { class: 'facts plain' },
         fact('Candidate number', ctx.session.candidate),

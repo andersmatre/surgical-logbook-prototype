@@ -366,8 +366,7 @@ function logTab() {
   // on one page looks like a mistake: it is shown once, under Deliveries.
   const operations = LOG_SURGERY.filter((id) => !LOG_DELIVERIES.includes(id));
   return h('section', {},
-    h('h2', { class: 'log-title' }, 'Add a new case'), // "case", like the counts on the rows and on Progress
-    h('p', { class: 'muted log-hint' }, 'Tap what you did.'),
+    // no heading: the open tab at the top (New case) is the page's name
     h('h3', { class: 'log-head' }, 'Operations'),
     list(operations),
     h('button', { class: 'btn ghost wide log-more', type: 'button', onclick: openMoreProcedures }, 'Not in the list? Find another operation'),
@@ -739,7 +738,6 @@ function progressTab() {
   // A white tile per procedure, like the procedures on the New case tab (procedureProgress in ui.js, which an
   // administrator's page of one student shows too). Targets are set by a supervisor and come with the sync.
   return h('section', {},
-    h('h2', {}, 'My progress'),
     h('div', { class: 'stats' },
       stat(total, 'cases'), stat(signed, 'signed'), stat(wk, 'this week')),
     procedureProgress(state.entries, state.events, { note: 'Set by your supervisor.', none: 'No targets yet. Your supervisor sets them.' }));
@@ -752,27 +750,31 @@ const waitsForFollowUp = (e) => core.followUpOpen(e) && !Object.keys(e.outcome |
 
 function historyTab() {
   if (!state.entries.length) {
-    return h('section', {}, h('h2', {}, 'My history'), h('p', { class: 'muted' }, 'No cases yet. Add your first case on the New case tab.'));
+    return h('section', {}, h('p', { class: 'muted' }, 'No cases yet. Add your first case on the New case tab.'));
   }
   const f = historyFilter;
   const shown = state.entries.filter((e) => (!f.procedure || e.procedure === f.procedure) && (!f.role || e.role === f.role)
     && (!f.followUp || waitsForFollowUp(e)));
   const filtered = f.procedure || f.role || f.followUp;
-  // A reminder: how many cases can still get a follow-up, with a button that shows only those.
+  // At the top, an on/off switch that shows only the cases that can still get a follow-up (with how many), built like
+  // "Anonymous" on an administrator's Download data: the whole row is the switch, the words small and grey with Yes or
+  // No under them. Not there while no case can get one (unless it is on).
   const open = state.entries.filter(waitsForFollowUp).length;
+  const fuToggle = open || f.followUp
+    ? h('div', { class: 'card toggle-card' }, h('button', {
+      class: 'toggle-row fu-toggle', type: 'button', role: 'switch', 'aria-checked': String(f.followUp),
+      onclick: () => setHistoryFilter({ followUp: !f.followUp }),
+    }, h('span', { class: 'fact-text' }, h('span', {}, `Only cases that can get a follow-up (${open})`), h('strong', {}, f.followUp ? 'Yes' : 'No')),
+    h('span', { class: 'toggle', 'aria-hidden': 'true' })))
+    : null;
   return h('section', {},
-    h('h2', {}, 'My history'),
+    fuToggle,
     h('div', { class: 'filters' },
       filterButton('Procedure', f.procedure ? procName(f.procedure) : 'All', !!f.procedure, openProcedureFilter),
       filterButton('Role', f.role ? roleDone(f.role, f.procedure) : 'All', !!f.role, openRoleFilter)),
-    open && !f.followUp
-      ? h('div', { class: 'note-info reminder fu-reminder' },
-        h('span', {}, `${cases(open)} can get a follow-up.`),
-        h('button', { class: 'change', type: 'button', onclick: () => setHistoryFilter({ followUp: true }) }, 'Show'))
-      : null,
     filtered
       ? h('div', { class: 'shown' },
-        h('span', {}, f.followUp ? `Showing ${shown.length} that can get a follow-up` : `Showing ${shown.length} of ${state.entries.length}`),
+        h('span', {}, `Showing ${shown.length} of ${state.entries.length}`),
         h('button', { class: 'change', type: 'button', onclick: () => setHistoryFilter({ procedure: null, role: null, followUp: false }) }, 'Show all'))
       : null,
     // A small heading per week it was done ("This week", "Last week", "2 – 8 Nov"), so a long history is easy to scan.
@@ -862,9 +864,8 @@ function openFollowUp(e) {
           const v = form.values();
           if (v.error) return; // shown under the number
           const changed = Object.fromEntries(Object.entries(v.answers).filter(([id, a]) => e.outcome[id] !== a));
-          // a message at the bottom of the screen, where it is always seen (the end of the form may be out of sight)
-          if (!Object.keys(changed).length) { toast('Nothing new to save', { sub: 'Tap an answer, or go back with the arrow.' }); return; }
-          closeSheet();
+          closeSheet(); // also with nothing new: Save then just closes, as after saving
+          if (!Object.keys(changed).length) return;
           const ev = await core.addFollowUp(e.id, changed);
           await refresh();
           scheduleSync();
@@ -897,7 +898,6 @@ function moreTab() {
   const hosp = hospitalPicker(() => refresh());
 
   return h('section', { class: 'more-tab' },
-    h('h2', {}, 'More'),
     h('div', { class: 'card' }, h('h3', {}, 'Account'),
       h('div', { class: 'facts plain' },
         fact('Candidate number', state.profile.student),

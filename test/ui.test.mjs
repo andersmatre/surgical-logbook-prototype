@@ -149,8 +149,8 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
 
   // ---- the Log tab: one page, no switch: the operations, a button for every other operation, then the deliveries
   assert.equal($('.log-parts'), null, 'no Surgery / Delivery switch');
-  assert.equal($('.log-title').textContent, 'Add a new case', 'the heading says what the page is for, in the same word as the counts');
-  assert.match($('.log-hint').textContent, /Tap what you did/);
+  assert.equal($('.main h2'), null, 'no heading: the open tab at the top (New case) is the page\'s name');
+  assert.equal($('.log-hint'), null, 'no line of help above the lists');
   assert.deepEqual($$('.log-head').map((x) => x.textContent), ['Operations', 'Deliveries']);
   const [ops, dels] = $$('.proc-list');
   assert.deepEqual($$('.proc-name', ops).map((x) => x.textContent), ['Inguinal hernia repair', 'Appendectomy', 'Laparotomy', 'Umbilical hernia repair', 'Strangulated hernia repair', 'Amputation above knee', 'Scrotal hydrocele', 'Cystectomy', 'Salpingectomy for ectopic pregnancy'], 'the common operations, without the caesarean');
@@ -254,14 +254,19 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   // History has no count of unsigned entries on its tab and no message about them.
   await click(byText('.tab', 'History'));
   assert.equal($('.nav .badge'), null, 'no count on the History tab');
-  assert.equal($('.note-info:not(.fu-reminder)'), null, 'no message about signatures at the top of History');
-  // a reminder of the cases that can still get a follow-up, with a button that shows only those
-  assert.match($('.fu-reminder').textContent, /^3 cases can get a follow-up\.Show$/);
-  await click(byText('.fu-reminder .change', 'Show'));
+  assert.equal($('.note-info'), null, 'no message about signatures (or anything else) at the top of History');
+  // at the top, an on/off switch for only the cases that can still get a follow-up, with how many
+  const fu = () => $('.fu-toggle');
+  assert.equal(fu().getAttribute('role'), 'switch');
+  assert.equal(fu().getAttribute('aria-checked'), 'false', 'off at first: every case is shown');
+  assert.equal(fu().querySelector('.fact-text').textContent, 'Only cases that can get a follow-up (3)No');
+  await click(fu());
+  assert.equal(fu().getAttribute('aria-checked'), 'true');
+  assert.equal(fu().querySelector('strong').textContent, 'Yes');
   assert.equal($$('.entry').length, 3);
-  assert.match($('.shown').textContent, /Showing 3 that can get a follow-up/);
-  assert.equal($('.fu-reminder'), null, 'the reminder is not shown while only those are shown');
-  await click(byText('.shown button', 'Show all'));
+  assert.match($('.shown').textContent, /Showing 3 of 3/);
+  await click(fu());
+  assert.equal(fu().getAttribute('aria-checked'), 'false', 'tapped again: off');
   assert.equal($('.shown'), null);
   assert.match($('.entry .e-sub').textContent, /^Assisted · \d+ \w+$/, 'the row: your role and the date');
   assert.deepEqual($$('.day-head').map((x) => x.textContent), ['This week'], 'a heading for the week, above its entries');
@@ -342,7 +347,7 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
   assert.ok($('.hpick').hidden, 'Escape closes it');
   await click(hospBtn);
-  $('h2').dispatchEvent(new window.Event('pointerdown', { bubbles: true }));
+  $('.more-tab .card h3').dispatchEvent(new window.Event('pointerdown', { bubbles: true }));
   assert.ok($('.hpick').hidden, 'a tap outside closes it');
   await click(hospBtn);
   $('.hpick .search').dispatchEvent(new window.Event('pointerdown', { bubbles: true }));
@@ -681,7 +686,11 @@ test('role and details are on one screen, and a follow-up can be added later fro
     ['Outcome', 'Outcome', 'Wound infection', 'Back to theatre', 'Referred to another hospital', 'Days in hospital after the operation']);
   assert.deepEqual(visible('.sheet .qcard .qsection').map((x) => x.textContent), ['Mother', 'Baby', 'Complications', 'Hospital stay'], 'in parts named like the details; the baby too (born alive, as far as the details say)');
   await click(byText('.sheet .btn', 'Save'));
-  assert.match($('#toast').textContent, /Nothing new to save/, 'said at the bottom of the screen, where it is always seen');
+  assert.equal($('#overlay.open'), null, 'Save with nothing new just closes');
+  assert.doesNotMatch($('#toast').textContent, /Follow-up saved/, 'and saves nothing');
+  await click(row());
+  await click(byText('.sheet-head .ctab', 'Follow-up'));
+  await click(byText('.sheet .btn', 'Add follow-up'));
   await click(byText('.choice', 'Alive')); // the mother
   await click(byText('.sheet .btn', 'Save'), 400);
   const caseFollowUp = async () => {

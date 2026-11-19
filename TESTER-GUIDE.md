@@ -22,7 +22,7 @@ Please try these in order. Do not ask anyone for help. If you get stuck, note wh
 3. Make a mistake on purpose and undo it.
 4. Switch on airplane mode. Log two procedures. Switch airplane mode off. Watch the top right: while cases wait it shows "Offline" or "N to sync"; after a short time the button disappears, which means everything is sent.
 5. Open "Progress" and look at your numbers.
-6. Add a follow-up to one of your operations: what happened to the patient afterwards. Open "History", tap the case, tap "Follow-up", then "Add follow-up". (At the top of History the app says how many cases can still get a follow-up.)
+6. Add a follow-up to one of your operations: what happened to the patient afterwards. Open "History", tap the case, tap "Follow-up", then "Add follow-up". (At the top of History, a switch shows only the cases that can still get a follow-up.)
 7. Ask your supervisor to add your candidate number in their app and sign your cases. Your cases must be synced first (no sync button is shown at the top right). When your supervisor has signed, switch to another app and back (or turn the screen off and on): the signatures appear in the History tab, and your supervisor's name appears under More, "Your supervisors".
 
 ## Use it for real for one to two weeks
@@ -53,7 +53,7 @@ You need internet for all of this (the supervisor screens do not work offline).
 
 1. Open the link in Chrome, add it to the Home screen, and open it from there.
 2. Log in with your **candidate number** and the password you were given. Choose your own password and keep it to yourself.
-3. Tap **Add students**, find the candidate numbers of the students you supervise and tap **Add**. The student can see your name, so nobody is added in secret.
+3. Tap **Manage students**. Under **Add students**, find the candidate numbers of the students you supervise and tap **Add**. The student can see your name, so nobody is added in secret.
 4. Tap **My students**. A student with cases waiting shows "to sign". Tap the student.
 5. Look at the list under **To sign**. Nothing is ticked at first. **Tick the cases you supervised** ("Select all" ticks every one), then tap **Sign**. Only sign procedures you supervised and that are correct. A signature cannot be undone.
 6. Tell us:

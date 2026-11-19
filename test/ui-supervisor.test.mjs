@@ -87,25 +87,29 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   assert.match($('.main').textContent, /No students yet/);
   assert.equal(byText('.tab', 'Log'), undefined, 'no logbook tabs');
 
-  // ---- add students: search, add one, the other is still offered
-  await click(byText('.tab', 'Add students'));
-  assert.deepEqual($$('.addrow strong').map((e) => e.textContent), ['CC1001', 'CC1002']);
+  // ---- Manage students: one page, "Your students" (none yet) then "Add students"; search, add one, the other is still offered
+  assert.deepEqual($$('.nav .tab').map((b) => b.textContent), ['My students', 'Manage students', 'More']);
+  await click(byText('.tab', 'Manage students'));
+  assert.deepEqual($$('.manage > .day-head').map((x) => x.textContent), ['Your students', 'Add students'], 'two parts, no tabs');
+  assert.equal($('.main h2'), null, 'no heading: the open tab at the top is the name of the page');
+  assert.match($('.manage').textContent, /None yet. Add them below./);
+  assert.deepEqual($$('.add-list .addrow strong').map((e) => e.textContent), ['CC1001', 'CC1002']);
   type($('.search'), 'cc1002');
-  assert.deepEqual($$('.addrow strong').map((e) => e.textContent), ['CC1002']);
-  await click(byText('.btn', 'Add', $('.addrow')));
+  assert.deepEqual($$('.add-list .addrow strong').map((e) => e.textContent), ['CC1002']);
+  await click(byText('.btn', 'Add', $('.add-list .addrow')));
   assert.match($('#toast').textContent, /CC1002 is now one of your students/);
   assert.doesNotMatch($('#toast').textContent, /null/);
   assert.doesNotMatch($('.main').textContent, /null|undefined/);
   type($('.search'), '');
-  assert.deepEqual($$('.addrow strong').map((e) => e.textContent), ['CC1001'], 'an added student leaves the list');
+  assert.deepEqual($$('.add-list .addrow strong').map((e) => e.textContent), ['CC1001'], 'an added student leaves the list');
   type($('.search'), 'zzz');
-  assert.match($('.main .list').textContent, /No match/);
+  assert.match($('.add-list').textContent, /No match/);
   type($('.search'), 'mohamed');
-  assert.match($('.addrow').textContent, /CC1001\s*Mohamed Kamara/, 'a student can be found by name');
-  assert.match($('.addrow').textContent, /3 cases · last case logged (\d+ days ago|\d+ \w+)/, 'with how many cases and when the last was logged, like My students');
+  assert.match($('.add-list .addrow').textContent, /CC1001\s*Mohamed Kamara/, 'a student can be found by name');
+  assert.match($('.add-list .addrow').textContent, /3 cases · last case logged (\d+ days ago|\d+ \w+)/, 'with how many cases and when the last was logged, like My students');
   type($('.search'), '');
-  await click(byText('.btn', 'Add', $('.addrow')));
-  assert.match($('.main .list').textContent, /Every student is already added/);
+  await click(byText('.btn', 'Add', $('.add-list .addrow')));
+  assert.match($('.add-list').textContent, /Every student is already added/);
 
   // ---- my students: the one with entries waiting comes first
   await click(byText('.tab', 'My students'), 500);
@@ -228,7 +232,9 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   assert.equal($$('.sheet .trow').length, TARGET_PROCEDURES.length, 'every procedure that is offered');
   assert.equal($('.sheet .trow label').textContent, 'Caesarean section', 'those on the New case tab first');
   await click(byText('.sheet .btn', 'Save'), 50);
-  assert.match($('.sheet .error').textContent, /Nothing changed/);
+  assert.equal($('#overlay.open'), null, 'Save with nothing changed just closes');
+  assert.ok($('#panel.open'), 'back on the student');
+  await click(byText('#panel .btn', 'Set targets'), 100);
   type($('#t-cs'), '30');
   type($('.sheet .search'), 'appendec');
   assert.deepEqual($$('.sheet .trow').filter((r) => !r.hidden).map((r) => r.textContent), ['Appendectomy'], 'the search narrows the list');
@@ -259,12 +265,20 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   assert.equal($$('.main .srow').length, 2);
   await click(byText('.srow', 'CC1001'), 500);
   assert.equal($('#panel .ctab.on').textContent, 'To sign');
+  assert.equal(byText('#panel button', 'Remove'), undefined, 'no Remove in the pop-up: that is under Manage students');
+  await click(byText('#panel .sheet-foot .btn', 'Close'), 500);
 
-  // ---- remove the student: access ends
-  await click(byText('.btn', 'Remove student'), 100);
+  // ---- remove a student under Manage students, Your students: a row each with Remove, which asks; access ends
+  await click(byText('.tab', 'Manage students'), 500);
+  assert.deepEqual($$('.mine-list .addrow strong').map((e) => e.textContent).sort(), ['CC1001', 'CC1002'], 'your students');
+  assert.equal($('.mine-list [aria-label="Remove CC1001"]').className, 'btn small danger', 'filled red');
+  await click($('[aria-label="Remove CC1001"]'), 100);
   assert.match($('.sheet').textContent, /Remove CC1001\?/);
   await click(byText('.sheet .btn', 'Remove'), 700);
-  assert.equal($('#panel.open'), null, 'the pop-up of a removed student closes');
+  assert.match($('#toast').textContent, /CC1001 is no longer one of your students/);
+  assert.deepEqual($$('.mine-list .addrow strong').map((e) => e.textContent), ['CC1002'], 'gone from Your students');
+  assert.ok(byText('.add-list .addrow', 'CC1001'), 'and offered under Add students again');
+  await click(byText('.tab', 'My students'), 500);
   assert.deepEqual($$('.srow strong').map((e) => e.textContent), ['CC1002']);
   assert.equal((await post('/api/sup/entries', (await post('/api/login', null, { candidate: 'SUP-ANNA', password: 'sup-own-secret-1' })).token, { candidate: 'CC1001' })).error, 'not_assigned');
 

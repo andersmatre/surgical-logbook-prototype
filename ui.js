@@ -359,34 +359,47 @@ export function popMenu({ title, buttonLabel, body, onOpen = () => {} }) {
   return { button, panel, close };
 }
 
-// A switch: a grey track with a tab per choice, the open one a white raised button in it (a supervisor's student page,
-// the administrator's pages). tabs: [[id, text]]; current: the open id; onPick(id) stores the choice and draws the page
-// again. When another tab is tapped the white button slides over to it, quickly: the page is drawn anew, so the switch
+// Tabs like Details and Follow-up in a case: plain words across the width, a blue line under the open one (a student's
+// pop-up, the administrator's pages). tabs: [[id, text]]; current: the open id; onPick(id) stores the choice and draws
+// the page again. When another tab is tapped the blue line slides over to it, quickly: the page is drawn anew, so the switch
 // that was tapped leaves where it was (by its label) for the new one to slide from. Nothing slides when a page just
 // opens, or for people who ask for less motion.
 const slideFrom = new Map();
 export function segSwitch(label, tabs, current, onPick) {
-  const at = (k) => `translateX(calc(${k} * (100% + 4px)))`; // 4px: the gap between the tabs (.log-parts)
   const i = Math.max(0, tabs.findIndex(([id]) => id === current));
-  const thumb = h('span', { class: 'seg-thumb', 'aria-hidden': 'true' });
-  thumb.style.setProperty('--i', i); // style.css moves it there: the same translateX as at(i)
-  const el = h('div', { class: 'ctabs log-parts', role: 'tablist', 'aria-label': label }, thumb,
+  const el = h('div', { class: 'ctabs log-parts', role: 'tablist', 'aria-label': label },
     tabs.map(([id, text], k) => h('button', {
       class: k === i ? 'ctab on' : 'ctab', type: 'button', role: 'tab', 'aria-selected': String(k === i),
-      onclick: () => { if (k !== i) { slideFrom.set(label, i); onPick(id); } },
+      onclick: () => { if (k !== i) { slideFrom.set(label, lineAt(el.querySelector('.ctab.on'))); onPick(id); } },
     }, text)));
-  el.style.setProperty('--n', tabs.length);
-  // Only the switch with this label slides: the label must be different from any other switch drawn at the same
-  // time (a student's pop-up over the Overview has one, and the Overview its own). The slide starts once the switch
-  // is on the screen (after the drawing that is going on now), so it is never started on an element not shown yet.
+  // Only the tabs with this label slide: the label must be different from any other tabs drawn at the same time (a
+  // student's pop-up over the Overview has its own, and the Overview its own). The slide starts once the new tabs
+  // are on the screen (after the drawing that is going on now), when they can be measured.
   const from = slideFrom.get(label);
   slideFrom.delete(label);
-  if (from != null && from !== i && typeof thumb.animate === 'function' && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-    queueMicrotask(() => {
-      if (thumb.isConnected) thumb.animate([{ transform: at(from) }, { transform: at(i) }], { duration: 180, easing: 'cubic-bezier(.3, 0, .2, 1)' });
-    });
-  }
+  if (from) queueMicrotask(() => { if (el.isConnected) slideLine(el, from, el.querySelector('.ctab.on')); });
   return el;
+}
+
+// Where a tab's blue line is: its left edge and width inside its row of tabs (.ctabs, which is positioned).
+const lineAt = (tab) => (tab && tab.isConnected ? { left: tab.offsetLeft, width: tab.offsetWidth } : null);
+
+// The blue line slides from where it was (from: lineAt of the tab that was open) to the tab now open, quickly; the
+// new tab's own line is hidden meanwhile (.sliding). Tabs differ in width, so it moves and changes width together.
+// Nothing for people who ask for less motion, or where the browser cannot animate.
+function slideLine(row, from, to) {
+  const end = lineAt(to);
+  if (!from || !end || !end.width || typeof row.animate !== 'function' || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+  if (from.left === end.left && from.width === end.width) return;
+  row.querySelector(':scope > .tab-line')?.remove();
+  const bar = h('span', { class: 'tab-line', 'aria-hidden': 'true' });
+  row.append(bar);
+  row.classList.add('sliding');
+  const anim = bar.animate([{ left: `${from.left}px`, width: `${from.width}px` }, { left: `${end.left}px`, width: `${end.width}px` }],
+    { duration: 180, easing: 'cubic-bezier(.3, 0, .2, 1)', fill: 'forwards' });
+  const done = () => { if (bar.isConnected) { bar.remove(); row.classList.remove('sliding'); } };
+  anim.onfinish = done;
+  anim.oncancel = done;
 }
 
 // The "Your data" row: opens the privacy notice for this role.
@@ -554,7 +567,7 @@ export function procedureProgress(entries, events, { note, none }) {
       : h('p', { class: 'muted small prog-note' }, none),
     others.length
       ? [h('h3', { class: 'prog-title' }, 'Procedures without a target'),
-        h('div', { class: 'prows group' }, others.map(([id, p]) => procTile(procName(id), cases(p.total), `Observed ${p.observing} · Assisted ${p.assisting} · Performed ${p.performed}`)))]
+        h('div', { class: 'prows group' }, others.map(([id, p]) => procTile(procName(id), cases(p.total), `Observed ${p.observing} · Assisted ${p.assisting} · Performed ${p.performed}`, null, 'mid')))] // 'mid': "3 cases" on the right, in the middle of the row's height, like on the administrator's Overview
       : null,
   ];
 }
@@ -618,7 +631,8 @@ export function openCase(e, { onDelete = null, onFollowUp = null, roleText = rol
   const show = (id) => {
     const sheet = caseTab.closest('.sheet');
     const top = sheet ? sheet.getBoundingClientRect().top : null;
-    for (const b of tabs.children) {
+    const from = lineAt(tabs.querySelector('.ctab.on')); // the blue line slides from there, like on the other tabs
+    for (const b of tabs.querySelectorAll('.ctab')) {
       b.classList.toggle('on', b.dataset.tab === id);
       b.setAttribute('aria-selected', String(b.dataset.tab === id));
     }
@@ -627,6 +641,7 @@ export function openCase(e, { onDelete = null, onFollowUp = null, roleText = rol
     if (followBtn) followBtn.hidden = id !== 'followup';
     if (caseTab.parentNode) caseTab.parentNode.scrollTop = 0; // the other tab starts at its top
     if (sheet) keepTop(sheet, top);
+    if (from) slideLine(tabs, from, tabs.querySelector('.ctab.on'));
   };
   show(firstTab === 'followup' ? 'followup' : 'details');
 

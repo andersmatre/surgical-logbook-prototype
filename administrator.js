@@ -147,7 +147,7 @@ async function loadAll({ quiet = false } = {}) {
 
 // ---- Overview --------------------------------------------------------------------------
 
-// A switch like the one on a supervisor's student page, whose white button slides to the tab that is tapped
+// Tabs like those in a student's pop-up, whose blue line slides to the tab that is tapped
 // (segSwitch in ui.js). key: where the open tab is kept in `ad`.
 function switcher(key, tabs, label) {
   return segSwitch(label, tabs, ad[key], (id) => { ad[key] = id; draw(); });
@@ -163,7 +163,7 @@ const isSurgery = (id) => !isDelivery(id) || LOG_SURGERY.includes(id);
 // (a tile each, the most cases first). The log of recent changes is under More.
 function overviewView() {
   const s = ad.stats;
-  if (!s) return h('section', {}, h('h2', {}, 'Overview'), h('p', { class: 'muted' }, 'Loading…'));
+  if (!s) return h('section', {}, h('p', { class: 'muted' }, 'Loading…'));
   const t = s.totals;
   const nothing = h('p', { class: 'muted' }, 'Nothing has been logged yet.');
   const lower = (q) => q.trim().toLowerCase();
@@ -188,8 +188,7 @@ function overviewView() {
       })
       : nothing),
   };
-  return h('section', { class: 'sv-detail' }, // a column on every tab, so nothing moves when the tab changes
-    h('h2', {}, 'Overview'),
+  return h('section', {}, // no heading: the open tab at the top (Overview) is the page's name
     backupReminder(s),
     h('div', { class: 'stats four' }, stat(t.students, 'students'), stat(t.supervisors, 'supervisors'), stat(t.entries, 'cases'), stat(s.hospitals.filter((x) => x.hospital !== '(not recorded)').length, 'hospitals')), // hospitals with at least one case
     switcher('overTab', [['students', 'Students'], ['procedures', 'Procedures'], ['hospitals', 'Hospitals']], 'What to show'),
@@ -310,7 +309,7 @@ function downloadView() {
   });
   update();
   bottomBar = h('div', { class: 'sign-bar' }, allBtn, dlBtn);
-  return h('section', { class: 'more-tab' }, h('h2', {}, 'Download data'),
+  return h('section', { class: 'more-tab' }, // no heading: the open tab at the top (Download data) is the page's name
     // the two choices in one white card, like the rows under More: Anonymous on or off, and the file format
     h('div', { class: 'card downloads' }, h('div', { class: 'facts plain' }, anonymousRow(), formatRow())),
     h('h3', { class: 'day-head' }, 'Files'),
@@ -522,9 +521,9 @@ function usersView() {
   };
   input.addEventListener('input', drawList);
   drawList();
-  // the heading with "Add users" on the right, like "Account" on a student's page; it opens the page to add users
-  const head = h('div', { class: 'detail-head' },
-    h('div', { class: 'detail-title' }, h('h2', {}, 'Manage users')),
+  // no heading (the open tab at the top, Manage users, is the page's name); "Add users" stays at the top on the right,
+  // and opens the page to add users
+  const head = h('div', { class: 'detail-head users-head' },
     h('button', { class: 'btn ghost', type: 'button', onclick: () => { ad.adding = true; setPageScroll(0); draw(); } }, 'Add users'));
   return h('section', {}, head, input,
     h('div', { class: 'filters one' }, filterButton('Show', show[1], ad.filter !== 'all', openShowFilter)),
@@ -664,6 +663,8 @@ function openRename(u) {
   const err = h('p', { class: 'error', role: 'alert' }, '');
   const who = { student: 'The student, their supervisors and administrators see it.', supervisor: 'Students see it next to a signature.', admin: 'It is shown at the top of their own screen.' };
   const save = async () => {
+    // the same name (spaces aside): Save just goes back to the account, as after saving, without asking the server
+    if (input.value.trim().replace(/\s+/g, ' ') === (u.name || '')) { openUser(u.id); return; }
     try {
       const r = await call((t) => api.adminRename(t, u.id, input.value));
       if (r === ENDED) return;
@@ -838,7 +839,6 @@ async function create(err, run) {
 // Laid out like the student's More (fact, advancedCard in ui.js).
 function moreView() {
   return h('section', { class: 'more-tab' },
-    h('h2', {}, 'More'),
     h('div', { class: 'card' }, h('h3', {}, 'Account'),
       h('div', { class: 'facts plain' },
         fact('Candidate number', ctx.session.candidate),
