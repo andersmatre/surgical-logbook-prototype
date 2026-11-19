@@ -10,8 +10,8 @@ import {
 import * as core from './core.js';
 import * as api from './api.js';
 import {
-  h, timeAgo, stat, cases, initUi, appShell, pageScroll, setPageScroll, toast, hideToast, openSheet, closeSheet, openCase, confirmOver, confirmSheet, scrollHint, passwordForm, openPrivacy, fact, privacyFact, advancedCard,
-  procedureProgress, filterButton, openFilterSheet, signTag,
+  h, timeAgo, stat, cases, initUi, appShell, pageScroll, setPageScroll, toast, hideToast, openSheet, closeSheet, closeAllSheets, openCase, confirmOver, confirmSheet, scrollHint, passwordForm, openPrivacy, fact, privacyFact, advancedCard,
+  procedureProgress, filterButton, openFilterSheet, signTag, popMenu, closePanel,
 } from './ui.js';
 import { mountSupervisor } from './supervisor.js';
 import { mountAdministrator } from './administrator.js';
@@ -197,6 +197,7 @@ const TABS = [['log', 'New case'], ['history', 'History'], ['progress', 'Progres
 function render() {
   const y = pageScroll();
   root.replaceChildren();
+  closePanel(); // a student's pop-up (supervisors, administrators): their screen opens it again if it is still open
   if (!state.session) { root.append(loginScreen()); return; }
   if (state.session.must_change) { root.append(forcedPasswordScreen()); return; }
   if (state.session.role === 'supervisor' || state.session.role === 'admin') {
@@ -352,37 +353,27 @@ function hospitalScreen() {
 function logTab() {
   const counts = {};
   state.entries.forEach((e) => { counts[e.procedure] = (counts[e.procedure] || 0) + 1; });
-  // First Surgery or Delivery, like CapaCare's two logbooks; then that part's procedures in two even columns (one
-  // on a phone). Every row looks the same: the name, how many, and a "+" that says "add".
-  const button = (p) => h('button', { class: 'proc', onclick: () => openEntrySheet(p) },
+  // Everything on one page, nothing hidden behind a switch: the operations, a button for every other operation, then
+  // the deliveries. Each list is one white card with a row per procedure: the name, how many cases (also "0 cases")
+  // and a plain "+" that says "add". One column on every screen, so the eye goes straight down.
+  const row = (p) => h('button', { class: 'proc', type: 'button', onclick: () => openEntrySheet(p) },
     h('span', { class: 'proc-text' },
       h('span', { class: 'proc-name' }, p.name),
       h('span', { class: 'proc-count' }, cases(counts[p.id] || 0))),
     h('span', { class: 'proc-add', 'aria-hidden': 'true' }));
-  // Surgery or Delivery: two tabs like Details and Follow-up in a case (.ctabs), the open one with a line under it
-  const partTab = (id, label) => h('button', {
-    class: logPart === id ? 'ctab on' : 'ctab', type: 'button', role: 'tab', 'aria-selected': String(logPart === id),
-    onclick: () => { if (logPart !== id) { logPart = id; render(); } },
-  }, label);
+  const list = (ids) => h('div', { class: 'proc-list' }, ids.map(findProcedure).map(row));
+  // A caesarean is on both lists in config.js (it comes first when a supervisor sets targets), but the same row twice
+  // on one page looks like a mistake: it is shown once, under Deliveries.
+  const operations = LOG_SURGERY.filter((id) => !LOG_DELIVERIES.includes(id));
   return h('section', {},
-    h('h2', { class: 'log-title' }, 'Add a new case'), // "case", like the counts on the tiles and on Progress
-    h('div', { class: 'ctabs log-parts', role: 'tablist', 'aria-label': 'Surgery or delivery' }, partTab('surgery', 'Surgery'), partTab('delivery', 'Delivery')),
-    logPart === 'surgery' ? [
-      h('div', { class: 'grid' }, LOG_SURGERY.map(findProcedure).map(button)),
-      h('button', { class: 'proc proc-more', onclick: openMoreProcedures },
-        h('span', { class: 'proc-text' },
-          h('span', { class: 'proc-name' }, 'More operations'),
-          h('span', { class: 'proc-count' }, 'Not in the list above? Find it here.')),
-        h('span', { class: 'proc-add more', 'aria-hidden': 'true' })),
-    ] : null,
-    logPart === 'delivery' ? [
-      h('div', { class: 'grid' }, LOG_DELIVERIES.map(findProcedure).map(button)),
-    ] : null);
+    h('h2', { class: 'log-title' }, 'Add a new case'), // "case", like the counts on the rows and on Progress
+    h('p', { class: 'muted log-hint' }, 'Tap what you did.'),
+    h('h3', { class: 'log-head' }, 'Operations'),
+    list(operations),
+    h('button', { class: 'btn ghost wide log-more', type: 'button', onclick: openMoreProcedures }, 'Not in the list? Find another operation'),
+    h('h3', { class: 'log-head' }, 'Deliveries'),
+    list(LOG_DELIVERIES));
 }
-
-// Which part of the Log tab is open: 'surgery' (chosen from the start) or 'delivery'. Kept while the app is open,
-// so it stays after saving an entry or visiting another tab; back to 'surgery' when the student logs out.
-let logPart = 'surgery';
 
 // Every operation, under its group (as in CapaCare's logbook). The search looks at the names of the
 // operations and of the groups, so "ortho" shows the whole group.
@@ -395,7 +386,8 @@ function openMoreProcedures() {
       const rows = PROCEDURES.filter((p) => p.group === g.id && (g.name.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)));
       return rows.length
         ? [h('h4', { class: 'plist-group' }, g.name),
-          ...rows.map((p) => h('button', { class: 'row-btn', type: 'button', onclick: () => { closeSheet(); openEntrySheet(p); } }, p.name))]
+          // the procedure opens on top of this list: Cancel goes back to it as it was (search, scroll); Save closes both
+          ...rows.map((p) => h('button', { class: 'row-btn', type: 'button', onclick: () => openEntrySheet(p, { over: true }) }, p.name))]
         : [];
     });
     list.replaceChildren(...(parts.length ? parts : [h('p', { class: 'muted' }, 'No match. Use "Other" in the group it belongs to.')]));
@@ -483,41 +475,24 @@ function hospitalList(onChoose, current) {
 // (.fact). onPick gets the chosen name. Normally the choice is stored on this tablet at once; on the first-login
 // screen ({ save: false }) it is only stored on Continue, and current() says which one to mark.
 function hospitalPicker(onPick, { save = true, current = () => state.profile?.hospital } = {}) {
-  const { search, list, draw } = hospitalList(async (x) => { close(); if (save) await setHospital(x); onPick(x); }, current);
-  const close = () => {
-    panel.hidden = true;
-    button.setAttribute('aria-expanded', 'false');
-    document.removeEventListener('pointerdown', outside, true);
-    document.removeEventListener('keydown', escape, true);
-  };
-  const outside = (ev) => { if (!panel.contains(ev.target) && !button.contains(ev.target)) close(); };
-  const escape = (ev) => { if (ev.key === 'Escape') { ev.stopPropagation(); close(); button.focus(); } };
-  const panel = h('div', { class: 'hpick', role: 'dialog', 'aria-label': 'Choose hospital', hidden: true },
-    h('div', { class: 'hpick-head' },
-      h('strong', {}, 'Choose hospital'),
-      h('button', { class: 'hpick-x', type: 'button', 'aria-label': 'Close', onclick: () => close() }, '×')),
-    search, list);
-  scrollHint(list, panel);
-  const open = () => {
-    search.value = '';
-    draw();
-    panel.hidden = false;
-    button.setAttribute('aria-expanded', 'true');
-    const on = list.querySelector('.on');
-    if (on) list.scrollTop = on.offsetTop - (list.clientHeight - on.offsetHeight) / 2; // the current hospital in the middle (.hlist is positioned)
-    document.addEventListener('pointerdown', outside, true);
-    document.addEventListener('keydown', escape, true);
-  };
-  const button = h('button', {
-    class: 'change', type: 'button', 'aria-label': 'Change hospital', 'aria-haspopup': 'dialog', 'aria-expanded': 'false',
-    onclick: () => (panel.hidden ? open() : close()),
-  }, 'Change');
-  return { button, panel };
+  const { search, list, draw } = hospitalList(async (x) => { menu.close(); if (save) await setHospital(x); onPick(x); }, current);
+  const menu = popMenu({
+    title: 'Choose hospital', buttonLabel: 'Change hospital', body: [search, list],
+    onOpen: () => {
+      search.value = '';
+      draw();
+      const on = list.querySelector('.on');
+      if (on) list.scrollTop = on.offsetTop - (list.clientHeight - on.offsetHeight) / 2; // the current hospital in the middle (.hlist is positioned)
+    },
+  });
+  scrollHint(list, menu.panel);
+  return { button: menu.button, panel: menu.panel };
 }
 
 // Logging a procedure: one pop-up with everything on it. Hospital and date are filled in, the role is the
 // one thing to choose, the details under it are optional, and Save (always in view at the bottom) stores it.
-function openEntrySheet(proc) {
+// over: opened on top of "All operations", which Cancel goes back to; Save closes both (the case is logged).
+function openEntrySheet(proc, { over = false } = {}) {
   let date = core.localDateISO();
   let role = null;
   let saving = false;
@@ -567,7 +542,7 @@ function openEntrySheet(proc) {
       return;
     }
     saving = true;
-    closeSheet();
+    closeAllSheets(); // also "All operations" under it: the case is logged, back to the page
     const ev = await core.logEntry({
       student: state.profile.student, hospital: state.profile.hospital,
       procedure: proc.id, role: role.id, performed_on: date, details: v.answers,
@@ -600,7 +575,7 @@ function openEntrySheet(proc) {
     h('div', { class: 'sheet-foot' },
       h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Cancel'),
       saveBtn),
-  ]);
+  ], { over });
 }
 
 // A set of big buttons where one can be chosen. `options` are [value, label, hint?]. Tapping the chosen one
@@ -988,7 +963,7 @@ async function openLogout() {
 }
 
 async function doLogout() {
-  closeSheet();
+  closeAllSheets();
   const token = state.session && state.session.token;
   if (token) {
     // Best effort: tell the server, but never make the student wait for a bad connection.
@@ -1000,7 +975,6 @@ async function doLogout() {
   state.sessionNote = '';
   state.tab = 'log';
   historyFilter = { procedure: null, role: null, followUp: false };
-  logPart = 'surgery';
   await refresh();
 }
 

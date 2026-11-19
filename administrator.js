@@ -9,7 +9,7 @@ import * as core from './core.js';
 import * as api from './api.js';
 import {
   h, timeAgo, fmtDateTime, stat, cases, appShell, pageScroll, setPageScroll, keepTyping, toast, openSheet, closeSheet, confirmSheet, saveBlob, fact, privacyFact, advancedCard,
-  caseRow, procTile, procedureProgress, filterButton, openFilterSheet, signTag,
+  caseRow, procTile, procedureProgress, filterButton, openFilterSheet, signTag, segSwitch, popMenu, showPanel, closePanel,
 } from './ui.js';
 
 const ENDED = Symbol('session ended'); // the server ended the session; app.js shows the login screen
@@ -48,6 +48,9 @@ function draw() {
 }
 
 let bottomBar = null; // set while the page is drawn: the buttons for the bar at the bottom of the screen (Download data)
+// The page of the tab, and over it, while a student is open, the student's pop-up (showPanel in ui.js), drawn again
+// with it. panelTop: the pop-up starts at the top (another student, another tab) instead of where it was scrolled.
+let panelTop = false;
 function paint() {
   const y = pageScroll();
   const typing = keepTyping(ctx.root);
@@ -55,7 +58,17 @@ function paint() {
   const page = body();
   ctx.root.replaceChildren(appShell({ 'data-admin': '' }, [header(), nav()], page, bottomBar));
   if (y) setPageScroll(y);
+  if (ad.detail) showPanel({ ...detailView(), label: `Student ${ad.detail.candidate}`, onClose: closeDetail, top: panelTop });
+  else closePanel();
+  panelTop = false;
   typing();
+}
+
+// Back to the list it was opened from, fetched again.
+function closeDetail() {
+  ad.detail = null;
+  draw();
+  if (!ad.loading) loadAll({ quiet: true });
 }
 
 function header() {
@@ -101,7 +114,6 @@ function watchVisibility() {
 
 function body() {
   if (ad.error) return h('div', { class: 'card' }, h('p', { class: 'error' }, ad.error), h('button', { class: 'btn', onclick: () => loadAll() }, 'Try again'));
-  if (ad.detail) return detailView();
   if (ad.tab === 'users') return ad.adding ? addView() : usersView();
   if (ad.tab === 'download') return downloadView();
   if (ad.tab === 'more') return moreView();
@@ -135,14 +147,10 @@ async function loadAll({ quiet = false } = {}) {
 
 // ---- Overview --------------------------------------------------------------------------
 
-// A switch like Surgery and Delivery on the student's New case tab (and a supervisor's student page). key: where
-// the open tab is kept in `ad`.
-function switcher(key, tabs, label, onPick = null) {
-  return h('div', { class: 'ctabs log-parts', role: 'tablist', 'aria-label': label },
-    tabs.map(([id, text]) => h('button', {
-      class: ad[key] === id ? 'ctab on' : 'ctab', type: 'button', role: 'tab', 'aria-selected': String(ad[key] === id),
-      onclick: () => { if (ad[key] !== id) { ad[key] = id; if (onPick) onPick(id); draw(); } },
-    }, text)));
+// A switch like the one on a supervisor's student page, whose white button slides to the tab that is tapped
+// (segSwitch in ui.js). key: where the open tab is kept in `ad`.
+function switcher(key, tabs, label) {
+  return segSwitch(label, tabs, ad[key], (id) => { ad[key] = id; draw(); });
 }
 
 const people = (n) => `${n} ${n === 1 ? 'student' : 'students'}`;
@@ -166,7 +174,7 @@ function overviewView() {
         key: 'procQuery', placeholder: 'Search procedure', items: s.procedures,
         matches: (p, q) => procName(p.procedure).toLowerCase().includes(lower(q)),
         item: (p) => procTile(procName(p.procedure), cases(p.total), `Observed ${p.observing} · Assisted ${p.assisting} · Performed ${p.performed} · ${people(p.students)}`, null, 'mid'),
-        // like the Surgery and Delivery tabs of a new case: a caesarean is under both
+        // like the two lists of a new case; a caesarean is under both here
         sections: [['Surgeries', (p) => isSurgery(p.procedure)], ['Deliveries', (p) => isDelivery(p.procedure)]],
         noMatch: 'No procedure matches.',
       })
@@ -207,14 +215,15 @@ function studentsPart(s) {
 // What was typed is kept in ad[key] while the app is open, so a fresh answer from the server does not clear it.
 // sections: [[heading, (item) => belongs]]: the list under small grey headings (like the week headings in History),
 // only the headings that have something; an item can be under more than one (a caesarean: surgery and delivery).
-function searchable({ key, placeholder, items, matches, item, noMatch, caps = false, sections = null, list = h('div', { class: sections ? '' : 'prows' }) }) {
+// The tiles (Procedures, Hospitals) are rows in one white card per heading, like Progress (.prows.group).
+function searchable({ key, placeholder, items, matches, item, noMatch, caps = false, sections = null, list = h('div', { class: sections ? '' : 'prows group' }) }) {
   const input = h('input', { type: 'search', placeholder, class: 'search', value: ad[key], autocapitalize: caps ? 'characters' : null, autocomplete: 'off' });
   const drawList = () => {
     ad[key] = input.value;
     const shown = items.filter((x) => matches(x, input.value));
     const content = !sections ? shown.map(item)
       : sections.map(([title, belongs]) => [title, shown.filter(belongs)]).filter(([, xs]) => xs.length)
-        .flatMap(([title, xs]) => [h('h3', { class: 'day-head' }, title), h('div', { class: 'prows' }, xs.map(item))]);
+        .flatMap(([title, xs]) => [h('h3', { class: 'day-head' }, title), h('div', { class: 'prows group' }, xs.map(item))]);
     list.replaceChildren(...(shown.length ? content : [h('p', { class: 'muted' }, noMatch)]));
   };
   input.addEventListener('input', drawList);
@@ -275,8 +284,7 @@ const FILE_NAME = Object.fromEntries(FILES.map(([kind, title]) => [kind, title])
 // file with a tick box (none ticked at first; tapping anywhere on the row ticks it), and in the bar at the bottom of
 // the screen "Select all" and "Download N files". The backup is under More.
 function downloadView() {
-  const anonymous = ad.people === 'anonymous';
-  const dlBtn = h('button', { class: 'btn', type: 'button', onclick: () => downloadPicked(anonymous) });
+  const dlBtn = h('button', { class: 'btn', type: 'button', onclick: () => downloadPicked(ad.people === 'anonymous') });
   const allBtn = h('button', {
     class: 'btn ghost', type: 'button',
     onclick: () => {
@@ -303,14 +311,51 @@ function downloadView() {
   update();
   bottomBar = h('div', { class: 'sign-bar' }, allBtn, dlBtn);
   return h('section', { class: 'more-tab' }, h('h2', {}, 'Download data'),
-    // the two choices straight on the page, without a white card around them
-    h('div', { class: 'downloads' },
-      h('h3', { class: 'day-head' }, 'People in the files'),
-      switcher('people', [['anonymous', 'Anonymous'], ['names', 'With names']], 'People in the files'),
-      h('h3', { class: 'day-head' }, 'File format'),
-      switcher('delim', [[';', 'Excel'], [',', 'Other programs']], 'File format', (v) => { try { localStorage.setItem(DELIM_KEY, v); } catch { /* the choice is just not remembered */ } })),
+    // the two choices in one white card, like the rows under More: Anonymous on or off, and the file format
+    h('div', { class: 'card downloads' }, h('div', { class: 'facts plain' }, anonymousRow(), formatRow())),
     h('h3', { class: 'day-head' }, 'Files'),
     h('ul', { class: 'list dl-files' }, rows));
+}
+
+// "Anonymous" on or off: the whole row is one switch (a big touch target). Its text like the File format row under it
+// (and the rows under More): "Anonymous" small and grey, and under it, plain, Yes or No. On at every login, so names
+// are only in a file when someone turned it off on purpose. Changed in place, so the knob slides over.
+function anonymousRow() {
+  const text = (on) => (on ? 'Yes' : 'No');
+  const sub = h('strong', {});
+  const row = h('button', {
+    class: 'toggle-row', type: 'button', role: 'switch',
+    onclick: () => { ad.people = ad.people === 'anonymous' ? 'names' : 'anonymous'; show(); },
+  }, h('span', { class: 'fact-text' }, h('span', {}, 'Anonymous'), sub), h('span', { class: 'toggle', 'aria-hidden': 'true' }));
+  const show = () => {
+    const on = ad.people === 'anonymous';
+    row.setAttribute('aria-checked', String(on));
+    sub.textContent = text(on);
+  };
+  show();
+  return h('div', { class: 'fact' }, row);
+}
+
+// The file format: a row like the hospital, with "Change" opening a short menu (popMenu in ui.js). Remembered on
+// this device.
+const FORMATS = [[';', 'Excel'], [',', 'Other programs']];
+function formatRow() {
+  const name = (v) => FORMATS.find(([d]) => d === v)[1];
+  const value = h('strong', {}, name(ad.delim));
+  const list = h('div', { class: 'hlist' });
+  const menu = popMenu({
+    title: 'Choose file format', buttonLabel: 'Change file format', body: list,
+    onOpen: () => list.replaceChildren(...FORMATS.map(([d, label]) => h('button', {
+      class: d === ad.delim ? 'row-btn opt on' : 'row-btn opt', type: 'button',
+      onclick: () => {
+        menu.close();
+        ad.delim = d;
+        value.textContent = label;
+        try { localStorage.setItem(DELIM_KEY, d); } catch { /* the choice is just not remembered */ }
+      },
+    }, label))),
+  });
+  return h('div', { class: 'fact' }, h('span', { class: 'fact-text' }, h('span', {}, 'File format'), value), menu.button, menu.panel);
 }
 
 // Downloads the ticked files one after the other, in the order of the list, then says so once. What was ticked stays
@@ -362,16 +407,15 @@ function auditList() {
 }
 
 // ---- one student ---------------------------------------------------------------------------
-// A page, like a supervisor's page of one student: the arrow back, the candidate number with the name, and Account
-// (the same pop-up as under Users); the numbers; then two tabs: Cases (a short row each under the heading of its
-// week, like the student's History; tapping one opens the whole case, only to read) and Progress (as on the
-// student's Progress).
+// A big pop-up over the list it was opened from, like a supervisor's student (showPanel in ui.js): at the top, staying
+// there, the candidate number with the name, Account (the same pop-up as under Users, which opens on top) and ×, and
+// two tabs under them; then the numbers and the tab: Cases (a short row each under the heading of its week, like the
+// student's History; tapping one opens the whole case on top, only to read) or Progress (as on the student's Progress).
 
 const nameOf = (id) => ((ad.users || []).find((u) => u.id === id) || {}).name || null;
 
 function openStudent(candidate) {
   closeSheet();
-  setPageScroll(0);
   ad.detailTab = 'cases';
   loadDetail(candidate);
 }
@@ -382,6 +426,7 @@ async function loadDetail(candidate, { quiet = false } = {}) {
   const d = { candidate, events: [], entries: [], loading: true, error: '' };
   if (!old) {
     ad.detail = d;
+    panelTop = true;
     draw();
   }
   try {
@@ -404,18 +449,17 @@ async function loadDetail(candidate, { quiet = false } = {}) {
   } else if (ad.detail === d) draw();
 }
 
+// Returns { head, body } for showPanel.
 function detailView() {
   const d = ad.detail;
-  const back = h('button', {
-    class: 'back-btn', type: 'button', 'aria-label': ad.tab === 'users' ? 'Back to users' : 'Back to the overview',
-    onclick: () => { ad.detail = null; setPageScroll(0); draw(); if (!ad.loading) loadAll({ quiet: true }); },
-  });
   const name = nameOf(d.candidate);
-  const head = h('div', { class: 'detail-head' }, back,
-    h('div', { class: 'detail-title' }, h('h2', {}, d.candidate), name ? h('p', { class: 'muted detail-name' }, name) : null),
-    ad.users?.some((u) => u.id === d.candidate) ? h('button', { class: 'btn ghost', type: 'button', onclick: () => openUser(d.candidate) }, 'Account') : null);
-  if (d.loading) return h('section', {}, head, h('p', { class: 'muted' }, 'Loading cases…'));
-  if (d.error) return h('section', {}, head, h('div', { class: 'card' }, h('p', { class: 'error' }, d.error), h('button', { class: 'btn', onclick: () => loadDetail(d.candidate) }, 'Try again')));
+  const head = (tabs) => h('div', { class: 'sheet-head' },
+    h('div', { class: 'case-top' },
+      h('div', { class: 'case-top-text' }, h('h3', { class: 'case-title' }, d.candidate), name ? h('p', { class: 'case-sub' }, name) : null),
+      ad.users?.some((u) => u.id === d.candidate) ? h('button', { class: 'btn ghost', type: 'button', onclick: () => openUser(d.candidate) }, 'Account') : null),
+    tabs);
+  if (d.loading) return { head: head(null), body: h('p', { class: 'muted' }, 'Loading cases…') };
+  if (d.error) return { head: head(null), body: h('div', { class: 'card' }, h('p', { class: 'error' }, d.error), h('button', { class: 'btn', onclick: () => loadDetail(d.candidate) }, 'Try again')) };
 
   const signed = d.entries.filter((e) => e.sign).length;
   const none = h('p', { class: 'muted' }, 'This student has not logged anything yet.');
@@ -423,15 +467,19 @@ function detailView() {
     cases: () => (d.entries.length
       ? core.byWeek(d.entries).map((w) => [
         h('h3', { class: 'day-head' }, core.fmtWeek(w.week)),
-        h('ul', { class: 'list' }, w.entries.map((e) => caseRow(e, { tags: signTag(e) })))])
+        h('ul', { class: 'list' }, w.entries.map((e) => caseRow(e, { tags: signTag(e), who: name || d.candidate })))]) // whose case it is, first in its pop-up
       : none),
     progress: () => procedureProgress(d.entries, d.events, { note: 'Set by a supervisor.', none: 'No targets yet. A supervisor sets them.' }),
   };
-  return h('section', { class: 'sv-detail' },
-    head,
-    h('div', { class: 'stats' }, stat(d.entries.length, 'cases'), stat(signed, 'signed'), stat(d.entries.length - signed, 'to sign')),
-    switcher('detailTab', [['cases', 'Cases'], ['progress', 'Progress']], 'What to show'),
-    (pages[ad.detailTab] || pages.cases)());
+  // its own label: the switch on the Overview under the pop-up is drawn at the same time (segSwitch slides by label)
+  const tabs = segSwitch('What to show about the student', [['cases', 'Cases'], ['progress', 'Progress']], ad.detailTab, (id) => { ad.detailTab = id; panelTop = true; draw(); });
+  return {
+    head: head(tabs),
+    body: [
+      h('div', { class: 'stats' }, stat(d.entries.length, 'cases'), stat(signed, 'signed'), stat(d.entries.length - signed, 'to sign')),
+      (pages[ad.detailTab] || pages.cases)(),
+    ],
+  };
 }
 
 // ---- Users ---------------------------------------------------------------------------------
@@ -576,7 +624,7 @@ function openUser(id) {
         ? h('div', { class: 'case-del-row' }, h('button', { class: 'link danger', type: 'button', onclick: () => confirmDelete(u) }, 'Delete account and data for good'))
         : null),
     h('div', { class: 'sheet-foot' }, h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Close')),
-  ]);
+  ], { cls: 'on-bg' }); // grey like the pages and a student's pop-up, the rows in white cards
 }
 
 // Choose a supervisor for a student: a big row each, like the filters in History; one tap adds them.

@@ -99,6 +99,13 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.deepEqual($$('.log-parts .ctab').map((b) => b.textContent), ['Students', 'Procedures', 'Hospitals']);
   assert.doesNotMatch($('.main').textContent, /created the student account/, 'recent changes are under More');
   assert.equal($('.log-parts .ctab.on').textContent, 'Students');
+  // the white button of the switch is its own element, under the open tab, so it can slide to another one
+  const thumb = () => $('.log-parts .seg-thumb');
+  assert.equal(thumb().style.getPropertyValue('--i'), '0');
+  assert.equal($('.log-parts').style.getPropertyValue('--n'), '3');
+  await click(byText('.log-parts .ctab', 'Hospitals'), 100);
+  assert.equal(thumb().style.getPropertyValue('--i'), '2', 'under the tab that was tapped');
+  await click(byText('.log-parts .ctab', 'Students'), 100);
   assert.equal($('.tbl'), null, 'no wide tables any more');
   // a row per student, like a supervisor's My students
   assert.deepEqual($$('.srow strong').map((e) => e.textContent), ['CC1001', 'CC1002']);
@@ -142,37 +149,41 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.match(byText('.card', 'Recent changes').textContent, /created the student account CC1001/, 'recent changes list under More');
   await click(byText('.tab', 'Overview'), 400);
 
-  // ---- one student's page: tapped on Students; the cases by week, each opens the case pop-up, only to read
+  // ---- one student, in a pop-up over Students; the cases by week, each opens the case pop-up on top, only to read
   await click(byText('.ctab', 'Students'));
   await click(byText('.srow', 'CC1001'), 600);
-  assert.equal($('.detail-title h2').textContent, 'CC1001');
-  assert.equal($('.tab.on').textContent, 'Overview', 'the page is part of Overview');
-  assert.deepEqual($$('.sv-detail .stat').map((e) => [...e.children].map((c) => c.textContent).join(' ')), ['2 cases', '0 signed', '2 to sign']);
-  assert.deepEqual($$('.log-parts .ctab').map((b) => b.textContent), ['Cases', 'Progress']);
-  assert.ok($('.day-head'), 'a heading per week');
-  const caseRows = $$('.entry.tap');
+  assert.ok($('#panel.open .sheet'), 'a pop-up, not a page');
+  assert.equal($('#panel .case-title').textContent, 'CC1001');
+  assert.equal($('.tab.on').textContent, 'Overview', 'opened from Overview');
+  assert.ok(byText('.main .srow', 'CC1001'), 'the list is still under it');
+  assert.deepEqual($$('#panel .stat').map((e) => [...e.children].map((c) => c.textContent).join(' ')), ['2 cases', '0 signed', '2 to sign']);
+  assert.deepEqual($$('#panel .log-parts .ctab').map((b) => b.textContent), ['Cases', 'Progress']);
+  assert.ok($('#panel .day-head'), 'a heading per week');
+  const caseRows = $$('#panel .entry.tap');
   assert.equal(caseRows.length, 2);
   const appRow = caseRows.find((r) => /Appendectomy/.test(r.textContent));
   assert.deepEqual($$('.e-sub', appRow).map((e) => e.textContent), ['Operated with supervisor · 20 Oct', 'Masanga Hospital']);
   assert.equal(appRow.querySelector('.tag').textContent, 'Not signed yet');
   await click(appRow);
-  assert.equal($('.sheet .case-title').textContent, 'Appendectomy');
-  assert.deepEqual($$('.sheet .ctab').map((b) => b.textContent), ['Details', 'Follow-up']);
+  assert.equal($('#overlay .sheet .case-title').textContent, 'Appendectomy');
+  assert.deepEqual($$('#overlay .sheet .ctab').map((b) => b.textContent), ['Details', 'Follow-up']);
   assert.equal(byText('.sheet button', 'Delete this case'), undefined, 'an administrator cannot delete');
   assert.equal(byText('.sheet button', 'follow-up'), undefined, 'nor add a follow-up');
   clean();
   await click(byText('.sheet .btn', 'Close'));
-  await click(byText('.ctab', 'Progress'));
-  assert.match($('.main').textContent, /No targets yet\. A supervisor sets them\./);
-  assert.ok(byText('.ptile', 'Appendectomy'), 'procedures without a target');
-  // Account: the same pop-up as under Users; "View" by Cases there just goes back to the page
-  await click(byText('.detail-head .btn', 'Account'), 200);
-  assert.ok(byText('.sheet .acct-title', 'Supervisors'));
-  await click(byText('.sheet .fact', 'Cases').querySelector('.change'));
+  assert.ok($('#panel.open'), 'closing the case goes back to the student');
+  await click(byText('#panel .ctab', 'Progress'));
+  assert.match($('#panel').textContent, /No targets yet\. A supervisor sets them\./);
+  assert.ok(byText('#panel .ptile', 'Appendectomy'), 'procedures without a target');
+  // Account: the same pop-up as under Users, on top; "View" by Cases there just goes back to the student
+  await click(byText('#panel .case-top .btn', 'Account'), 200);
+  assert.ok(byText('#overlay .sheet .acct-title', 'Supervisors'));
+  await click(byText('#overlay .sheet .fact', 'Cases').querySelector('.change'));
   assert.equal($('#overlay.open'), null);
-  assert.equal($('.detail-title h2').textContent, 'CC1001');
-  await click($('.back-btn'), 400);
-  assert.equal($('.detail-head'), null, 'back on the overview');
+  assert.equal($('#panel .case-title').textContent, 'CC1001');
+  assert.deepEqual($$('#panel .sheet-foot .btn').map((b) => b.textContent), ['Close']);
+  await click(byText('#panel .sheet-foot .btn', 'Close'), 400);
+  assert.equal($('#panel.open'), null, 'back on the overview');
   assert.equal($('.log-parts .ctab.on').textContent, 'Students', 'on the tab it was opened from');
 
   // ---- Manage users: the list of every account, and (behind "Add users") the page to add users
@@ -223,14 +234,16 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   await click(byText('.filter', 'Show'), 100);
   await click(byText('.sheet .opt', 'Everyone'), 100);
   assert.equal($$('.srow').length, 4);
-  // a student's page from Manage users: part of it, and tapping Manage users goes back to the list
+  // a student from Manage users: the account's "View" opens the student's pop-up over the list; a tap on the dark
+  // layer around it closes it
   await click(byText('.srow', 'CC1002'), 200);
   await click(byText('.sheet .fact', 'Cases').querySelector('.change'), 600);
-  assert.equal($('.detail-title h2').textContent, 'CC1002');
+  assert.equal($('#overlay.open'), null, 'the account closes');
+  assert.equal($('#panel .case-title').textContent, 'CC1002');
   assert.equal($('.tab.on').textContent, 'Manage users');
-  assert.equal($('.back-btn').getAttribute('aria-label'), 'Back to users');
-  assert.equal($$('.entry.tap').length, 1);
-  await click(byText('.tab', 'Manage users'), 400);
+  assert.equal($$('#panel .entry.tap').length, 1);
+  await click($('#panel .scrim'), 400);
+  assert.equal($('#panel.open'), null);
   assert.equal($$('.srow').length, 4, 'back on the list');
 
   // ---- add students in bulk: one already exists. "Add users" on Manage users opens a page with an arrow back
@@ -410,14 +423,26 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   await click(byText('.tab', 'More'), 400);
   assert.equal(changes().open, true, 'still open after a fresh answer from the server');
 
-  // ---- spreadsheet downloads, on their own tab: two switches (people, file format), a row per file with a tick box,
-  // and Select all and Download in the bar at the bottom of the screen, like a supervisor's To sign
+  // ---- spreadsheet downloads, on their own tab: Anonymous on or off and the file format in one card, a row per file
+  // with a tick box, and Select all and Download in the bar at the bottom of the screen, like a supervisor's To sign
   await click(byText('.tab', 'Download data'), 300);
   assert.equal($('.main h2').textContent, 'Download data');
   const dl = $('.downloads');
   assert.equal($('select', dl), null, 'no drop-down list');
-  assert.deepEqual($$('.ctab', dl).map((b) => b.textContent), ['Anonymous', 'With names', 'Excel', 'Other programs']);
-  assert.deepEqual($$('.ctab.on', dl).map((b) => b.textContent), ['Anonymous', 'Excel'], 'anonymous at first; Excel format (;) at first');
+  assert.equal($('.ctab', dl), null, 'no switch');
+  const anon = $('.toggle-row', dl);
+  assert.equal(anon.getAttribute('role'), 'switch');
+  assert.equal(anon.getAttribute('aria-checked'), 'true', 'anonymous at first');
+  assert.equal(anon.querySelector('.fact-text strong').textContent, 'Yes');
+  const formatValue = () => byText('.fact', 'File format', dl).querySelector('strong').textContent;
+  assert.equal(formatValue(), 'Excel', 'Excel format (;) at first');
+  const formatMenu = $('.hpick', dl);
+  assert.ok(formatMenu.hidden, 'the format menu is closed at first');
+  await click($('[aria-label="Change file format"]', dl), 50);
+  assert.ok(!formatMenu.hidden, '"Change" opens a menu, like the hospital');
+  assert.deepEqual($$('.row-btn', formatMenu).map((b) => [b.textContent, b.classList.contains('on')]), [['Excel', true], ['Other programs', false]]);
+  await click($('.hpick-x', formatMenu), 50);
+  assert.ok(formatMenu.hidden, 'and × closes it');
   assert.deepEqual($$('.dl-files .dl-row strong').map((e) => e.textContent), ['Progress per student', 'Procedures per student', 'Procedures per hospital', 'Every case', 'Codebook']);
   assert.equal($$('.dl-files input[type=checkbox]:checked').length, 0, 'nothing ticked at first');
   const dlBtn = () => byText('.bottom-bar .btn', 'ownload');
@@ -443,8 +468,14 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.match(csv1, /\nS-[0-9A-F]{8};cs;Caesarean section;0;0;1;0;1;1;0;0;(1;0|0;1)\r?\n/, 'counts, then follow-ups done, open, missed (open or missed depends on today)');
   assert.doesNotMatch(csv1, /CC1001|CC1002/);
   // with names, in the other format
-  await click(byText('.ctab', 'With names', dl));
-  await click(byText('.ctab', 'Other programs', $('.downloads')));
+  await click(anon);
+  assert.equal(anon.getAttribute('aria-checked'), 'false', 'tapping the row turns it off, in place');
+  assert.equal(anon.querySelector('.fact-text strong').textContent, 'No');
+  await click($('[aria-label="Change file format"]', dl), 50);
+  await click(byText('.hpick .row-btn', 'Other programs', dl), 50);
+  assert.ok(formatMenu.hidden, 'choosing closes the menu');
+  assert.equal(formatValue(), 'Other programs');
+  assert.equal(localStorage.getItem('logbook.csvDelimiter'), ',', 'remembered on this device');
   assert.ok(byText('.dl-row', 'Procedures per student').querySelector('input').checked, 'what was ticked stays ticked');
   tick('Procedures per student');
   tick('Codebook');
@@ -461,7 +492,8 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   assert.match(csv2, /,followup_status,/);
   assert.match(saved[2].filename, /^logbook-codebook-\d{4}-\d{2}-\d{2}\.csv$/);
   assert.match(await saved[2].blob.text(), /^file,column,meaning,code,code_meaning/);
-  await click(byText('.ctab', 'Excel', $('.downloads')));
+  await click($('[aria-label="Change file format"]', dl), 50);
+  await click(byText('.hpick .row-btn', 'Excel', dl), 50);
   clean();
   await click(byText('.tab', 'More'), 400);
   assert.match(byText('.card', 'Recent changes').textContent, /downloaded the anonymous "Procedures per student" spreadsheet/, 'downloads are listed under Recent changes');
@@ -516,10 +548,14 @@ test('an administrator whose session ended is sent back to login', async () => {
   document.dispatchEvent(new window.Event('visibilitychange'));
   await wait(600);
   assert.equal($$('.entry.tap').length, 3, 'fetched again by itself');
-  assert.equal($('.detail-title h2').textContent, 'CC1001', 'still on the same page');
+  assert.equal($('#panel .case-title').textContent, 'CC1001', 'still the same student');
   server.db.prepare('DELETE FROM sessions').run();
-  await click(byText('.tab', 'Manage users'), 600); // fetched again: the server says the session ended
+  // fetched again: the server says the session ended; the student's pop-up does not stay over the login screen
+  $('#panel .log-parts .ctab:not(.on)').click();
+  document.dispatchEvent(new window.Event('visibilitychange'));
+  await wait(600);
   assert.ok($('#cand'), 'back at the login screen');
+  assert.equal($('#panel.open'), null);
   assert.match(document.body.textContent, /session has ended/);
   assert.equal($('[data-admin]'), null);
 });

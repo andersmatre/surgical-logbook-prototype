@@ -181,9 +181,14 @@ function showToast(msg, opts) {
 // (.sheet-head) scrolls only what is between them (.sheet-body): the buttons and the heading never move, also
 // not when an iPhone bounces at the end of the scrolling. The buttons always have a thin line on top; once the
 // middle part is scrolled down, a line under the heading too (scrollHint). A tall one shows them over its list.
-export function openSheet(content, { tall = false } = {}) {
-  const sheet = h('div', { class: tall ? 'sheet tall' : 'sheet', role: 'dialog', 'aria-modal': 'true' }, content);
-  overlay.replaceChildren(h('div', { class: 'scrim', onclick: closeSheet }), sheet);
+// cls: more classes, such as "on-bg" (the light grey of the pages, with white cards in it: an administrator's account).
+// over: on top of the pop-up that is open, which stays as it is under it (a procedure from "All operations"); then
+// closeSheet() (Cancel, a tap on the dark layer) closes only this one, and closeAllSheets() both.
+export function openSheet(content, { tall = false, cls = '', over = false } = {}) {
+  const sheet = h('div', { class: ['sheet', tall ? 'tall' : '', cls].filter(Boolean).join(' '), role: 'dialog', 'aria-modal': 'true' }, content);
+  const scrim = h('div', { class: 'scrim', onclick: closeSheet });
+  if (over && overlay.classList.contains('open')) overlay.append(h('div', { class: 'layer stacked' }, scrim, sheet));
+  else overlay.replaceChildren(scrim, sheet);
   overlay.classList.add('open');
   const foot = sheet.querySelector(':scope > .sheet-foot');
   const list = sheet.querySelector(':scope > .plist');
@@ -254,9 +259,43 @@ export function confirmOver({ title, text, yes, no, onYes }) {
   overlay.append(layer);
 }
 
+// Closes the pop-up on top: only that one if it was opened over another (openSheet's over), otherwise all.
 export function closeSheet() {
+  const top = overlay.lastElementChild;
+  if (top && top.classList.contains('stacked')) { top.remove(); return; }
+  closeAllSheets();
+}
+export function closeAllSheets() {
   overlay.classList.remove('open');
   overlay.replaceChildren();
+}
+
+// ---- the pop-up of one student (supervisors and administrators) ---------------------------------
+// A big pop-up that stays open under the others: tapping a student opens their cases in it, so it is clear that
+// something was opened on top of the list (like a new case), and closing it goes back to the list as it was. It
+// has a layer of its own (#panel, under #overlay), so the pop-ups opened from it (a case, "Sign?", targets, the
+// account) come on top of it, and when they close it is still there. The screen draws it again whenever it draws
+// itself: showPanel with the new head and body, and the buttons for the bottom next to Close (action: Sign on To
+// sign). What was scrolled stays, unless top is true (another tab, or another student). onClose: Close at the
+// bottom, or a tap on the dark layer.
+let panel;
+export function showPanel({ head, body, action = null, label, onClose, top = false }) {
+  if (!panel) { panel = h('div', { id: 'panel' }); overlay.after(panel); } // after, but under it (z-index): a pop-up opened on top is found first
+  const old = panel.querySelector('.sheet-body');
+  const y = top || !old ? 0 : old.scrollTop;
+  const scroller = h('div', { class: 'sheet-body' }, body);
+  // Close on the left and the action on the right, like Cancel and Save; Close alone when there is nothing to do
+  const foot = h('div', { class: 'sheet-foot' }, h('button', { class: 'btn ghost', type: 'button', onclick: onClose }, 'Close'), action);
+  const sheet = h('div', { class: 'sheet split student-sheet on-bg', role: 'dialog', 'aria-modal': 'true', 'aria-label': label }, head, scroller, foot);
+  panel.replaceChildren(h('div', { class: 'scrim', onclick: onClose }), sheet);
+  panel.classList.add('open');
+  scroller.scrollTop = y;
+  scrollHint(scroller, foot, head);
+}
+export function closePanel() {
+  if (!panel) return;
+  panel.classList.remove('open');
+  panel.replaceChildren();
 }
 
 // ---- privacy notice ("Your data") -------------------------------------------------------
@@ -287,6 +326,68 @@ export function openPrivacy(role) {
 // A row like the hospital and date when logging: the label small and grey, the value under it, and anything else
 // (a "Change" or "Read" button) on the right. Rows go in a .facts box (grey) or .facts.plain (in a white card).
 export const fact = (label, value, ...extra) => h('div', { class: 'fact' }, h('span', { class: 'fact-text' }, h('span', {}, label), h('strong', {}, value)), ...extra);
+
+// A menu that a "Change" button opens: a white box over the page, under the button (.hpick), with a title, a × and
+// what is passed in (body). It closes with ×, the button again, Escape or a tap outside it. onOpen runs each time it
+// opens, once it is on the screen. Returns the button and the menu: put both in one element with position: relative
+// (.fact). The hospital (app.js) and the file format on an administrator's Download data.
+export function popMenu({ title, buttonLabel, body, onOpen = () => {} }) {
+  const close = () => {
+    panel.hidden = true;
+    button.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('pointerdown', outside, true);
+    document.removeEventListener('keydown', escape, true);
+  };
+  const outside = (ev) => { if (!panel.contains(ev.target) && !button.contains(ev.target)) close(); };
+  const escape = (ev) => { if (ev.key === 'Escape') { ev.stopPropagation(); close(); button.focus(); } };
+  const panel = h('div', { class: 'hpick', role: 'dialog', 'aria-label': title, hidden: true },
+    h('div', { class: 'hpick-head' },
+      h('strong', {}, title),
+      h('button', { class: 'hpick-x', type: 'button', 'aria-label': 'Close', onclick: () => close() }, '×')),
+    body);
+  const open = () => {
+    panel.hidden = false;
+    button.setAttribute('aria-expanded', 'true');
+    onOpen();
+    document.addEventListener('pointerdown', outside, true);
+    document.addEventListener('keydown', escape, true);
+  };
+  const button = h('button', {
+    class: 'change', type: 'button', 'aria-label': buttonLabel, 'aria-haspopup': 'dialog', 'aria-expanded': 'false',
+    onclick: () => (panel.hidden ? open() : close()),
+  }, 'Change');
+  return { button, panel, close };
+}
+
+// A switch: a grey track with a tab per choice, the open one a white raised button in it (a supervisor's student page,
+// the administrator's pages). tabs: [[id, text]]; current: the open id; onPick(id) stores the choice and draws the page
+// again. When another tab is tapped the white button slides over to it, quickly: the page is drawn anew, so the switch
+// that was tapped leaves where it was (by its label) for the new one to slide from. Nothing slides when a page just
+// opens, or for people who ask for less motion.
+const slideFrom = new Map();
+export function segSwitch(label, tabs, current, onPick) {
+  const at = (k) => `translateX(calc(${k} * (100% + 4px)))`; // 4px: the gap between the tabs (.log-parts)
+  const i = Math.max(0, tabs.findIndex(([id]) => id === current));
+  const thumb = h('span', { class: 'seg-thumb', 'aria-hidden': 'true' });
+  thumb.style.setProperty('--i', i); // style.css moves it there: the same translateX as at(i)
+  const el = h('div', { class: 'ctabs log-parts', role: 'tablist', 'aria-label': label }, thumb,
+    tabs.map(([id, text], k) => h('button', {
+      class: k === i ? 'ctab on' : 'ctab', type: 'button', role: 'tab', 'aria-selected': String(k === i),
+      onclick: () => { if (k !== i) { slideFrom.set(label, i); onPick(id); } },
+    }, text)));
+  el.style.setProperty('--n', tabs.length);
+  // Only the switch with this label slides: the label must be different from any other switch drawn at the same
+  // time (a student's pop-up over the Overview has one, and the Overview its own). The slide starts once the switch
+  // is on the screen (after the drawing that is going on now), so it is never started on an element not shown yet.
+  const from = slideFrom.get(label);
+  slideFrom.delete(label);
+  if (from != null && from !== i && typeof thumb.animate === 'function' && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    queueMicrotask(() => {
+      if (thumb.isConnected) thumb.animate([{ transform: at(from) }, { transform: at(i) }], { duration: 180, easing: 'cubic-bezier(.3, 0, .2, 1)' });
+    });
+  }
+  return el;
+}
 
 // The "Your data" row: opens the privacy notice for this role.
 export const privacyFact = (role) => fact('Your data', 'What is stored and who can see it',
@@ -396,8 +497,9 @@ export function confirmSheet({ title, text, action, onAction, danger = false, ca
 // procedure, under it the role and the date, then the hospital, tags on the right. Tapping it opens the whole case in
 // the same pop-up the student sees (openCase), only to read. The role is worded about the student ("Operated alone").
 // box: a tick box on the left (a supervisor's To sign); tapping the box ticks, it does not open the case.
-export function caseRow(e, { box = null, tags = [] } = {}) {
-  const open = () => openCase(e, { roleText: roleDoneBy });
+// who: the student's name (or candidate number), first on the grey line of the case pop-up, before the role.
+export function caseRow(e, { box = null, tags = [], who = null } = {}) {
+  const open = () => openCase(e, { roleText: roleDoneBy, who });
   return h('li', {
     class: box ? 'entry tap has-box' : 'entry tap', role: 'button', tabindex: '0',
     'aria-label': `Open ${procName(e.procedure)}, ${core.fmtDate(e.performed_on)}`,
@@ -431,9 +533,10 @@ const targetOrder = (ids) => {
   return [...ids].sort((a, b) => (pos.get(a) ?? 1e9) - (pos.get(b) ?? 1e9));
 };
 
-// One student's procedures, as on the student's Progress: "Procedures with a target" (a tile each, two per row on
-// a tablet: performed out of the target, a bar, observed and assisted), then "Procedures without a target" that
-// have at least one case, the most cases first. note: the line under the first heading; none: when there are no targets.
+// One student's procedures, as on the student's Progress: "Procedures with a target" (a row each: performed out of
+// the target, a bar, observed and assisted), then "Procedures without a target" that have at least one case, the most
+// cases first. Each heading's rows are one white card (.prows.group). note: the line under the first heading; none:
+// when there are no targets.
 export function procedureProgress(entries, events, { note, none }) {
   const prog = core.progress(entries);
   const targets = core.targets(events); // set by a supervisor
@@ -447,11 +550,11 @@ export function procedureProgress(entries, events, { note, none }) {
   return [
     h('h3', { class: 'prog-title' }, 'Procedures with a target'),
     withTarget.length
-      ? [h('p', { class: 'muted small prog-note' }, note), h('div', { class: 'grid ptiles' }, targetOrder(withTarget).map(targetTile))]
+      ? [h('p', { class: 'muted small prog-note' }, note), h('div', { class: 'prows group' }, targetOrder(withTarget).map(targetTile))]
       : h('p', { class: 'muted small prog-note' }, none),
     others.length
       ? [h('h3', { class: 'prog-title' }, 'Procedures without a target'),
-        h('div', { class: 'prows' }, others.map(([id, p]) => procTile(procName(id), cases(p.total), `Observed ${p.observing} · Assisted ${p.assisting} · Performed ${p.performed}`)))]
+        h('div', { class: 'prows group' }, others.map(([id, p]) => procTile(procName(id), cases(p.total), `Observed ${p.observing} · Assisted ${p.assisting} · Performed ${p.performed}`)))]
       : null,
   ];
 }
@@ -467,7 +570,8 @@ export function procedureProgress(entries, events, { note, none }) {
 // Close. A supervisor gets neither: they only read.
 // roleText: how the role is worded (roleDone for the student; a supervisor passes roleDoneBy).
 // tab: the tab to open on ('details', or 'followup' when coming back from the follow-up form).
-export function openCase(e, { onDelete = null, onFollowUp = null, roleText = roleDone, tab: firstTab = 'details' } = {}) {
+// who: for a supervisor or administrator, whose case it is (the student's name), first on the grey line, before the role.
+export function openCase(e, { onDelete = null, onFollowUp = null, roleText = roleDone, tab: firstTab = 'details', who = null } = {}) {
   const row = (label, value) => h('div', { class: 'case-row' }, h('span', {}, label), h('span', {}, value));
   // A heading that only repeats the tab's name ("Details", "Follow-up") is left out.
   const part = (title, rows) => (rows.length
@@ -506,11 +610,11 @@ export function openCase(e, { onDelete = null, onFollowUp = null, roleText = rol
     class: 'ctab', type: 'button', role: 'tab', 'data-tab': id, 'aria-controls': `case-tab-${id}`, onclick: () => show(id),
   }, label);
   const tabs = h('div', { class: 'ctabs', role: 'tablist', 'aria-label': 'Details or follow-up' }, tab('details', 'Details'), tab('followup', 'Follow-up'));
-  // Delete: on the line of the tabs, all the way to the right, in red; on both tabs, as it is about the whole case. Only an
-  // unsigned case, and only for the student (onDelete). It asks first. Just "Delete" on a narrow phone, so the tabs fit.
-  const del = e.sign || !onDelete ? null : h('button', {
-    class: 'link danger case-del', type: 'button', 'aria-label': 'Delete this case', onclick: () => onDelete(e),
-  }, 'Delete', h('span', { class: 'wide-only' }, ' this case'));
+  // Delete: a quiet red link at the bottom of the case, under both tabs as it is about the whole case, like "Delete
+  // account and data for good" in an account. Only an unsigned case, and only for the student (onDelete). It asks first.
+  const del = e.sign || !onDelete ? null : h('div', { class: 'case-del-row' }, h('button', {
+    class: 'link danger case-del', type: 'button', onclick: () => onDelete(e),
+  }, 'Delete this case'));
   const show = (id) => {
     const sheet = caseTab.closest('.sheet');
     const top = sheet ? sheet.getBoundingClientRect().top : null;
@@ -537,6 +641,7 @@ export function openCase(e, { onDelete = null, onFollowUp = null, roleText = rol
         h('div', { class: 'case-top-text' },
           h('h3', { class: 'case-title' }, procName(e.procedure)),
           h('p', { class: 'case-sub' }, [
+            who,
             roleText(e.role, e.procedure),
             late ? `${core.fmtDate(e.performed_on)} (logged ${core.fmtDate(e.entered_on)})` : core.fmtDate(e.performed_on),
           ].filter(Boolean).join(' · ')),
@@ -545,13 +650,14 @@ export function openCase(e, { onDelete = null, onFollowUp = null, roleText = rol
           hasOutcome ? h('span', { class: 'tag fu' }, 'Follow-up added') : null,
           signTag(e))),
       signedBy ? h('p', { class: 'case-sub case-signed' }, signedBy) : null,
-      h('div', { class: 'case-tabbar' }, tabs, del)),
+      h('div', { class: 'case-tabbar' }, tabs)),
     caseTab,
     followTab,
+    del,
     h('div', { class: 'sheet-foot' },
       h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Close'),
       followBtn),
-  ]);
+  ], { cls: 'on-bg' }); // a pop-up to read: grey like the pages, the answers in white cards
 }
 
 // When the case pop-up changes tab it fits its new content, but its top edge stays where it was, so the heading and

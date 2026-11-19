@@ -10,7 +10,7 @@ import * as core from './core.js';
 import * as api from './api.js';
 import {
   h, daysAgo, stat, cases, appShell, pageScroll, setPageScroll, keepTyping, toast, openSheet, closeSheet, confirmSheet, caseRow, fact, privacyFact, advancedCard,
-  procedureProgress,
+  procedureProgress, segSwitch, showPanel, closePanel,
 } from './ui.js';
 
 const ENDED = Symbol('session ended'); // the server ended the session; app.js shows the login screen
@@ -42,15 +42,24 @@ function draw() {
   if (ctx && ctx.root.querySelector('[data-sv]')) paint();
 }
 
-let bottomBar = null; // set while the page is drawn: the buttons for the bar at the bottom of the screen (To sign)
+// The page of the tab, and over it, while a student is open, the student's pop-up (showPanel in ui.js), drawn again
+// with it. panelTop: the pop-up starts at the top (another student, another tab) instead of where it was scrolled.
+let panelTop = false;
 function paint() {
   const y = pageScroll();
   const typing = keepTyping(ctx.root);
-  bottomBar = null;
-  const page = body();
-  ctx.root.replaceChildren(appShell({ 'data-sv': '' }, [header(), nav()], page, bottomBar));
+  ctx.root.replaceChildren(appShell({ 'data-sv': '' }, [header(), nav()], body()));
   if (y) setPageScroll(y);
+  if (sv.detail) showPanel({ ...detailView(), label: `Student ${sv.detail.candidate}`, onClose: closeDetail, top: panelTop });
+  else closePanel();
+  panelTop = false;
   typing();
+}
+
+// Back to My students, fetched again for the new counts.
+function closeDetail() {
+  sv.detail = null;
+  loadStudents();
 }
 
 function header() {
@@ -70,7 +79,6 @@ function nav() {
 }
 
 function body() {
-  if (sv.detail) return detailView();
   if (sv.tab === 'add') return addView();
   if (sv.tab === 'more') return moreView();
   return studentsView();
@@ -151,6 +159,7 @@ async function loadDetail(candidate, { quiet = false } = {}) {
   const d = { candidate, events: [], entries: [], selected: new Set(), loading: true, error: '' };
   if (!old) {
     sv.detail = d;
+    panelTop = true;
     draw();
   }
   let cursor = 0;
@@ -197,7 +206,7 @@ function studentsView() {
       const q = core.normCandidate(input.value);
       const shown = list.filter((s) => s.candidate.includes(q) || (s.name || '').toUpperCase().replace(/\s+/g, '').includes(q));
       ul.replaceChildren(...(shown.length ? shown.map((s) => h('li', {},
-        h('button', { class: 'srow', onclick: () => { setPageScroll(0); sv.detailTab = 'sign'; loadDetail(s.candidate); } },
+        h('button', { class: 'srow', onclick: () => { sv.detailTab = 'sign'; loadDetail(s.candidate); } },
           h('span', { class: 'srow-main' },
             h('strong', {}, s.candidate),
             s.name ? h('span', { class: 'small' }, s.name) : null,
@@ -223,24 +232,32 @@ function errorBox() {
 
 // ---- one student ----------------------------------------------------------------------
 
-// Each case is a short row (caseRow in ui.js, shared with an administrator's page of one student); tapping it opens
-// the whole case in the same pop-up the student sees, only to read.
+// A student opens in a big pop-up over My students (showPanel in ui.js), laid out like the case pop-up: at the top,
+// staying there, the candidate number with the name under it, Remove (red, it asks first) and ×, and under them the
+// three tabs; then the numbers and the tab's cases, which scroll; on To sign, Select all and Sign at the bottom.
+// Each case is a short row (caseRow in ui.js, shared with an administrator's student); tapping it opens the whole
+// case on top, only to read. Returns { head, body, foot } for showPanel.
 function detailView() {
   const d = sv.detail;
-  // back to the list: only an arrow pointing left, in a round outlined button
-  const back = h('button', {
-    class: 'back-btn', type: 'button', 'aria-label': 'Back to my students',
-    onclick: () => { sv.detail = null; setPageScroll(0); loadStudents(); },
-  });
-  if (d.loading) return h('section', {}, back, h('h2', {}, d.candidate), h('p', { class: 'muted' }, 'Loading cases…'));
-  if (d.error) return h('section', {}, back, h('h2', {}, d.candidate), h('div', { class: 'card' }, h('p', { class: 'error' }, d.error), h('button', { class: 'btn', onclick: () => loadDetail(d.candidate) }, 'Try again')));
+  const name = nameOf(d.candidate);
+  const who = name || d.candidate; // first on the grey line of a case pop-up: whose case it is
+  // "Remove student", just "Remove" on a narrow phone so the name has room
+  const remove = h('button', { class: 'btn ghost danger', type: 'button', 'aria-label': 'Remove student', onclick: () => confirmRemove(d.candidate) }, 'Remove', h('span', { class: 'wide-only' }, ' student'));
+  const head = (tabs) => h('div', { class: 'sheet-head' },
+    h('div', { class: 'case-top' },
+      h('div', { class: 'case-top-text' }, h('h3', { class: 'case-title' }, d.candidate), name ? h('p', { class: 'case-sub' }, name) : null),
+      remove),
+    tabs);
+  if (d.loading) return { head: head(null), body: h('p', { class: 'muted' }, 'Loading cases…') };
+  if (d.error) return { head: head(null), body: h('div', { class: 'card' }, h('p', { class: 'error' }, d.error), h('button', { class: 'btn', onclick: () => loadDetail(d.candidate) }, 'Try again')) };
 
   const unsigned = d.entries.filter((e) => !e.sign);
   const signed = d.entries.filter((e) => e.sign);
-  const signBtn = h('button', { class: 'btn', onclick: () => confirmSign(d) });
-  // "Select all" / "Select none" in the bar at the bottom, next to Sign: Select none when everything is selected
+  const signBtn = h('button', { class: 'btn save', type: 'button', onclick: () => confirmSign(d) });
+  // "Select all" / "Select none" on a row above the cases (Close and Sign are at the bottom): Select none when
+  // everything is selected. A round outlined button, like "Show all" in History.
   const allBtn = h('button', {
-    class: 'btn ghost', type: 'button',
+    class: 'change', type: 'button',
     onclick: () => {
       const tick = d.selected.size < unsigned.length;
       for (const [id, box] of boxes) { box.checked = tick; if (tick) d.selected.add(id); else d.selected.delete(id); }
@@ -260,41 +277,35 @@ function detailView() {
     box.addEventListener('change', () => { if (box.checked) d.selected.add(e.id); else d.selected.delete(e.id); updateBtn(); });
     // logged a week or more after the day it was done: worth a second look before signing (the next day is normal)
     const late = core.daysLate(e);
-    return caseRow(e, { box, tags: late >= core.LATE_DAYS ? h('span', { class: 'tag warn' }, `Logged ${late} days later`) : null });
+    return caseRow(e, { box, who, tags: late >= core.LATE_DAYS ? h('span', { class: 'tag warn' }, `Logged ${late} days later`) : null });
   });
   updateBtn();
 
   const none = h('p', { class: 'muted' }, 'This student has not logged anything yet.');
+  let action = null;
   const pages = {
-    // the rows; Select all and Sign in the bar at the bottom of the screen (appShell), the list scrolls above it
+    // "N waiting" with Select all, the rows, and Sign at the bottom of the pop-up next to Close
     sign: () => {
       if (!unsigned.length) return d.entries.length ? h('p', { class: 'muted' }, 'Nothing waiting for a signature.') : none;
-      bottomBar = h('div', { class: 'sign-bar' }, unsigned.length > 1 ? allBtn : null, signBtn);
-      return h('ul', { class: 'list signlist' }, rows);
+      action = signBtn;
+      return [
+        unsigned.length > 1 ? h('div', { class: 'shown select-row' }, h('span', {}, `${cases(unsigned.length)} waiting`), allBtn) : null,
+        h('ul', { class: 'list signlist' }, rows),
+      ];
     },
     signed: () => (signed.length
-      ? h('ul', { class: 'list' }, signed.map((e) => caseRow(e, { tags: h('span', { class: 'tag ok' }, `Signed · ${e.sign.supervisor_name || e.sign.supervisor}`) })))
+      ? h('ul', { class: 'list' }, signed.map((e) => caseRow(e, { who, tags: h('span', { class: 'tag ok' }, `Signed · ${e.sign.supervisor_name || e.sign.supervisor}`) })))
       : d.entries.length ? h('p', { class: 'muted' }, 'Nothing signed yet.') : none),
     progress: () => progressPage(d),
   };
-  // To sign, Signed and Progress: a switch like Surgery and Delivery on the student's New case tab
-  const tab = (id, label) => h('button', {
-    class: sv.detailTab === id ? 'ctab on' : 'ctab', type: 'button', role: 'tab', 'aria-selected': String(sv.detailTab === id),
-    onclick: () => { if (sv.detailTab !== id) { sv.detailTab = id; draw(); } },
-  }, label);
 
-  return h('section', { class: 'sv-detail' }, // the same layout on every tab, so nothing moves when the tab changes
-    // one line: the arrow back, the candidate number with the name under it, and Remove on the right in red (it asks first)
-    h('div', { class: 'detail-head' }, back,
-      h('div', { class: 'detail-title' },
-        h('h2', {}, d.candidate),
-        nameOf(d.candidate) ? h('p', { class: 'muted detail-name' }, nameOf(d.candidate)) : null),
-      // "Remove student", just "Remove" on a narrow phone so the name has room
-      h('button', { class: 'btn ghost danger', 'aria-label': 'Remove student', onclick: () => confirmRemove(d.candidate) }, 'Remove', h('span', { class: 'wide-only' }, ' student'))),
+  // To sign, Signed and Progress: a switch whose white button slides to the tab that is tapped (segSwitch in ui.js)
+  const tabs = segSwitch('What to show about the student', [['sign', 'To sign'], ['signed', 'Signed'], ['progress', 'Progress']], sv.detailTab, (id) => { sv.detailTab = id; panelTop = true; draw(); });
+  const body = [
     h('div', { class: 'stats' }, stat(d.entries.length, 'cases'), stat(signed.length, 'signed'), stat(unsigned.length, 'to sign')),
-    h('div', { class: 'ctabs log-parts', role: 'tablist', 'aria-label': 'What to show' },
-      tab('sign', 'To sign'), tab('signed', 'Signed'), tab('progress', 'Progress')),
-    (pages[sv.detailTab] || pages.sign)());
+    (pages[sv.detailTab] || pages.sign)(),
+  ];
+  return { head: head(tabs), body, action };
 }
 
 // ---- progress and targets -------------------------------------------------------------------
@@ -418,9 +429,11 @@ function confirmRemove(candidate) {
 
 function addView() {
   const list = h('div', { class: 'list' }); // the same list and rows as My students, with Add on the right
+  const more = h('p', { class: 'muted small', hidden: true }); // "Showing 40 of 120", under the card
   const input = h('input', { type: 'search', placeholder: 'Search candidate number or name', class: 'search', value: sv.query, autocapitalize: 'characters', autocomplete: 'off' });
   const drawList = () => {
     sv.query = input.value;
+    more.hidden = true;
     if (sv.error) { list.replaceChildren(errorBox()); return; }
     if (sv.candidates === null) { list.replaceChildren(h('p', { class: 'muted' }, 'Loading…')); return; }
     const q = core.normCandidate(input.value);
@@ -432,15 +445,15 @@ function addView() {
           h('span', { class: 'srow-main' }, h('strong', {}, c.candidate), c.name ? h('span', { class: 'small' }, c.name) : null,
             h('span', { class: 'muted small' }, lastLogged(c))),
           h('button', { class: 'btn small', type: 'button', onclick: () => addStudent(c, drawList) }, 'Add')))
-        : [h('p', { class: 'muted' }, q ? 'No match. Check the candidate number, or ask CapaCare to create the account.' : 'Every student is already added.')]),
-      ...(all.length > shown.length ? [h('p', { class: 'muted small' }, `Showing ${shown.length} of ${all.length}. Type to narrow down.`)] : []),
-    );
+        : [h('p', { class: 'muted' }, q ? 'No match. Check the candidate number, or ask CapaCare to create the account.' : 'Every student is already added.')]));
+    more.hidden = all.length <= shown.length;
+    more.textContent = `Showing ${shown.length} of ${all.length}. Type to narrow down.`;
   };
   input.addEventListener('input', drawList);
   drawList();
   return h('section', {},
     h('h2', {}, 'Add students'),
-    input, list);
+    input, list, more);
 }
 
 async function addStudent(c, drawList) {

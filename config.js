@@ -1,7 +1,7 @@
 // config.js — content, not logic: procedures, roles, questions, hospitals and the privacy notice.
 // (Targets are set per student by a supervisor in the app; accounts are made by an administrator in the app.)
 
-export const APP_VERSION = '0.14.0';
+export const APP_VERSION = '0.14.1';
 
 // Where the logbook server lives. '' = the same address the app was loaded from
 // (when the server also serves the app). If the app is hosted elsewhere, for example
@@ -12,7 +12,7 @@ export const API_BASE = '';
 // ---- Procedures -----------------------------------------------------------------------------
 // The list from CapaCare's logbook (Logbook_softcopy_2021.xlsx, sheet "Lists"), in its four surgical groups,
 // plus the ways a baby is born from its obstetric logbook. Each procedure has:
-//   group     the surgical group it is listed under in "More operations" (left out: not an operation)
+//   group     the surgical group it is listed under in "All operations" (Find another operation) (left out: not an operation)
 //   delivery  true: a way of giving birth, shown under "Deliveries" (a caesarean is both)
 // Shown in this order. Ids are stored in entries: never rename, reuse or delete one (retire it instead, below).
 export const PROCEDURE_GROUPS = [
@@ -110,9 +110,10 @@ export const PROCEDURES_RETIRED = [
 export const ALL_PROCEDURES = [...PROCEDURES, ...PROCEDURES_RETIRED];
 export const findProcedure = (id) => ALL_PROCEDURES.find((p) => p.id === id);
 
-// Buttons on the Log tab, after the student has chosen Surgery or Delivery. Surgery: the ten procedures
-// registered most in 2025 (CapaCare Annual Report 2025, Table 2); every other operation is under "More operations".
-// The caesarean is in both.
+// The rows on the Log tab (New case), under "Operations" and "Deliveries". Operations: the ten procedures
+// registered most in 2025 (CapaCare Annual Report 2025, Table 2); every other operation is under "Find another
+// operation". The caesarean is in both lists here (so it comes first when a supervisor sets targets), but the Log
+// tab shows it once, under Deliveries.
 export const LOG_SURGERY = ['cs', 'ing_hernia', 'appendectomy', 'laparotomy', 'umb_hernia', 'strang_hernia', 'amp_ak', 'hydrocele', 'cystectomy', 'ectopic'];
 export const LOG_DELIVERIES = ['normal_delivery', 'cs', 'vacuum_delivery', 'forceps_delivery', 'destructive_delivery'];
 // The same procedures, each once, in that order (the first ones a supervisor sees when setting targets).

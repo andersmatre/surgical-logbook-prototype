@@ -18,7 +18,7 @@ You need internet for the first login on a tablet. After that the logbook also w
 Please try these in order. Do not ask anyone for help. If you get stuck, note where.
 
 1. Log the last procedure you did. (the "New case" tab: tap the procedure, tap your role, answer the questions you know, tap Save. If some are not answered, the app asks: tap "Save anyway" or "Go back".)
-2. Log two more procedures, one of them from "More operations" and one under Delivery.
+2. Log two more procedures, one of them from "Not in the list? Find another operation" and one under Deliveries.
 3. Make a mistake on purpose and undo it.
 4. Switch on airplane mode. Log two procedures. Switch airplane mode off. Watch the top right: while cases wait it shows "Offline" or "N to sync"; after a short time the button disappears, which means everything is sent.
 5. Open "Progress" and look at your numbers.
@@ -76,7 +76,7 @@ You need internet. You never need a command line for this.
 5. **Someone leaves:** tap the person, **Disable**. Their cases stay. To erase a person who asks for it: disable first, then "Delete account and data for good".
 6. **Lost or stolen tablet:** tap the person, **Log out everywhere**.
 7. **Backup, at least once a week:** **More**, **Download backup**. Keep the file somewhere safe that is not the server, and do not send it by WhatsApp or e-mail. The Overview reminds you when a week has passed.
-8. **Spreadsheets:** **Download data**. Choose Anonymous (codes instead of names) unless you really need the names, tick the files and tap **Download**. The **Codebook** explains every column.
+8. **Spreadsheets:** **Download data**. Leave **Anonymous** on (codes instead of names) unless you really need the names, tick the files and tap **Download**. The **Codebook** explains every column.
 9. Tell us:
    - What was confusing or slow?
    - What do you need to do that the app does not let you do?
