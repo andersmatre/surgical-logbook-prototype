@@ -15,7 +15,8 @@ Status as reported by the product owner on 2026-10-28. It was not checked by the
 | Works in | Chrome on a Windows PC and on an iPhone |
 | Not yet tried | A Samsung tablet (installing from the home screen, offline use, speed), supervisors on a second device |
 | Database | **Started again empty on 2026-11-23**, before the real test: the test accounts and their cases were removed (the old file was moved aside, the server restarted and created `ADMIN-ANDERS` from `ADMIN_ID` and `ADMIN_PASSWORD`). The old test data was then deleted, also the backup copies; it was only made-up data. Fly's own volume snapshots may still hold it until they expire. |
-| Not recorded | Whether the checklist below was done, in particular **taking and restoring a backup**; the data controller and the person who holds the Fly account (see `PROJECT.md` section 16) |
+| Backup and restore | **Tried on 2026-11-23**: a backup downloaded from the app was restored on Fly (see "Restore", "On Fly") |
+| Not recorded | Whether the rest of the checklist below was done; the data controller and the person who holds the Fly account (see `PROJECT.md` section 16) |
 | Deviations from this guide | None reported |
 
 Update this table whenever something changes (host, address, region, who owns the account).
@@ -197,7 +198,17 @@ The app downloads a plain database file, the same as the command line makes.
 
 What happens next, by itself: each backup file has its own database id, and the tablets notice the change at their next sync. They send the students' entries, follow-ups and deletes again (also those made after the backup) and fetch everything from the start. Tell the supervisors to check their students: signatures and targets made after the backup are lost and must be done again, and so are accounts created after it.
 
-Practice this once on a test deployment so you know it works before you need it. On Fly, check how to reach the volume while the app is stopped (for example a temporary machine with the volume attached); `fly ssh console` does not work on a stopped machine. This has not been tried yet.
+**On Fly** (tried on 2026-11-23 with a backup downloaded from the app: an account created after the backup was gone afterwards, and the administrator could log in). `fly ssh console` does not work on a stopped machine, so the file is swapped while the server runs and the machine is restarted at once. Do it when nobody is using the app; anything sent between the swap and the restart is lost.
+
+```
+fly ssh sftp put logbook-backup-2026-11-23.db /data/restore.db
+fly ssh console -C "sha256sum /data/restore.db"          # compare with the file on your computer
+fly ssh console -C "sh -c 'mkdir -p /data/before-restore && mv /data/logbook.db /data/logbook.db-wal /data/logbook.db-shm /data/before-restore/ && mv /data/restore.db /data/logbook.db'"
+fly machine restart <machine id>                          # fly status shows the id
+fly ssh console -C "node --no-warnings=ExperimentalWarning server/admin.js list"
+```
+
+Then log in as an administrator and check. Delete `/data/before-restore` once you are sure (it holds the data as it was before the restore). In Git Bash on Windows, put `MSYS_NO_PATHCONV=1` before each `fly ssh` command, or `/data` is turned into a Windows path.
 
 ### Start again with an empty database (Fly)
 

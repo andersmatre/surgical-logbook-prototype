@@ -397,7 +397,7 @@ Hosting, updating, backups, restoring and costs are in **`DEPLOY.md`**. The curr
 ## 13. Known limits
 
 - **Not tried on a Samsung tablet.** It works in Chrome on a Windows PC and an iPhone (reported by the product owner). Installation on the tablet, offline behaviour, performance on the actual devices and the look on the real screen are unverified.
-- **Deployment only partly checked.** It runs on Fly.io (see `DEPLOY.md`, "Current deployment"). The rest of the `DEPLOY.md` checklist (backup and restore, offline mode, second device) has not been recorded as done.
+- **Deployment only partly checked.** It runs on Fly.io (see `DEPLOY.md`, "Current deployment"). A backup was restored on Fly on 2026-11-23; the rest of the `DEPLOY.md` checklist (on a Samsung tablet, offline mode, second device) is to be checked during the first real test.
 - **Supervisors need internet to sign**, and see nothing offline.
 - **No password reset without an administrator**, no two-factor login, no per-address rate limiting; the login lock is in memory.
 - **Deleting an account is two steps** (disable, then delete for good) and cannot be undone. An administrator cannot reset, disable or delete their own account; another administrator must.
@@ -413,7 +413,7 @@ Hosting, updating, backups, restoring and costs are in **`DEPLOY.md`**. The curr
 - **A follow-up has no time limit** (since 0.15.0), so an answer can come long after the operation and may be less reliable. The spreadsheet says how late it came (`followup_day`); the app does not warn about it.
 - **All detail questions are optional**, but Save asks before saving an entry with unanswered questions. Making some required is a small change in `questions()` in `app.js` once CapaCare decides which.
 - **Single server, single file.** No redundancy; a failed disk means restoring from the last backup.
-- **A restore loses what the server got after the backup, except what is still on the tablets.** Tablets send the students' entries, follow-ups and deletes again by themselves at their next sync. Signatures and targets made after the backup are lost (only the server makes them; students cannot send them back): supervisors sign those entries again and set those targets again. Accounts created after the backup are gone and must be created again. The restore itself has not been tried on Fly yet (see `DEPLOY.md`).
+- **A restore loses what the server got after the backup, except what is still on the tablets.** Tablets send the students' entries, follow-ups and deletes again by themselves at their next sync. Signatures and targets made after the backup are lost (only the server makes them; students cannot send them back): supervisors sign those entries again and set those targets again. Accounts created after the backup are gone and must be created again. A restore on Fly was tried on 2026-11-23 with an almost empty database, not yet with tablets that had to send their cases again (see `DEPLOY.md`, "Restore").
 
 ## 14. Open questions for CapaCare
 
