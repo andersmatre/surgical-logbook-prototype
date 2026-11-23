@@ -31,7 +31,7 @@ The context that shaped every decision:
 
 ## 2. Status
 
-Version **0.17.13**. A working prototype, tested automatically and **deployed on Fly.io** (see [11](#11-running-it)), but **not yet used on a Samsung tablet**.
+Version **0.17.14**. A working prototype, tested automatically and **deployed on Fly.io** (see [11](#11-running-it)), but **not yet used on a Samsung tablet**.
 
 Works (each screen is described in detail in [18](#18-screens-in-detail)):
 
@@ -50,8 +50,8 @@ Works (each screen is described in detail in [18](#18-screens-in-detail)):
 - **Spreadsheets** (CSV) for administrators: progress per student, procedures per student and per hospital, every case with every answer, and a codebook. Anonymous (codes instead of people) or with names.
 - **Backups**: a complete copy of the database, downloaded from the app, with a reminder when none has been taken for a week.
 - **Command line** fallback for every account task (`server/admin.js`, see [10.8](#108-manage-accounts-administrator)).
-- **Privacy notice** ("Your data") at the first login and under More, worded for each role. Still a draft (`PRIVACY_IS_PLACEHOLDER`). Administrators can erase a disabled account and its data for good.
-- **75 automated tests**, including whole-flow tests of all three apps in a simulated browser against a real server.
+- **Privacy notice** ("Your data") at the first login and under More, worded for each role (final since 0.17.14). Administrators can erase a disabled account and its data for good.
+- **79 automated tests**, including whole-flow tests of all three apps in a simulated browser against a real server.
 - **Dev server** with live reload and demo data (`npm run dev`, see [3](#3-get-it-running) and [10.9](#109-front-end-work-with-the-dev-server)). It is a tool for the developer, not part of the app.
 
 Targets are set per student by a supervisor in the app (there are no example targets). Placeholders: the procedure list, the hospital list, the role definitions and the detail and follow-up questions (`DETAIL_FIELDS`, `FOLLOWUP_FIELDS`: everything the surgical and obstetric logbooks asked, except what identifies the patient; to be cut down after trying it) come from CapaCare's logbook (`Logbook_softcopy_2021.xlsx`, not in the repository); the hospital list is from 2021 and should be checked. Added in 0.14.0 and still to be confirmed by CapaCare ([14](#14-open-questions-for-capacare)): fewer questions for small procedures, "Side" and "Mesh used" for some operations, no question about the sex where the procedure gives it, and the complications at a birth asked when logging it instead of in the follow-up.
@@ -64,7 +64,7 @@ Needs **Node 22.13 or newer**. Nothing else: the server has no runtime dependenc
 
 ```
 npm install                                   # test tools only
-npm test                                      # 75 tests, about 1 minute
+npm test                                      # 79 tests, about 1 minute
 
 npm run admin -- add-admin ADMIN-ANDERS --name "Anders"            # prints an initial password; then do everything else in the app
 npm run admin -- add-supervisor SUP-ANNA --name "Dr Anna Kamara"   # prints an initial password
@@ -241,7 +241,7 @@ What is *not* protected, honestly:
 - Any supervisor can add any student without the student's approval (the student can see it, and an admin can remove it). Whether that is acceptable is a question for CapaCare ([14](#14-open-questions-for-capacare)).
 - Every supervisor can list all candidate numbers (to pick students to add).
 - A student's "Delete" is a soft delete: voided entries stay in the database. To erase a person, an administrator disables the account and then deletes it for good (Manage users, or `admin.js delete`). That removes the account, its sessions, its supervisor links and, for a student, every event in their stream including signatures. A supervisor's signatures stay in the students' records, with the supervisor's id and name. SQLite runs with `secure_delete`, so removed data is overwritten in the file. **Backups taken earlier still contain it**, and so do entries still on the student's tablet until they log out there. The audit log keeps the id of the deleted account (who deleted whom, and when).
-- The privacy notice (`PRIVACY` in `config.js`) is a draft: the contact and how long data is kept must be decided, and who is responsible (the data controller) must be decided and then named in it ([14](#14-open-questions-for-capacare)). Then set `PRIVACY_IS_PLACEHOLDER` to false.
+- The privacy notice (`PRIVACY` in `config.js`) is final since 0.17.14 (decided by the product owner; until then the app marked it as a draft). Its contact is "your CapaCare coordinator"; it does not name a data controller. If one is decided ([14](#14-open-questions-for-capacare)) or the text changes, change it and release: it is what people were told.
 - Backups contain everything (names, entries, password hashes) and must be protected as much as the live database. An administrator can download one from the app; that download is written to the audit log.
 - Student names are personal data about staff-in-training. They are shown to administrators, to the student themselves and to the supervisors who can find or have added the student. They appear in the spreadsheet files only when the administrator chooses "With names" (anonymous is chosen again at every login); the "procedures per hospital" file and the codebook never contain names. The anonymous files are pseudonymised, not anonymous in the legal sense: a code always means the same person, and dates and hospitals stay in them, so someone who knows who worked where and when may recognise a person. Treat them as personal data too, and decide with CapaCare which are used for research.
 - The audit log records account changes (create, reset, disable, enable, log out, rename, assign, unassign), targets set, downloads and backups, with who did it and when; it never holds passwords. It does not record who *read* data.
@@ -408,7 +408,7 @@ Hosting, updating, backups, restoring and costs are in **`DEPLOY.md`**. The curr
 - **Accessibility** has not been checked beyond large touch targets and labels.
 - **Targets are set one student at a time.** There is no programme-wide default yet; a supervisor sets them for each student. The procedure and hospital lists and the questions are CapaCare's from 2021, with the 0.14.0 changes still to be confirmed (small procedures, side and mesh, no sex where the procedure gives it, complications at the birth). A caesarean asks about 20 questions; which to keep is still to be decided.
 - **Not taken over from the 2021 logbook:** patient initials and address (district) identify the patient; times of day (operation start and end, time of birth) are replaced by the operation time in minutes; dates after the operation (discharge, reoperation, referral, death) by yes/no and "days". Reoperation and referral are yes/no only.
-- **Follow-up has no reminder outside the app.** History says how many cases can still get a follow-up and shows them, but the student has to open the app; there are no notifications.
+- **Follow-up has no reminder outside the app.** Every case can get a follow-up at any time (the "Follow-up added" tag shows which have one), but the student has to remember to open the case; there are no notifications.
 - **The same operation can be logged by several students** (one operating, one assisting). Their follow-ups are separate, so counting outcomes needs care (for example only entries with role `supervised` or `independent`).
 - **A follow-up has no time limit** (since 0.15.0), so an answer can come long after the operation and may be less reliable. The spreadsheet says how late it came (`followup_day`); the app does not warn about it.
 - **All detail questions are optional**, but Save asks before saving an entry with unanswered questions. Making some required is a small change in `questions()` in `app.js` once CapaCare decides which.

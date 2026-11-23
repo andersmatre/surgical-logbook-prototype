@@ -502,7 +502,7 @@ function openShowFilter() {
 function usersView() {
   const input = h('input', { type: 'search', class: 'search', placeholder: 'Search candidate number or name', value: ad.query, autocomplete: 'off' });
   const show = SHOW.find(([id]) => id === ad.filter) || SHOW[0];
-  const list = h('div', {});
+  const list = h('div', { class: 'users-list' }); // room under the Show filter (.users-list in style.css)
   // a white card per kind of account with its heading inside (headedCard); in the order the server sends them
   // (administrators, supervisors, students)
   const HEAD = { admin: 'Administrators', supervisor: 'Supervisors', student: 'Students' };

@@ -14,6 +14,7 @@ Status as reported by the product owner on 2026-10-28. It was not checked by the
 | Setup | App `capacare-logbook`, region Stockholm (`arn`), one 512 MB machine, one volume `logbook_data` mounted at `/data` |
 | Works in | Chrome on a Windows PC and on an iPhone |
 | Not yet tried | A Samsung tablet (installing from the home screen, offline use, speed), supervisors on a second device |
+| Database | **Started again empty on 2026-11-23**, before the real test: the test accounts and their cases were removed (the old file was moved aside, the server restarted and created `ADMIN-ANDERS` from `ADMIN_ID` and `ADMIN_PASSWORD`). The old test data was then deleted, also the backup copies; it was only made-up data. Fly's own volume snapshots may still hold it until they expire. |
 | Not recorded | Whether the checklist below was done, in particular **taking and restoring a backup**; the data controller and the person who holds the Fly account (see `PROJECT.md` section 16) |
 | Deviations from this guide | None reported |
 
@@ -197,6 +198,19 @@ The app downloads a plain database file, the same as the command line makes.
 What happens next, by itself: each backup file has its own database id, and the tablets notice the change at their next sync. They send the students' entries, follow-ups and deletes again (also those made after the backup) and fetch everything from the start. Tell the supervisors to check their students: signatures and targets made after the backup are lost and must be done again, and so are accounts created after it.
 
 Practice this once on a test deployment so you know it works before you need it. On Fly, check how to reach the volume while the app is stopped (for example a temporary machine with the volume attached); `fly ssh console` does not work on a stopped machine. This has not been tried yet.
+
+### Start again with an empty database (Fly)
+
+Used on 2026-11-23 to remove the test data before the real test. Everything is lost except the administrator created from the secrets, so take a backup first if anything should be kept.
+
+1. Take a backup (above) and copy it off the server if you want to keep the old data.
+2. Move the database aside while the server runs: `fly ssh console -C "sh -c 'mkdir -p /data/old && mv /data/logbook.db /data/logbook.db-wal /data/logbook.db-shm /data/old/'"`.
+3. Restart it with a temporary administrator password: `fly secrets set ADMIN_ID=ADMIN-ANDERS ADMIN_PASSWORD=<temporary>`. The server creates a new, empty database with that one account.
+4. Log in, choose your own password, then `fly secrets unset ADMIN_PASSWORD`. Delete `/data/old` once you are sure.
+
+Tablets that were logged in as a removed account go back to the login screen, but keep their cases on the device. Clear the site's data in Chrome on those devices, or never give a removed account id to a real person: logging in with it would send the old cases to the new account.
+
+In Git Bash on Windows, put `MSYS_NO_PATHCONV=1` before `fly ssh sftp get /data/...`, or Git Bash turns `/data` into a Windows path.
 
 ## Data protection reminders
 

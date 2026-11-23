@@ -4,7 +4,7 @@
 
 import * as api from './api.js';
 import {
-  PRIVACY, PRIVACY_IS_PLACEHOLDER, DETAIL_FIELDS, FOLLOWUP_FIELDS, TARGET_PROCEDURES, procName, roleDone, roleDoneBy,
+  PRIVACY, DETAIL_FIELDS, FOLLOWUP_FIELDS, TARGET_PROCEDURES, procName, roleDone, roleDoneBy,
   detailFieldsFor, followupFieldsFor, followUpLog, surgicalApgar, answerLabel,
 } from './config.js';
 import * as core from './core.js';
@@ -311,7 +311,6 @@ export function openPrivacy(role) {
   };
   openSheet([
     h('h3', { class: 'pv-title' }, 'Your data'),
-    PRIVACY_IS_PLACEHOLDER ? h('p', { class: 'muted small pv-draft' }, 'Draft: CapaCare still has to confirm parts of this text.') : null,
     PRIVACY.parts.map(part),
     part(['How long it is kept', [PRIVACY.keptFor]]),
     part(['Your rights', [

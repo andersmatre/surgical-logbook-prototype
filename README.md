@@ -59,7 +59,7 @@ Open the server's address in Chrome, menu (three dots), "Add to Home screen" / "
 ## Tests
 
     npm install
-    npm test            # 75 tests, about 1 minute
+    npm test            # 79 tests, about 1 minute
 
 `core` (data layer), `server` (API, login, sync, supervisor rules, upgrade of an old database, backup), `api` (the localhost-only server override), `ui` (the whole student flow in a simulated browser against a real server), `ui-supervisor` (the whole supervisor flow), `ui-admin` (the whole administrator flow), `files` (file lists stay in step), `dev` (the developer tools). They do not replace trying the app on a real tablet.
 

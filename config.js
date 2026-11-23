@@ -1,7 +1,7 @@
 // config.js — content, not logic: procedures, roles, questions, hospitals and the privacy notice.
 // (Targets are set per student by a supervisor in the app; accounts are made by an administrator in the app.)
 
-export const APP_VERSION = '0.17.13';
+export const APP_VERSION = '0.17.14';
 
 // Where the logbook server lives. '' = the same address the app was loaded from
 // (when the server also serves the app). If the app is hosted elsewhere, for example
@@ -392,9 +392,8 @@ export const HOSPITALS = [
 ];
 
 // The privacy notice ("Your data"), shown at the first login and under More, "Advanced", in all three apps.
-// PLACEHOLDER: whom to contact and how long data is kept are not decided yet, and who is responsible is not named
-// (PROJECT.md, section 14). While PRIVACY_IS_PLACEHOLDER is true the notice says it is a draft.
-export const PRIVACY_IS_PLACEHOLDER = true;
+// Final since 0.17.14 (until then the app marked it as a draft). It is what people were told: agree a change with
+// CapaCare first.
 export const PRIVACY = {
   contact: 'your CapaCare coordinator',
   keptFor: 'While you are in the training programme. After that, for as long as CapaCare needs it for the programme.',

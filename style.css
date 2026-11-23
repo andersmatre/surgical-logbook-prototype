@@ -421,6 +421,7 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .filter-text strong { min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* what is shown now: All, or the one chosen */
 .filters + .day-head { margin-top: 24px; } /* a little more room between the filters and the first week of cases */
 .shown { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; font-weight: 500; }
+.users-list { margin-top: 20px; } /* Manage users: room between the Show filter (or "Showing N of M") and the first card, as between the cards */
 .row-btn.opt { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .row-btn.opt.on { background: var(--main-light); border-color: var(--main); font-weight: 500; }
 .opt-n { flex: none; min-width: 36px; padding: 2px 10px; border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 15px; text-align: center; }
@@ -556,8 +557,7 @@ textarea {
 .audit-at { flex: none; white-space: nowrap; } /* Recent changes: the date and time on the right */
 h4 { font-size: 17px; margin: 16px 0 6px; }
 /* The privacy notice ("Your data"): one grey card per part, like the parts of the entry pop-up. */
-.pv-title { margin-bottom: 4px; }
-.pv-draft { margin: 0 0 16px; }
+.pv-title { margin-bottom: 16px; } /* the room the draft line had under it until 0.17.14 */
 .pv-card { background: var(--bg); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px; }
 .pv-card h4 { margin: 0 0 6px; }
 .pv-card p { margin: 0; }
@@ -580,7 +580,7 @@ h4 { font-size: 17px; margin: 16px 0 6px; }
 .note.reminder { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin: 0 0 16px; padding: 10px 10px 10px 16px; }
 .note.reminder > span { flex: 1 1 180px; }
 /* A supervisor's student page, Progress: Set targets on top, then the procedures as the student sees them. */
-.set-targets { margin-bottom: 4px; }
+.set-targets { margin-bottom: 16px; } /* as much room under "Set targets" / "Change targets" as above it (under the three numbers, .stats) */
 .btn.ghost.set-targets { background: var(--card); } /* white, not see-through, like Add users and Account (hover and press still show) */
 .targets-name { margin: -12px 0 12px; } /* the student's name under "Targets for …" */
 
