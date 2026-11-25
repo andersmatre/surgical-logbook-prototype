@@ -69,6 +69,13 @@ export function initSchema(db) {
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS standard_targets ( -- the targets for every student, set by an administrator (since 0.18.0)
+      seq       INTEGER PRIMARY KEY AUTOINCREMENT, -- only added to: the newest row per procedure counts
+      procedure TEXT NOT NULL,
+      count     INTEGER NOT NULL,                  -- how many to perform; 0 removes the standard target
+      set_by    TEXT NOT NULL,                     -- the administrator's account id
+      set_at    TEXT NOT NULL
+    );
   `);
   // The id of this copy of the data (databaseId). Made once; a backup copy gets a new one (backupTo).
   db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('db_id', ?)").run(crypto.randomUUID());
@@ -524,20 +531,21 @@ export function exportCsv(db, kind, delimiter = ',', { anonymous = false } = {})
     : toCsv([...whoHead, 'procedure_id', 'procedure', ...countHead], list.map((x) => [...who(x.g, x.name), x.procedure, procName(x.procedure), ...counts(x)]), delimiter);
 }
 
-// Progress per student: a row per target in force (the newest target event per procedure, 0 removes it, as
+// Progress per student: a row per target in force (the standard, with what a supervisor changed for the student, as
 // core.targets on the tablet), in the order a supervisor sees the procedures: the target, how many performed and
-// the share, the other roles, and who set it and when. Students without targets have no rows.
+// the share, the other roles, where it comes from (standard or supervisor), and who set it and when. Students
+// without targets have no rows.
 function progressCsv(db, entries, { whoHead, who, supervisor }, delimiter) {
-  const events = db.prepare(
-    `SELECT e.owner AS candidate, u.display_name AS name, e.payload FROM events e JOIN users u ON u.candidate = e.owner
-     WHERE e.type = 'target' ORDER BY e.seq`,
-  ).all();
-  const latest = new Map(); // owner + NUL + procedure -> { candidate, name, event }
-  for (const r of events) {
-    const p = JSON.parse(r.payload);
-    const key = `${r.candidate}\u0000${p.procedure}`;
-    const before = latest.get(key);
-    if (!before || p.ts >= before.p.ts) latest.set(key, { candidate: r.candidate, name: r.name, p });
+  const std = standardTargetRows(db);
+  const standard = Object.fromEntries(Object.entries(std).map(([id, r]) => [id, r.count]));
+  const list = [];
+  for (const u of db.prepare("SELECT candidate, display_name AS name FROM users WHERE role = 'student'").all()) {
+    const own = ownTargetEvents(db, u.candidate);
+    for (const [id, count] of Object.entries(resolveTargets(standard, own))) {
+      const mine = own[id] && own[id].count > 0 ? own[id] : null;
+      list.push({ candidate: u.candidate, name: u.name, procedure: id, count, from: mine ? 'supervisor' : 'standard',
+        by: mine ? supervisor(mine.supervisor) : null, on: String(mine ? mine.ts : std[id].set_at).slice(0, 10) });
+    }
   }
   const done = new Map(); // owner + NUL + procedure -> counts per role
   for (const e of entries) {
@@ -547,15 +555,14 @@ function progressCsv(db, entries, { whoHead, who, supervisor }, delimiter) {
     done.set(key, c);
   }
   const order = new Map(TARGET_PROCEDURES.map((p, i) => [p.id, i]));
-  const list = [...latest.values()].filter((x) => x.p.count > 0)
-    .sort((a, b) => who(a.candidate, a.name)[0].localeCompare(who(b.candidate, b.name)[0]) || (order.get(a.p.procedure) ?? 1e9) - (order.get(b.p.procedure) ?? 1e9));
+  list.sort((a, b) => who(a.candidate, a.name)[0].localeCompare(who(b.candidate, b.name)[0]) || (order.get(a.procedure) ?? 1e9) - (order.get(b.procedure) ?? 1e9));
   return toCsv(
-    [...whoHead, 'procedure_id', 'procedure', 'target', 'performed', 'percent', 'assisting', 'observing', 'target_set_by', 'target_set_on'],
+    [...whoHead, 'procedure_id', 'procedure', 'target', 'performed', 'percent', 'assisting', 'observing', 'target_from', 'target_set_by', 'target_set_on'],
     list.map((x) => {
-      const c = done.get(`${x.candidate}\u0000${x.p.procedure}`) || { observing: 0, assisting: 0, supervised: 0, independent: 0 };
+      const c = done.get(`${x.candidate}\u0000${x.procedure}`) || { observing: 0, assisting: 0, supervised: 0, independent: 0 };
       const perf = c.supervised + c.independent;
-      return [...who(x.candidate, x.name), x.p.procedure, procName(x.p.procedure), x.p.count, perf, Math.round((perf / x.p.count) * 100),
-        c.assisting, c.observing, supervisor(x.p.supervisor), String(x.p.ts).slice(0, 10)];
+      return [...who(x.candidate, x.name), x.procedure, procName(x.procedure), x.count, perf, Math.round((perf / x.count) * 100),
+        c.assisting, c.observing, x.from, x.by, x.on];
     }),
     delimiter,
   );
@@ -576,15 +583,17 @@ function codebookRows() {
   add(all, 'followup_*', 'The follow-up can be added and changed at any time after the case (no time limit since version 0.15.0). done: it has answers. open: none yet. How late the newest answer came is in followup_day (Every case).');
   add(all, '', 'The same operation can be logged by several students (one operating, one assisting), each with their own follow-up. Nothing links them. To count patients or outcomes, use only the cases with performed = yes.');
 
-  add('progress', '', 'A row per target a supervisor has set for a student (students without targets have no rows).');
+  add('progress', '', 'A row per target a student has: the standard targets for every student, set by an administrator, with what a supervisor changed for that student (students without targets have no rows).');
   add('progress', 'procedure_id', 'The id of the procedure. It never changes, so use it to count or to join files.');
   add('progress', 'procedure', 'The name of the procedure.');
-  add('progress', 'target', 'How many the student should perform (as surgeon), set by a supervisor. The newest target counts.');
+  add('progress', 'target', 'How many the student should perform (as surgeon). The newest target counts.');
   add('progress', 'performed', 'How many the student has performed (surgeon supervised or independent).');
   add('progress', 'percent', 'performed out of target, in per cent (can be more than 100).');
   add('progress', 'assisting', 'How many the student assisted.');
   add('progress', 'observing', 'How many the student observed.');
-  add('progress', 'target_set_by', 'The supervisor who set the target (a code, V- and 8 characters, in the anonymous file).');
+  add('progress', 'target_from', 'Where the target comes from.');
+  codes('progress', 'target_from', [['standard', 'The standard target for every student, set by an administrator'], ['supervisor', 'Set by a supervisor for this student (different from the standard)']]);
+  add('progress', 'target_set_by', 'The supervisor who set the target (a code, V- and 8 characters, in the anonymous file). Empty for a standard target.');
   add('progress', 'target_set_on', 'The day it was set.');
 
   for (const file of ['procedures', 'hospitals']) {
@@ -724,22 +733,52 @@ export const isSigned = (db, owner, entryId) => hasEvent(db, owner, 'sign', entr
 // A request that cannot be carried out as given (the server turns it into a 400 with this message).
 export class InputError extends Error {}
 
-// The targets now in force for a student, { procedure: number }, from the 'target' events (newest wins, 0 = none).
-export function currentTargets(db, owner) {
+// ---- targets ------------------------------------------------------------------
+// The standard targets are for every student, set by an administrator (the table standard_targets; the newest row
+// per procedure counts, 0 removes it). A supervisor can give one student a different target: a 'target' event in the
+// student's own events (newest per procedure wins). In such an event `count` > 0 is the student's own target, `none`
+// (with count 0) is "no target for this student, whatever the standard says", and count 0 alone is "no own target":
+// the standard applies, if there is one (so a target removed before 0.18.0 follows the standard). core.targets on the
+// tablet works it out the same way.
+
+// The latest standard row per procedure that still has a target: { procedure: { count, set_by, set_at } }.
+export function standardTargetRows(db) {
   const out = {};
-  for (const r of db.prepare("SELECT payload FROM events WHERE owner = ? AND type = 'target' ORDER BY seq").all(owner)) {
-    const e = JSON.parse(r.payload);
-    if (e.count > 0) out[e.procedure] = e.count; else delete out[e.procedure];
+  for (const r of db.prepare('SELECT procedure, count, set_by, set_at FROM standard_targets ORDER BY seq').all()) {
+    if (r.count > 0) out[r.procedure] = { count: r.count, set_by: r.set_by, set_at: r.set_at }; else delete out[r.procedure];
   }
   return out;
 }
 
-// Sets targets for a student on behalf of a supervisor. The caller has already checked that the supervisor is
-// assigned to `owner`. `targets` is { procedure id: number }, 0 removing a target. All or nothing: one unknown
-// procedure or a number out of range refuses the whole request. Only what changes is stored, as a 'target'
-// event in the student's own events, so the student's tablet gets it with its next sync (like a signature).
-// Returns the procedure ids that changed.
-export function setTargets(db, supervisor, owner, targets, nowIso) {
+// The standard targets now in force, { procedure: number }. Sent with every sync, so a tablet has them offline.
+export const standardTargets = (db) => Object.fromEntries(Object.entries(standardTargetRows(db)).map(([id, r]) => [id, r.count]));
+
+// The newest 'target' event per procedure of one student, { procedure: event }.
+function ownTargetEvents(db, owner) {
+  const out = {};
+  for (const r of db.prepare("SELECT payload FROM events WHERE owner = ? AND type = 'target' ORDER BY seq").all(owner)) {
+    const e = JSON.parse(r.payload);
+    out[e.procedure] = e;
+  }
+  return out;
+}
+
+// The targets in force from the standard and a student's own target events (see above), { procedure: number }.
+function resolveTargets(standard, own) {
+  const out = { ...standard };
+  for (const [id, e] of Object.entries(own)) {
+    if (e.count > 0) out[id] = e.count;
+    else if (e.none) delete out[id];
+  }
+  return out;
+}
+
+// The targets now in force for a student, { procedure: number }: the standard, with the supervisor's changes.
+export const currentTargets = (db, owner, standard = standardTargets(db)) => resolveTargets(standard, ownTargetEvents(db, owner));
+
+// { procedure id: number } as sent by a supervisor or an administrator. All or nothing: one unknown procedure or a
+// number out of range refuses the whole request.
+function checkTargets(targets) {
   if (!targets || typeof targets !== 'object' || Array.isArray(targets)) throw new InputError('No targets were sent.');
   const known = new Set(TARGET_PROCEDURES.map((p) => p.id));
   const entries = Object.entries(targets);
@@ -749,17 +788,48 @@ export function setTargets(db, supervisor, owner, targets, nowIso) {
     if (!known.has(id)) throw new InputError('Unknown procedure.');
     if (!Number.isInteger(n) || n < 0 || n > MAX_TARGET) throw new InputError(`A target must be a whole number from 0 to ${MAX_TARGET}.`);
   }
-  const now = currentTargets(db, owner);
+  return entries;
+}
+
+// Sets targets for a student on behalf of a supervisor. The caller has already checked that the supervisor is
+// assigned to `owner`. `targets` is { procedure id: number }: the target the student should have, 0 for none. Only
+// what differs from the target in force is stored, as a 'target' event in the student's own events, so the student's
+// tablet gets it with its next sync (like a signature). The same number as the standard means "follow the standard"
+// (count 0), so a later change of the standard reaches this student too; 0 where there is a standard is `none`.
+// Returns the procedure ids that changed.
+export function setTargets(db, supervisor, owner, targets, nowIso) {
+  const entries = checkTargets(targets);
+  const standard = standardTargets(db);
+  const now = currentTargets(db, owner, standard);
   const changed = entries.filter(([id, n]) => (now[id] || 0) !== n).map(([id]) => id);
   db.exec('BEGIN');
   try {
     for (const id of changed) {
+      const n = targets[id];
+      const as = standard[id] && n === standard[id] ? { count: 0 } : standard[id] && n === 0 ? { count: 0, none: true } : { count: n };
       insertEvent(db, owner, {
-        id: crypto.randomUUID(), type: 'target', ts: nowIso, procedure: id, count: targets[id],
+        id: crypto.randomUUID(), type: 'target', ts: nowIso, procedure: id, ...as,
         supervisor: supervisor.id, supervisor_name: supervisor.name || supervisor.id,
       }, nowIso);
     }
     if (changed.length) logAudit(db, supervisor.id, 'set_targets', owner, `${changed.length}`, new Date(nowIso));
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  return changed;
+}
+
+// Sets the standard targets for every student, on behalf of an administrator. `targets` as for setTargets, 0
+// removing a standard target. Only what changes is stored (a row each); students whose supervisor set a different
+// target keep it. Returns the procedure ids that changed.
+export function setStandardTargets(db, actor, targets, nowIso) {
+  const entries = checkTargets(targets);
+  const now = standardTargets(db);
+  const changed = entries.filter(([id, n]) => (now[id] || 0) !== n).map(([id]) => id);
+  db.exec('BEGIN');
+  try {
+    const add = db.prepare('INSERT INTO standard_targets (procedure, count, set_by, set_at) VALUES (?, ?, ?, ?)');
+    for (const id of changed) add.run(id, targets[id], actor, nowIso);
+    if (changed.length) logAudit(db, actor, 'set_standard_targets', null, `${changed.length}`, new Date(nowIso));
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
   return changed;

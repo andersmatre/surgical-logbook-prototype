@@ -59,7 +59,7 @@ Open the server's address in Chrome, menu (three dots), "Add to Home screen" / "
 ## Tests
 
     npm install
-    npm test            # 79 tests, about 1 minute
+    npm test            # 81 tests, about 1 minute
 
 `core` (data layer), `server` (API, login, sync, supervisor rules, upgrade of an old database, backup), `api` (the localhost-only server override), `ui` (the whole student flow in a simulated browser against a real server), `ui-supervisor` (the whole supervisor flow), `ui-admin` (the whole administrator flow), `files` (file lists stay in step), `dev` (the developer tools). They do not replace trying the app on a real tablet.
 
@@ -67,7 +67,7 @@ Open the server's address in Chrome, menu (three dots), "Add to Home screen" / "
 
 | File | Purpose |
 |---|---|
-| `config.js` | Procedures, roles, hospitals, version, `API_BASE`. Edit content here (targets are set per student by a supervisor in the app). |
+| `config.js` | Procedures, roles, hospitals, version, `API_BASE`. Edit content here (targets are set in the app: a standard for every student by an administrator, changed per student by a supervisor). |
 | `core.js`, `api.js` | Local event log in IndexedDB; calls to the server. |
 | `app.js`, `ui.js`, `supervisor.js`, `administrator.js`, `style.css` | The interface: student app, shared pieces, supervisor and administrator screens. |
 | `sw.js`, `manifest.webmanifest` | Offline cache and installability. |

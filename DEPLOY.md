@@ -196,7 +196,7 @@ The app downloads a plain database file, the same as the command line makes.
 3. Start the server and check the list: `admin.js list`.
 4. Only if you restored a **disk snapshot** from the host instead of a backup file: run `admin.js mark-restored`. A backup file made by the app or by `admin.js backup` does not need this.
 
-What happens next, by itself: each backup file has its own database id, and the tablets notice the change at their next sync. They send the students' entries, follow-ups and deletes again (also those made after the backup) and fetch everything from the start. Tell the supervisors to check their students: signatures and targets made after the backup are lost and must be done again, and so are accounts created after it.
+What happens next, by itself: each backup file has its own database id, and the tablets notice the change at their next sync. They send the students' entries, follow-ups and deletes again (also those made after the backup) and fetch everything from the start. Tell the supervisors to check their students: signatures and targets (also standard targets) made after the backup are lost and must be done again, and so are accounts created after it.
 
 **On Fly** (tried on 2026-11-23 with a backup downloaded from the app: an account created after the backup was gone afterwards, and the administrator could log in). `fly ssh console` does not work on a stopped machine, so the file is swapped while the server runs and the machine is restarted at once. Do it when nobody is using the app; anything sent between the swap and the restart is lost.
 

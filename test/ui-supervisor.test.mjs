@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 import { createServer } from '../server/app.js';
-import { addUser } from '../server/lib.js';
+import { addUser, setStandardTargets } from '../server/lib.js';
 import { TARGET_PROCEDURES } from '../config.js';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
@@ -257,6 +257,31 @@ test('a supervisor logs in, adds students, signs selected entries, removes a stu
   // the student's tablet gets them with its next sync
   const targetsPulled = (await post('/api/sync', s1, { events: [], cursor: 0 })).events.filter((e) => e.type === 'target');
   assert.deepEqual(targetsPulled.map((e) => [e.procedure, e.count]), [['cs', 30], ['appendectomy', 10], ['cs', 25], ['appendectomy', 0]]);
+
+  // ---- standard targets for every student (set by an administrator): the student has them unless the supervisor
+  // changed them; where the student's target differs from the standard, "Standard: N" says so
+  setStandardTargets(server.db, 'ADMIN-X', { cs: 20, laparotomy: 3 }, new Date().toISOString());
+  document.dispatchEvent(new window.Event('visibilitychange')); // fetched again when the app comes back on the screen
+  await wait(500);
+  assert.deepEqual(ptiles(), ['Caesarean section1 / 25', 'Laparotomy1 / 3', 'Appendectomy1 case', 'Scrotal hydrocele1 case'], 'the standard, with the supervisor\'s own cs target');
+  const tileText = (name) => byText('#panel .ptile', name).querySelector('.proc-count').textContent;
+  assert.match(tileText('Caesarean section'), /Standard: 20/, 'different from the standard: it says so');
+  assert.doesNotMatch(tileText('Laparotomy'), /Standard/, 'the same as the standard: nothing more');
+  await click(byText('#panel .btn', 'Change targets'), 100);
+  assert.match($('.sheet').textContent, /The standard for every student is filled in/);
+  assert.equal($('#t-laparotomy').value, '3', 'the standard is filled in');
+  const noteOf = (id) => $(`#t-${id}`).closest('.trow').querySelector('.std-note').textContent;
+  assert.equal(noteOf('cs'), 'Standard: 20', 'beside the number that differs from the standard');
+  assert.equal(noteOf('laparotomy'), '');
+  type($('#t-laparotomy'), '');
+  assert.equal(noteOf('laparotomy'), 'Standard: 3', 'updated while typing');
+  type($('#t-laparotomy'), '3');
+  type($('#t-cs'), '20'); // back to the standard
+  assert.equal(noteOf('cs'), '');
+  await click(byText('.sheet .btn', 'Save'), 700);
+  assert.deepEqual(ptiles(), ['Caesarean section1 / 20', 'Laparotomy1 / 3', 'Appendectomy1 case', 'Scrotal hydrocele1 case']);
+  assert.doesNotMatch($('#panel').textContent, /Standard:/, 'nothing differs from the standard now');
+  setStandardTargets(server.db, 'ADMIN-X', { cs: 0, laparotomy: 0 }, new Date().toISOString());
 
   // ---- Close closes the pop-up: back to My students; opened again, it starts on To sign
   assert.deepEqual($$('#panel .sheet-foot .btn').map((b) => b.textContent), ['Close'], 'only Close where there is nothing to sign');

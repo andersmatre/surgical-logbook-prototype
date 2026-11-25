@@ -6,7 +6,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 import { createServer } from '../server/app.js';
-import { addUser } from '../server/lib.js';
+import { addUser, standardTargets } from '../server/lib.js';
+import { TARGET_PROCEDURES } from '../config.js';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const dom = new JSDOM(html, { url: 'https://localhost/', pretendToBeVisual: true });
@@ -191,6 +192,24 @@ test('an administrator gets an overview, adds users, manages accounts and sees e
   await click(byText('.tab', 'Manage users'));
   assert.equal($('.main h2'), null, 'no heading: the open tab at the top is the name of the page');
   assert.ok(byText('.users-head .btn', 'Add users'), '"Add users" stays at the top');
+  // "Standard targets" beside it: the same pop-up as a supervisor's targets, for every student
+  assert.deepEqual($$('.users-head .btn').map((b) => b.textContent), ['Standard targets', 'Add users']);
+  await click(byText('.users-head .btn', 'Standard targets'), 200);
+  assert.equal($('.sheet h3').textContent, 'Standard targets');
+  assert.equal($('.sheet .targets-name').textContent, 'For every student');
+  assert.equal($$('.sheet .trow').length, TARGET_PROCEDURES.length, 'every procedure that can get a target');
+  assert.equal($('.sheet .std-note'), null, 'no "Standard" notes on the standard itself');
+  type($('#t-cs'), '15');
+  type($('#t-appendectomy'), '8');
+  await click(byText('.sheet .btn', 'Save'), 500);
+  assert.match($('#toast').textContent, /Standard targets saved/);
+  assert.deepEqual(standardTargets(server.db), { cs: 15, appendectomy: 8 });
+  await click(byText('.users-head .btn', 'Standard targets'), 200);
+  assert.equal($('#t-cs').value, '15', 'filled in when opened again');
+  type($('#t-cs'), '');
+  type($('#t-appendectomy'), '');
+  await click(byText('.sheet .btn', 'Save'), 500);
+  assert.deepEqual(standardTargets(server.db), {}, 'empty removes them');
   assert.equal($$('.srow').length, 4);
   // a small heading per kind of account, like the week headings in History, each over its own rows
   const heads = () => $$('.main .card.headed > .card-head').map((e) => [e.textContent, e.parentNode.querySelectorAll('.srow').length]);

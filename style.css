@@ -351,7 +351,9 @@ input[type=radio], input[type=checkbox] { width: 26px; height: 26px; accent-colo
 .fill { height: 100%; background: var(--main); border-radius: 7px; }
 /* Setting targets (supervisor): a row per procedure, the name on the left, a number field on the right. */
 .trow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid #efede6; }
-.trow label { color: var(--name); font-weight: 475; } /* the procedure: like the names in lists */
+.trow label { flex: 1; min-width: 0; color: var(--name); font-weight: 475; } /* the procedure: like the names in lists */
+.trow .std-note { flex: none; white-space: nowrap; } /* "Standard: 10" beside a supervisor's number that differs from it */
+.std-diff { color: var(--main); font-weight: 500; } /* "Standard: 10" on a student's Progress row, for supervisors and administrators */
 .trow[hidden] { display: none; }
 .trow .num { flex: none; max-width: 96px; min-height: 48px; font-size: 18px; }
 .tlist { margin-top: 4px; }

@@ -215,10 +215,13 @@ export function answersText(fields, answers) {
     .map((id) => `${fields[id].label}: ${answerLabel(fields, id, answers[id])}`).join(' · ');
 }
 
-// The targets a supervisor set for this student, { procedure: number }. They are 'target' events, made only by the
-// server when a supervisor saves targets, so the newest one for a procedure wins (by `ts`, the server's clock; the
-// order of the events for equal times). A target of 0 removes it. Several supervisors: the newest wins.
-export function targets(events) {
+// The targets in force for this student, { procedure: number }: the standard targets for every student (`standard`,
+// set by an administrator, { procedure: number }, from the sync), with what a supervisor changed for this student.
+// Those are 'target' events, made only by the server when a supervisor saves targets, so the newest one for a
+// procedure wins (by `ts`, the server's clock; the order of the events for equal times; several supervisors: the
+// newest wins). count > 0: the student's own target; `none`: no target, whatever the standard says; count 0 alone:
+// the standard applies (if any). The server works it out the same way (currentTargets in server/lib.js).
+export function targets(events, standard = {}) {
   const latest = new Map();
   for (const e of events) {
     if (e.type !== 'target') continue;
@@ -226,7 +229,11 @@ export function targets(events) {
     if (!before || e.ts >= before.ts) latest.set(e.procedure, e);
   }
   const out = {};
-  for (const [id, e] of latest) if (e.count > 0) out[id] = e.count;
+  for (const [id, n] of Object.entries(standard || {})) if (n > 0) out[id] = n;
+  for (const [id, e] of latest) {
+    if (e.count > 0) out[id] = e.count;
+    else if (e.none) delete out[id];
+  }
   return out;
 }
 

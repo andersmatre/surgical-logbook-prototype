@@ -6,16 +6,16 @@
 //   POST /api/password   (auth) { old_password, new_password }
 //
 // Students:
-//   POST /api/sync       (auth) { events, cursor } -> { accepted, rejected, events, cursor, has_more, supervisors, db_id }
+//   POST /api/sync       (auth) { events, cursor } -> { accepted, rejected, events, cursor, has_more, supervisors, name, db_id, standard_targets }
 //
 // Supervisors (every call checks that the student is assigned to the caller):
 //   POST /api/sup/students    -> { students: [{ candidate, name, entries, unsigned, since, last_received, last_logged }] }
 //   POST /api/sup/candidates  -> { candidates: [{ candidate, name, mine, entries, last_received, last_logged }] } (to find students to add)
 //   POST /api/sup/assign      { candidate }
 //   POST /api/sup/unassign    { candidate }
-//   POST /api/sup/entries     { candidate, cursor } -> { events, cursor, has_more }
+//   POST /api/sup/entries     { candidate, cursor } -> { events, cursor, has_more, standard_targets }
 //   POST /api/sup/sign        { candidate, ids } -> { signed, skipped }
-//   POST /api/sup/targets     { candidate, targets: { procedure: number } } -> { changed }
+//   POST /api/sup/targets     { candidate, targets: { procedure: number } } -> { changed }   (the student's own, over the standard)
 //
 // Administrators (accounts, overviews; they cannot sign and have no logbook):
 //   POST /api/admin/users       -> { users: [...] }
@@ -29,7 +29,9 @@
 //   POST /api/admin/reset | disable | enable | revoke   { id }              (not on your own account, except revoke)
 //   POST /api/admin/delete      { id } -> { ok, events, assignments }       (erases a disabled account and its data; not your own)
 //   POST /api/admin/assign | unassign   { supervisor, student }
-//   POST /api/admin/entries     { candidate, cursor } -> { events, cursor, has_more }
+//   POST /api/admin/entries     { candidate, cursor } -> { events, cursor, has_more, standard_targets }
+//   POST /api/admin/standard_targets      -> { targets }
+//   POST /api/admin/set_standard_targets  { targets: { procedure: number } } -> { changed }   (for every student)
 
 import http from 'node:http';
 import crypto from 'node:crypto';
@@ -39,7 +41,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   openDb, hashPassword, verifyPassword, sha256, normCandidate, validCandidate, validatePassword, validateEvent,
-  insertEvent, isSigned, signEntries, setTargets, InputError, assign, unassign, isAssigned, LookupError,
+  insertEvent, isSigned, signEntries, setTargets, standardTargets, setStandardTargets, InputError, assign, unassign, isAssigned, LookupError,
   addUser, resetPassword, setDisabled, revokeSessions, generatePassword, ROLES, listUsers, adminStats, recentAudit,
   renameUser, exportCsv, EXPORT_KINDS, backupTo, databaseId, logAudit, deleteUser,
 } from './lib.js';
@@ -264,8 +266,11 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
          FROM assignments a JOIN users u ON u.candidate = a.supervisor
          WHERE a.student = ? AND u.disabled = 0 ORDER BY a.created_at`,
       ).all(a.candidate);
-      // db_id: which copy of the data this is; a tablet that sees it change knows the server was restored from a backup
-      return send(res, 200, { accepted, rejected, supervisors, name: a.name, db_id: databaseId(db), ...eventsPage(a.candidate, cursorOf(body)) });
+      // db_id: which copy of the data this is; a tablet that sees it change knows the server was restored from a backup.
+      // standard_targets: the targets for every student (an administrator sets them), kept on the tablet for offline use.
+      return send(res, 200, {
+        accepted, rejected, supervisors, name: a.name, db_id: databaseId(db), standard_targets: standardTargets(db), ...eventsPage(a.candidate, cursorOf(body)),
+      });
     }
 
     // ---- supervisors --------------------------------------------------------
@@ -327,7 +332,7 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
       const a = requireSupervisor(req);
       const body = await readJson(req);
       const student = assignedStudent(a, body);
-      return send(res, 200, eventsPage(student, cursorOf(body), supervisorView));
+      return send(res, 200, { ...eventsPage(student, cursorOf(body), supervisorView), standard_targets: standardTargets(db) });
     }
 
     if (route === 'POST /api/sup/sign') {
@@ -472,7 +477,17 @@ export async function createServer({ dbPath = ':memory:', allowedOrigin = '', se
       if (action === 'entries') {
         const t = accountOf(body.candidate);
         if (t.role !== 'student') throw new HttpError(400, 'not_a_student', 'Only students have cases.');
-        return send(res, 200, eventsPage(t.candidate, cursorOf(body), supervisorView));
+        return send(res, 200, { ...eventsPage(t.candidate, cursorOf(body), supervisorView), standard_targets: standardTargets(db) });
+      }
+
+      // The standard targets for every student; a supervisor can change them for one student (sup/targets).
+      if (action === 'standard_targets') return send(res, 200, { targets: standardTargets(db) });
+      if (action === 'set_standard_targets') {
+        try { return send(res, 200, { changed: setStandardTargets(db, a.candidate, body.targets, new Date(now()).toISOString()) }); }
+        catch (e) {
+          if (e instanceof InputError) throw new HttpError(400, 'bad_targets', e.message);
+          throw e;
+        }
       }
     }
 

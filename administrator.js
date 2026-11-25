@@ -9,7 +9,7 @@ import * as core from './core.js';
 import * as api from './api.js';
 import {
   h, timeAgo, fmtDateTime, stat, cases, appShell, pageScroll, setPageScroll, keepTyping, toast, openSheet, closeSheet, confirmSheet, saveBlob, fact, privacyFact, advancedCard,
-  caseRow, procTile, procedureProgress, filterButton, openFilterSheet, signTag, segSwitch, popMenu, showPanel, closePanel, headedCard,
+  caseRow, procTile, procedureProgress, openTargetsSheet, filterButton, openFilterSheet, signTag, segSwitch, popMenu, showPanel, closePanel, headedCard,
 } from './ui.js';
 
 const ENDED = Symbol('session ended'); // the server ended the session; app.js shows the login screen
@@ -271,7 +271,7 @@ async function downloadFile(label, fetcher, filename) {
 // The spreadsheets an administrator can download (Download data): [kind, name on the screen, what is in it].
 // Anonymous is chosen at every login, so names are only in a file when someone chose them on purpose.
 const FILES = [
-  ['progress', 'Progress per student', 'The targets set by supervisors, and how many each student has performed.'],
+  ['progress', 'Progress per student', 'Each student\'s targets (the standard, or set by a supervisor), and how many they have performed.'],
   ['procedures', 'Procedures per student', 'How many of each procedure, in each role, signed, and with a follow-up.'],
   ['hospitals', 'Procedures per hospital', 'The same, per hospital. Never has names in it.'],
   ['entries', 'Every case', 'A row per case, with every answer and the follow-up.'],
@@ -396,6 +396,7 @@ const AUDIT_TEXT = {
   assign: (e) => `added ${e.target} to the students of ${e.detail}`,
   unassign: (e) => `removed ${e.target} from the students of ${e.detail}`,
   set_targets: (e) => `changed ${e.detail === '1' ? 'a target' : `${e.detail} targets`} for ${e.target}`,
+  set_standard_targets: (e) => `changed ${e.detail === '1' ? 'a standard target' : `${e.detail} standard targets`} for every student`,
 };
 
 function auditList() {
@@ -422,7 +423,7 @@ function openStudent(candidate) {
 // quiet: fetch again in the background; the page on show stays until the answer comes.
 async function loadDetail(candidate, { quiet = false } = {}) {
   const old = quiet && ad.detail && ad.detail.candidate === candidate && !ad.detail.error ? ad.detail : null;
-  const d = { candidate, events: [], entries: [], loading: true, error: '' };
+  const d = { candidate, events: [], entries: [], standard: {}, loading: true, error: '' };
   if (!old) {
     ad.detail = d;
     panelTop = true;
@@ -435,6 +436,7 @@ async function loadDetail(candidate, { quiet = false } = {}) {
       const r = await call((t) => api.adminEntries(t, candidate, at));
       if (r === ENDED) return;
       d.events.push(...r.events);
+      d.standard = r.standard_targets || {}; // the standard targets for every student
       cursor = r.cursor;
       if (!r.has_more) break;
     }
@@ -468,7 +470,8 @@ function detailView() {
         h('h3', { class: 'day-head' }, core.fmtWeek(w.week)),
         h('ul', { class: 'list' }, w.entries.map((e) => caseRow(e, { tags: signTag(e), who: name || d.candidate })))]) // whose case it is, first in its pop-up
       : none),
-    progress: () => procedureProgress(d.entries, d.events, { note: 'Set by a supervisor.', none: 'No targets yet. A supervisor sets them.' }),
+    // the standard for every student, with what a supervisor changed ("Standard: N" where it differs)
+    progress: () => procedureProgress(d.entries, d.events, { standard: d.standard, compare: true, note: 'Standard, or set by a supervisor', none: 'No targets yet. A supervisor sets them.' }),
   };
   // its own label: the switch on the Overview under the pop-up is drawn at the same time (segSwitch slides by label)
   const tabs = segSwitch('What to show about the student', [['cases', 'Cases'], ['progress', 'Progress']], ad.detailTab, (id) => { ad.detailTab = id; panelTop = true; draw(); });
@@ -521,13 +524,39 @@ function usersView() {
   };
   input.addEventListener('input', drawList);
   drawList();
-  // no heading (the open tab at the top, Manage users, is the page's name); "Add users" stays at the top on the right,
-  // and opens the page to add users
+  // no heading (the open tab at the top, Manage users, is the page's name); at the top on the right "Standard targets"
+  // (the targets for every student) and "Add users", which opens the page to add users
   const head = h('div', { class: 'detail-head users-head' },
+    h('button', { class: 'btn ghost', type: 'button', onclick: openStandardTargets }, 'Standard targets'),
     h('button', { class: 'btn ghost', type: 'button', onclick: () => { ad.adding = true; setPageScroll(0); draw(); } }, 'Add users'));
   return h('section', {}, head, input,
     h('div', { class: 'filters one' }, filterButton('Show', show[1], ad.filter !== 'all', openShowFilter)),
     shown, list);
+}
+
+// The standard targets for every student: the same pop-up as a supervisor's "Change targets" (openTargetsSheet in
+// ui.js), fetched fresh when it opens. A supervisor can change them for one student; those students keep their own.
+async function openStandardTargets() {
+  let r;
+  try { r = await call(api.adminStandardTargets); }
+  catch (e) { toast('Could not open the standard targets', { sub: e.message }); return; }
+  if (r === ENDED) return;
+  openTargetsSheet({
+    title: 'Standard targets',
+    sub: 'For every student',
+    intro: 'How many of each procedure every student should perform as surgeon. A supervisor can change them for one student. Leave empty for no target.',
+    current: r.targets,
+    onSave: async (changes) => {
+      try {
+        const s = await call((t) => api.adminSetStandardTargets(t, changes));
+        if (s === ENDED) return;
+        toast('Standard targets saved', { sub: 'Students see them under Progress after the next sync.' });
+        loadAll({ quiet: true }); // for Recent changes
+      } catch (e) {
+        toast('Could not save the standard targets', { sub: e.message });
+      }
+    },
+  });
 }
 
 function userRow(u) {

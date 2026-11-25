@@ -1,7 +1,7 @@
 // config.js — content, not logic: procedures, roles, questions, hospitals and the privacy notice.
 // (Targets are set per student by a supervisor in the app; accounts are made by an administrator in the app.)
 
-export const APP_VERSION = '0.17.14';
+export const APP_VERSION = '0.18.0';
 
 // Where the logbook server lives. '' = the same address the app was loaded from
 // (when the server also serves the app). If the app is hosted elsewhere, for example

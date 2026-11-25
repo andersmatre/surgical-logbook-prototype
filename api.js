@@ -106,3 +106,5 @@ export const adminDelete = (token, id) => call('/api/admin/delete', { token, bod
 export const adminAssign = (token, supervisor, student) => call('/api/admin/assign', { token, body: { supervisor, student } });
 export const adminUnassign = (token, supervisor, student) => call('/api/admin/unassign', { token, body: { supervisor, student } });
 export const adminEntries = (token, candidate, cursor) => call('/api/admin/entries', { token, body: { candidate, cursor } });
+export const adminStandardTargets = (token) => call('/api/admin/standard_targets', { token });
+export const adminSetStandardTargets = (token, targets) => call('/api/admin/set_standard_targets', { token, body: { targets } });

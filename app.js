@@ -59,7 +59,7 @@ async function loadState() {
   state.entries = core.derive(state.events);
   state.sent = await core.sentIds();
   const meta = {};
-  for (const k of ['hospital', 'last_sync_at', 'cursor', 'sync_warning', 'supervisors']) {
+  for (const k of ['hospital', 'last_sync_at', 'cursor', 'sync_warning', 'supervisors', 'standard_targets']) {
     meta[k] = await core.getMeta(k);
   }
   state.meta = meta;
@@ -135,6 +135,8 @@ async function syncCore() {
     pulled += await core.addPulled(res.events || []);
     await core.setMeta('cursor', res.cursor);
     if (Array.isArray(res.supervisors)) await core.setMeta('supervisors', res.supervisors);
+    // the targets for every student (an administrator sets them; core.targets adds what a supervisor changed)
+    if (res.standard_targets && typeof res.standard_targets === 'object') await core.setMeta('standard_targets', res.standard_targets);
     if (state.session && res.name !== undefined && (res.name || null) !== (state.session.name || null)) writeSession({ ...state.session, name: res.name || null });
     let refused = 0;
     for (const r of res.rejected || []) {
@@ -547,7 +549,7 @@ function openEntrySheet(proc, { over = false } = {}) {
     await refresh();
     scheduleSync();
     const p = core.progress(state.entries)[proc.id] || { performed: 0, total: 0 };
-    const target = core.targets(state.events)[proc.id];
+    const target = core.targets(state.events, state.meta.standard_targets)[proc.id];
     toast(`Saved · ${roleDone(role.id, proc.id)}`, { // worded as in History
       sub: target ? `${proc.name}: ${p.performed} of ${target} performed` : `${proc.name}: ${cases(p.total)}`,
       action: {
@@ -742,11 +744,14 @@ function progressTab() {
   const signed = state.entries.filter((e) => e.sign).length;
   const wk = core.weekEntries(state.entries).length; // Monday to Sunday, like "This week" in History
   // A white tile per procedure, like the procedures on the New case tab (procedureProgress in ui.js, which an
-  // administrator's page of one student shows too). Targets are set by a supervisor and come with the sync.
+  // administrator's page of one student shows too). Targets are the standard for every student (an administrator
+  // sets them), with what a supervisor changed for this student; both come with the sync.
   return h('section', {},
     h('div', { class: 'stats' },
       stat(total, 'cases'), stat(signed, 'signed'), stat(wk, 'this week')),
-    procedureProgress(state.entries, state.events, { note: 'Set by your supervisor', none: 'No targets yet. Your supervisor sets them.' }));
+    procedureProgress(state.entries, state.events, {
+      standard: state.meta.standard_targets, note: 'Set by CapaCare or your supervisor', none: 'No targets yet. Your supervisor sets them.',
+    }));
 }
 
 // ---- History tab -----------------------------------------------------------

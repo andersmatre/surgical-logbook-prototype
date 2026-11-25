@@ -5,12 +5,12 @@
 // students and their cases are fetched from the server each time, and signing is checked by the server.
 // app.js decides when to show this (the logged-in account has the role "supervisor").
 
-import { TARGET_PROCEDURES, MAX_TARGET, procName } from './config.js';
+import { procName } from './config.js';
 import * as core from './core.js';
 import * as api from './api.js';
 import {
-  h, daysAgo, stat, cases, appShell, pageScroll, setPageScroll, keepTyping, toast, openSheet, closeSheet, confirmSheet, caseRow, fact, privacyFact, advancedCard,
-  procedureProgress, segSwitch, showPanel, closePanel, headedCard,
+  h, daysAgo, stat, cases, appShell, pageScroll, setPageScroll, keepTyping, toast, closeSheet, confirmSheet, caseRow, fact, privacyFact, advancedCard,
+  procedureProgress, openTargetsSheet, segSwitch, showPanel, closePanel, headedCard,
 } from './ui.js';
 
 const ENDED = Symbol('session ended'); // the server ended the session; app.js shows the login screen
@@ -156,7 +156,7 @@ const nameOf = (candidate) => ((sv.students || []).find((s) => s.candidate === c
 // supervisor ticked stays ticked (new entries come in unticked, like on opening).
 async function loadDetail(candidate, { quiet = false } = {}) {
   const old = quiet && sv.detail && sv.detail.candidate === candidate && !sv.detail.error ? sv.detail : null;
-  const d = { candidate, events: [], entries: [], selected: new Set(), loading: true, error: '' };
+  const d = { candidate, events: [], entries: [], standard: {}, selected: new Set(), loading: true, error: '' };
   if (!old) {
     sv.detail = d;
     panelTop = true;
@@ -169,6 +169,7 @@ async function loadDetail(candidate, { quiet = false } = {}) {
       const r = await call((t) => api.supEntries(t, candidate, at));
       if (r === ENDED) return;
       d.events.push(...r.events);
+      d.standard = r.standard_targets || {}; // the standard targets for every student
       cursor = r.cursor;
       if (!r.has_more) break;
     }
@@ -311,69 +312,43 @@ function detailView() {
 
 // The student's progress as the student sees it (procedureProgress in ui.js: the procedures with a target, then
 // those without one), with "Set targets" / "Change targets" at the top.
+// Where the student's target differs from the standard for every student, "Standard: N" is on its grey line.
 function progressPage(d) {
-  const any = Object.keys(core.targets(d.events)).length > 0;
+  const any = Object.keys(core.targets(d.events, d.standard)).length > 0;
   return [
     h('button', { class: 'btn ghost wide set-targets', type: 'button', onclick: () => openTargets(d) }, any ? 'Change targets' : 'Set targets'),
-    procedureProgress(d.entries, d.events, { note: 'The student sees these under Progress.', none: 'No targets yet. Set how many of each procedure the student should perform.' }),
+    procedureProgress(d.entries, d.events, {
+      standard: d.standard, compare: true,
+      note: 'The student sees these under Progress.', none: 'No targets yet. Set how many of each procedure the student should perform.',
+    }),
   ];
 }
 
-// A pop-up with every procedure and a number field for each, the current targets filled in. Empty (or 0) is no
-// target. A search narrows the list. Save sends only what changed.
+// The pop-up with every procedure and a number field for each (openTargetsSheet in ui.js, which an administrator uses
+// for the standard targets too), the student's targets filled in: the standard for every student, with what a
+// supervisor changed. Where a number differs from the standard, the standard stands beside it. Save sends only what
+// changed; the server stores the same number as the standard as "follow the standard".
 function openTargets(d) {
-  const now = core.targets(d.events);
-  const err = h('p', { class: 'error', role: 'alert' }, '');
-  const fields = new Map();
-  const rows = TARGET_PROCEDURES.map((p) => {
-    const input = h('input', {
-      type: 'number', inputmode: 'numeric', min: '0', max: String(MAX_TARGET), step: '1', class: 'num', id: `t-${p.id}`,
-      value: now[p.id] ? String(now[p.id]) : '', placeholder: '–',
-    });
-    fields.set(p.id, input);
-    return h('div', { class: 'trow', 'data-name': p.name.toLowerCase() }, h('label', { for: `t-${p.id}` }, p.name), input);
-  });
-  const search = h('input', { type: 'text', class: 'search', placeholder: 'Find a procedure', 'aria-label': 'Find a procedure', autocomplete: 'off' });
-  search.addEventListener('input', () => {
-    const q = search.value.trim().toLowerCase();
-    for (const r of rows) r.hidden = !!q && !r.dataset.name.includes(q);
-  });
-  const save = async () => {
-    const changes = {};
-    for (const [id, input] of fields) {
-      const v = input.value.trim();
-      const n = v === '' ? 0 : Number(v);
-      if (!Number.isInteger(n) || n < 0 || n > MAX_TARGET) {
-        err.textContent = `Type a whole number from 0 to ${MAX_TARGET}, or leave it empty.`;
-        search.value = ''; for (const r of rows) r.hidden = false;
-        input.focus();
-        return;
+  const std = d.standard || {};
+  openTargetsSheet({
+    title: `Targets for ${d.candidate}`,
+    sub: nameOf(d.candidate),
+    intro: Object.keys(std).length
+      ? 'How many of each procedure the student should perform as surgeon. The standard for every student is filled in; change it only if this student needs something else. Leave empty for no target.'
+      : 'How many of each procedure the student should perform as surgeon. Leave empty for no target.',
+    current: core.targets(d.events, std),
+    standard: std,
+    onSave: async (changes) => {
+      try {
+        const r = await call((t) => api.supTargets(t, d.candidate, changes));
+        if (r === ENDED) return;
+        toast('Targets saved', { sub: 'The student sees them under Progress after the next sync.' });
+        await loadDetail(d.candidate, { quiet: true }); // keeps what is ticked under To sign
+      } catch (e) {
+        toast('Could not save the targets', { sub: e.message });
       }
-      if (n !== (now[id] || 0)) changes[id] = n;
-    }
-    closeSheet(); // also with nothing changed: Save then just closes, back to the student
-    if (!Object.keys(changes).length) return;
-    try {
-      const r = await call((t) => api.supTargets(t, d.candidate, changes));
-      if (r === ENDED) return;
-      toast('Targets saved', { sub: `The student sees them under Progress after the next sync.` });
-      await loadDetail(d.candidate, { quiet: true }); // keeps what is ticked under To sign
-    } catch (e) {
-      toast('Could not save the targets', { sub: e.message });
-    }
-  };
-  const name = nameOf(d.candidate);
-  openSheet([
-    h('h3', {}, `Targets for ${d.candidate}`),
-    name ? h('p', { class: 'case-sub targets-name' }, name) : null,
-    h('p', { class: 'muted' }, 'How many of each procedure the student should perform as surgeon. Leave empty for no target.'),
-    search,
-    h('div', { class: 'tlist' }, rows),
-    err,
-    h('div', { class: 'sheet-foot' },
-      h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Cancel'),
-      h('button', { class: 'btn save', type: 'button', onclick: save }, 'Save')),
-  ]);
+    },
+  });
 }
 
 function confirmSign(d) {

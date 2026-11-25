@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 import { createServer } from '../server/app.js';
-import { addUser, newDatabaseId } from '../server/lib.js';
+import { addUser, newDatabaseId, setStandardTargets } from '../server/lib.js';
 import { HOSPITALS } from '../config.js';
 import * as core from '../core.js';
 
@@ -302,9 +302,19 @@ test('login, first password, logging, sync, logout, login on a new tablet', asyn
   await comeBack();
   await click(byText('.tab', 'Progress'));
   assert.deepEqual(titles(), ['Procedures with a target', 'Procedures without a target']);
-  assert.match($('.page').textContent, /Set by your supervisor/);
+  assert.match($('.page').textContent, /Set by CapaCare or your supervisor/);
   assert.deepEqual(ptiles(), ['Caesarean section1 / 30', 'Appendectomy1 case', 'Laparotomy1 case'], 'the one with a target on top; the others under it, without it');
   assert.match($('.ptile').textContent, /Observed 0 · Assisted 0/);
+  // an administrator sets standard targets for every student: they come with the sync and are kept for offline use;
+  // the supervisor's own target for this student (cs 30) stays, and the student sees no "Standard" note
+  setStandardTargets(server.db, 'ADMIN-X', { appendectomy: 5, cs: 20 }, new Date().toISOString());
+  await comeBack();
+  await click(byText('.tab', 'Progress'));
+  assert.deepEqual(ptiles(), ['Caesarean section1 / 30', 'Appendectomy0 / 5', 'Laparotomy1 case']);
+  assert.doesNotMatch($('.page').textContent, /Standard:/);
+  assert.deepEqual(await core.getMeta('standard_targets'), { appendectomy: 5, cs: 20 });
+  setStandardTargets(server.db, 'ADMIN-X', { appendectomy: 0, cs: 0 }, new Date().toISOString()); // as before, for the tests below
+  await comeBack();
   await click(byText('.tab', 'History'));
   await click($('.entry'));
   assert.deepEqual($$('.sheet-head .case-top .tag').map((t) => t.textContent), ['Signed'], 'Signed on the right at the top, like in the list');

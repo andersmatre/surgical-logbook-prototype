@@ -4,7 +4,7 @@
 
 import * as api from './api.js';
 import {
-  PRIVACY, DETAIL_FIELDS, FOLLOWUP_FIELDS, TARGET_PROCEDURES, procName, roleDone, roleDoneBy,
+  PRIVACY, DETAIL_FIELDS, FOLLOWUP_FIELDS, TARGET_PROCEDURES, MAX_TARGET, procName, roleDone, roleDoneBy,
   detailFieldsFor, followupFieldsFor, followUpLog, surgicalApgar, answerLabel,
 } from './config.js';
 import * as core from './core.js';
@@ -568,16 +568,22 @@ export function cardHead(title, note = null) {
 // One student's procedures, as on the student's Progress: "Procedures with a target" (a row each: performed out of
 // the target, a bar, observed and assisted), then "Procedures without a target" that have at least one case, the most
 // cases first. Each heading's rows are one white card (.prows.group). note: the line under the first heading; none:
-// when there are no targets.
-export function procedureProgress(entries, events, { note, none }) {
+// when there are no targets. standard: the standard targets for every student ({ procedure: number }, set by an
+// administrator), which core.targets combines with what a supervisor changed. compare (a supervisor's and an
+// administrator's page of a student): where the student's target differs from the standard, "Standard: N" (or
+// "Standard: none") at the end of the grey line, so what is different for this student is easy to see.
+export function procedureProgress(entries, events, { note, none, standard = {}, compare = false }) {
+  const std = standard || {};
   const prog = core.progress(entries);
-  const targets = core.targets(events); // set by a supervisor
+  const targets = core.targets(events, std);
   const withTarget = Object.keys(targets);
   const others = Object.entries(prog).filter(([id, p]) => !(id in targets) && p.total > 0)
     .sort((a, b) => b[1].total - a[1].total || procName(a[0]).localeCompare(procName(b[0])));
+  const differs = (id) => compare && Object.keys(std).length > 0 && (targets[id] || 0) !== (std[id] || 0);
+  const stdNote = (id) => (differs(id) ? [' · ', h('span', { class: 'std-diff' }, `Standard: ${std[id] || 'none'}`)] : null);
   const targetTile = (id) => {
     const p = prog[id] || { performed: 0, assisting: 0, observing: 0 };
-    return procTile(procName(id), `${p.performed} / ${targets[id]}`, `Observed ${p.observing} · Assisted ${p.assisting}`, { done: p.performed, of: targets[id] });
+    return procTile(procName(id), `${p.performed} / ${targets[id]}`, [`Observed ${p.observing} · Assisted ${p.assisting}`, stdNote(id)], { done: p.performed, of: targets[id] });
   };
   return [
     withTarget.length // "Set by your supervisor" on the right of the heading; "No targets yet" under it, as the card's content
@@ -585,9 +591,71 @@ export function procedureProgress(entries, events, { note, none }) {
       : headedCard('Procedures with a target', h('p', { class: 'muted small prog-note' }, none)),
     others.length
       ? headedCard('Procedures without a target',
-        h('div', { class: 'prows group' }, others.map(([id, p]) => procTile(procName(id), cases(p.total), `Observed ${p.observing} · Assisted ${p.assisting} · Performed ${p.performed}`, null, 'mid')))) // 'mid': "3 cases" on the right, in the middle of the row's height, like on the administrator's Overview
+        h('div', { class: 'prows group' }, others.map(([id, p]) => procTile(procName(id), cases(p.total), [`Observed ${p.observing} · Assisted ${p.assisting} · Performed ${p.performed}`, stdNote(id)], null, 'mid')))) // 'mid': "3 cases" on the right, in the middle of the row's height, like on the administrator's Overview
       : null,
   ];
+}
+
+// The pop-up to set targets: every procedure that can get one (TARGET_PROCEDURES, those on the New case tab first), a
+// search, and a number field each, the targets now in force filled in (current); empty or 0 is no target. A
+// supervisor uses it for one student, with the standard for every student (standard): where a number differs from
+// it, "Standard: N" stands beside the field, updated while typing, so typing the standard number again goes back to
+// the standard. An administrator uses it for the standard itself (no standard). Save calls onSave with only what
+// changed ({ procedure: number }); with nothing changed Save just closes.
+export function openTargetsSheet({ title, sub = null, intro, current, standard = null, onSave }) {
+  const err = h('p', { class: 'error', role: 'alert' }, '');
+  const fields = new Map();
+  const std = standard && Object.keys(standard).length ? standard : null;
+  const rows = TARGET_PROCEDURES.map((p) => {
+    const input = h('input', {
+      type: 'number', inputmode: 'numeric', min: '0', max: String(MAX_TARGET), step: '1', class: 'num', id: `t-${p.id}`,
+      value: current[p.id] ? String(current[p.id]) : '', placeholder: '–',
+    });
+    fields.set(p.id, input);
+    let note = null;
+    if (std) {
+      note = h('span', { class: 'muted small std-note' });
+      const show = () => {
+        const v = input.value.trim();
+        note.textContent = (v === '' ? 0 : Number(v)) === (std[p.id] || 0) ? '' : `Standard: ${std[p.id] || 'none'}`;
+      };
+      input.addEventListener('input', show);
+      show();
+    }
+    return h('div', { class: 'trow', 'data-name': p.name.toLowerCase() }, h('label', { for: `t-${p.id}` }, p.name), note, input);
+  });
+  const search = h('input', { type: 'text', class: 'search', placeholder: 'Find a procedure', 'aria-label': 'Find a procedure', autocomplete: 'off' });
+  search.addEventListener('input', () => {
+    const q = search.value.trim().toLowerCase();
+    for (const r of rows) r.hidden = !!q && !r.dataset.name.includes(q);
+  });
+  const save = () => {
+    const changes = {};
+    for (const [id, input] of fields) {
+      const v = input.value.trim();
+      const n = v === '' ? 0 : Number(v);
+      if (!Number.isInteger(n) || n < 0 || n > MAX_TARGET) {
+        err.textContent = `Type a whole number from 0 to ${MAX_TARGET}, or leave it empty.`;
+        search.value = ''; for (const r of rows) r.hidden = false;
+        input.focus();
+        return;
+      }
+      if (n !== (current[id] || 0)) changes[id] = n;
+    }
+    closeSheet(); // also with nothing changed: Save then just closes
+    if (Object.keys(changes).length) onSave(changes);
+  };
+  openSheet([
+    h('h3', {}, title),
+    sub ? h('p', { class: 'case-sub targets-name' }, sub) : null,
+    h('p', { class: 'muted' }, intro),
+    search,
+    h('div', { class: 'tlist' }, rows),
+    err,
+    h('div', { class: 'sheet-foot' },
+      h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, 'Cancel'),
+      h('button', { class: 'btn save', type: 'button', onclick: save }, 'Save')),
+  ]);
 }
 
 // ---- a case in a pop-up --------------------------------------------------------

@@ -433,6 +433,59 @@ test('targets: only an assigned supervisor sets them, the server checks them, an
   } finally { await t.s.close(); }
 });
 
+test('standard targets: only an administrator sets them, every student gets them, and a supervisor can change them for one student', async () => {
+  const t = await start();
+  try {
+    const student = await ready(t, 'S001', 'initial-pw-1', 'second-pw-22');
+    const supToken = await supervisorReady(t);
+    const admin = await adminReady(t);
+    await sup(t, supToken, 'assign', { candidate: 'S001' });
+    const sync = async () => (await t.call('/api/sync', { token: student, body: { events: [], cursor: 0 } })).body;
+    assert.deepEqual((await sync()).standard_targets, {}, 'none at first');
+
+    // only administrators, checked like a supervisor's targets (all or nothing)
+    assert.equal((await t.call('/api/admin/set_standard_targets', { token: supToken, body: { targets: { cs: 3 } } })).status, 403);
+    assert.equal((await t.call('/api/admin/set_standard_targets', { token: student, body: { targets: { cs: 3 } } })).status, 403);
+    for (const targets of [{ nonsense: 3 }, { cs: -1 }, { cs: 501 }, { cs: 2.5 }, { cs: '30' }, {}, [], null, { cs: 3, nonsense: 1 }]) {
+      const r = await adm(t, admin, 'set_standard_targets', { targets });
+      assert.equal(r.status, 400, JSON.stringify(targets));
+      assert.equal(r.body.error, 'bad_targets');
+    }
+    let r = await adm(t, admin, 'set_standard_targets', { targets: { cs: 20, appendectomy: 10, laparotomy: 0 } });
+    assert.deepEqual(r.body.changed.sort(), ['appendectomy', 'cs'], 'only what changes is stored');
+    assert.deepEqual((await adm(t, admin, 'standard_targets')).body.targets, { cs: 20, appendectomy: 10 });
+    assert.equal((await t.call('/api/admin/standard_targets', { token: supToken })).status, 403);
+
+    // the student gets them with every sync (not as events), and the supervisor with the student's entries
+    const s = await sync();
+    assert.deepEqual(s.standard_targets, { cs: 20, appendectomy: 10 });
+    assert.equal(s.events.filter((e) => e.type === 'target').length, 0);
+    assert.deepEqual((await sup(t, supToken, 'entries', { candidate: 'S001', cursor: 0 })).body.standard_targets, { cs: 20, appendectomy: 10 });
+    assert.deepEqual((await adm(t, admin, 'entries', { candidate: 'S001', cursor: 0 })).body.standard_targets, { cs: 20, appendectomy: 10 });
+
+    // the supervisor sends the targets the student should have: the standard number changes nothing, another number
+    // is the student's own, 0 is no target for this student
+    r = await sup(t, supToken, 'targets', { candidate: 'S001', targets: { cs: 20, appendectomy: 0, laparotomy: 4 } });
+    assert.deepEqual(r.body.changed.sort(), ['appendectomy', 'laparotomy']);
+    const own = async () => (await sync()).events.filter((e) => e.type === 'target').map((e) => [e.procedure, e.count, !!e.none]);
+    assert.deepEqual(await own(), [['appendectomy', 0, true], ['laparotomy', 4, false]]);
+    // a later change of the standard reaches the student where the supervisor did not change it
+    await adm(t, admin, 'set_standard_targets', { targets: { cs: 25, appendectomy: 12 } });
+    const { currentTargets } = await import('../server/lib.js');
+    assert.deepEqual(currentTargets(t.s.db, 'S001'), { cs: 25, laparotomy: 4 }, 'appendectomy stays without a target for this student');
+    // typing the standard number again goes back to the standard (count 0, not none)
+    r = await sup(t, supToken, 'targets', { candidate: 'S001', targets: { appendectomy: 12 } });
+    assert.deepEqual(r.body.changed, ['appendectomy']);
+    assert.deepEqual((await own()).at(-1), ['appendectomy', 0, false]);
+    await adm(t, admin, 'set_standard_targets', { targets: { appendectomy: 15 } });
+    assert.deepEqual(currentTargets(t.s.db, 'S001'), { cs: 25, appendectomy: 15, laparotomy: 4 }, 'follows the standard again');
+
+    // in the administrators' log
+    const log = t.s.db.prepare("SELECT actor, target, detail FROM audit WHERE action = 'set_standard_targets'").all().map((x) => ({ ...x }));
+    assert.deepEqual(log, [{ actor: 'ADMIN-ONE', target: null, detail: '2' }, { actor: 'ADMIN-ONE', target: null, detail: '2' }, { actor: 'ADMIN-ONE', target: null, detail: '1' }]);
+  } finally { await t.s.close(); }
+});
+
 test('a signed entry can no longer be deleted by the student', async () => {
   const t = await start();
   try {
@@ -514,6 +567,7 @@ test('a database made by v0.2 is upgraded in place and keeps its data', async ()
   assert.deepEqual(old.prepare('SELECT type, target FROM events ORDER BY seq').all().map((r) => ({ ...r })),
     [{ type: 'entry', target: null }, { type: 'void', target: 'aaaaaaaa-0000' }]);
   assert.ok(old.prepare("SELECT name FROM sqlite_master WHERE name = 'assignments'").get());
+  assert.ok(old.prepare("SELECT name FROM sqlite_master WHERE name = 'standard_targets'").get(), 'and the table of standard targets (0.18.0)');
   assert.match(databaseId(old), /^[0-9a-f-]{36}$/, 'an older database gets a database id');
   const id = databaseId(old);
   initSchema(old);
@@ -931,9 +985,18 @@ test('CSV exports: counts per student, per hospital and every entry; safe for sp
     // ---- progress per student: the targets in force (the newest per procedure; 0 removes one), performed and the share
     assert.equal((await sup(t, supToken, 'targets', { candidate: 'S001', targets: { cs: 4, appendectomy: 2 } })).status, 200);
     assert.equal((await sup(t, supToken, 'targets', { candidate: 'S001', targets: { cs: 5, appendectomy: 0 } })).status, 200);
-    const prog = await get('progress');
-    assert.equal(prog[0], 'candidate,name,procedure_id,procedure,target,performed,percent,assisting,observing,target_set_by,target_set_on');
-    assert.deepEqual(prog.slice(1), ["S001,\"'=HYPERLINK(\"\"x\"\")\",cs,Caesarean section,5,1,20,0,1,SUP-ANNA,2026-11-09"], 'one target left; S002 has none');
+    let prog = await get('progress');
+    assert.equal(prog[0], 'candidate,name,procedure_id,procedure,target,performed,percent,assisting,observing,target_from,target_set_by,target_set_on');
+    assert.deepEqual(prog.slice(1), ["S001,\"'=HYPERLINK(\"\"x\"\")\",cs,Caesarean section,5,1,20,0,1,supervisor,SUP-ANNA,2026-11-09"], 'one target left; S002 has none');
+    // a standard target reaches every student, without a supervisor; S001 keeps the supervisor's own cs target
+    assert.equal((await adm(t, admin, 'set_standard_targets', { targets: { cs: 10, appendectomy: 3 } })).status, 200);
+    prog = await get('progress');
+    assert.deepEqual(prog.slice(1).filter((l) => l.startsWith('S001')), [
+      "S001,\"'=HYPERLINK(\"\"x\"\")\",cs,Caesarean section,5,1,20,0,1,supervisor,SUP-ANNA,2026-11-09",
+      "S001,\"'=HYPERLINK(\"\"x\"\")\",appendectomy,Appendectomy,3,0,0,0,0,standard,,2026-11-09",
+    ]);
+    assert.ok(prog.some((l) => /^S002,.*,cs,Caesarean section,10,.*,standard,,2026-11-09$/.test(l)), prog.join('\n'));
+    assert.equal((await adm(t, admin, 'set_standard_targets', { targets: { cs: 0, appendectomy: 0 } })).status, 200); // as before
 
     // ---- anonymous: a code instead of each candidate number and name (supervisors too), the same in every file and download
     const anonEntries = await get('entries', ',', true);

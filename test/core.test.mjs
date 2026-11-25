@@ -129,6 +129,19 @@ test('targets: the newest target event for a procedure wins, and 0 removes it', 
   assert.deepEqual(core.targets([t('cs', 20, '2026-11-03T09:00:00Z'), t('cs', 30, '2026-11-01T10:00:00Z')]), { cs: 20 }, 'by time, not by order in the list');
 });
 
+test('targets: the standard for every student, with what a supervisor changed for this student', () => {
+  const t = (procedure, count, ts, over = {}) => ({ id: `${procedure}-${ts}`, type: 'target', procedure, count, ts, ...over });
+  const standard = { cs: 20, appendectomy: 10, laparotomy: 5 };
+  assert.deepEqual(core.targets([], standard), standard, 'no own targets: the standard');
+  assert.deepEqual(core.targets([], undefined), {}, 'no standard sent yet (an older server)');
+  assert.deepEqual(core.targets([
+    t('cs', 30, '2026-11-01T10:00:00Z'), // the student's own target
+    t('appendectomy', 0, '2026-11-01T10:00:00Z', { none: true }), // no target for this student
+    t('laparotomy', 8, '2026-11-01T10:00:00Z'), t('laparotomy', 0, '2026-11-02T10:00:00Z'), // back to the standard
+    t('hernia_ing', 4, '2026-11-01T10:00:00Z'), // a target the standard does not have
+  ], standard), { cs: 30, laparotomy: 5, hernia_ing: 4 });
+});
+
 test('wipeAll removes everything', async () => {
   await core.setMeta('profile', { student: 'S01', hospital: 'Masanga Hospital' });
   await core.logEntry({ ...base, procedure: 'cs', role: 'observing' });
